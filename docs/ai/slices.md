@@ -27,13 +27,13 @@
 
 ## Slice 6: Command Palette
 **Goal:** Fuzzy-matched command search (Ctrl+Shift+P)
-**Status:** Up Next
+**Status:** Complete
 **Depends on:** Slice 2 ✓
 
 ## Slice 7: Search
 **Goal:** Fuzzy file search, recursive, with extension filtering
-**Status:** Not Started
-**Depends on:** Slice 1
+**Status:** Up Next
+**Depends on:** Slice 1 ✓
 
 ## Slice 8: File Preview
 **Goal:** Preview panel for images, text, PDFs

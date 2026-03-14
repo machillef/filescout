@@ -15,6 +15,7 @@ tokio = { workspace = true }
 filescout-core = { workspace = true }
 filescout-ui = { workspace = true }
 filescout-ai = { workspace = true }
+fuzzy-matcher = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

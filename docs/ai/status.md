@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 5: File Operations** — Complete
+**Slice 6: Command Palette** — Complete
 
 ## Last Completed
-File selection, inline rename, delete-to-trash, undo — 2026-03-14
+Fuzzy-matched command palette overlay (Ctrl+Shift+P) — 2026-03-14
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -29,10 +29,11 @@ File selection, inline rename, delete-to-trash, undo — 2026-03-14
 - **Delete to trash** — F8 moves selected item to Recycle Bin (async); refreshes listing
 - **Undo rename** — Ctrl+Z reverses the last rename (LIFO stack, capped at 50)
 - **File name validation** — rejects empty names, invalid characters, Windows reserved names
-- 45 unit tests total, all passing, clippy clean
+- **Command Palette** — Ctrl+Shift+P opens overlay; fuzzy-search via SkimMatcherV2; arrow keys + Enter to execute; Esc closes; mouse click on any row executes; dimmed backdrop using `stack` overlay
+- 57 unit tests total (28 app + 26 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 6: Command Palette)
-- Fuzzy-matched command search (Ctrl+Shift+P)
+## What's Next (Slice 7: Search)
+- Fuzzy file search, recursive, with extension filtering
 
 ## Blockers
 None
@@ -59,3 +60,8 @@ None
 - `PaneMessage::RenameDone` carries `old_path` for pushing to undo stack after async success
 - `validate_file_name` in ops.rs guards against empty, invalid chars, and Windows reserved names (CON, PRN, etc.)
 - Enter key routes to CommitRename OR NavigateSelected based on `tab.renaming.is_some()` check in handler
+- `event::listen_with` in iced 0.14 takes a `fn` pointer (no captures) — all key events are forwarded as `Message::KeyPressed(key, modifiers)` and routed in `update()` based on current state
+- `command_palette.rs` in `filescout-app/src/` — self-contained module with `PaletteState`, `CommandId`, `ALL_COMMANDS`, and `command_palette_view()`
+- `iced::widget::stack([base, overlay])` used for the dimmed backdrop overlay
+- `PaletteState::filtered_commands()` uses `SkimMatcherV2` from `fuzzy-matcher` crate
+- Palette query change resets `selected` to 0 in the `handle_palette` update handler

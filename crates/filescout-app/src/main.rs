@@ -7,11 +7,14 @@ use filescout_core::SortDirection;
 use filescout_ui::address_bar::{address_bar_view, AddressBarMessage};
 use filescout_ui::file_list::{file_list_view, FileListMessage};
 use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
-use iced::widget::{column, container, row, text};
+use iced::widget::{column, container, row, stack, text};
 use iced::{event, keyboard, Element, Event, Length, Size, Subscription, Task, Theme};
 use tracing_subscriber::EnvFilter;
 
+mod command_palette;
 mod pane;
+
+use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
 use pane::{PaneId, PaneMessage, PaneState};
 
 fn main() -> iced::Result {
@@ -32,6 +35,7 @@ struct FileScout {
     panes: [PaneState; 2],
     active: PaneId,
     drives: Vec<PathBuf>,
+    palette: Option<PaletteState>,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -50,6 +54,10 @@ enum Message {
     DrivesLoaded(Vec<PathBuf>),
     /// A keyboard shortcut directed at the currently active pane.
     ActivePaneAction(ActiveAction),
+    /// A message from the command palette UI.
+    Palette(PaletteMessage),
+    /// Raw key press forwarded from the subscription for stateful routing.
+    KeyPressed(keyboard::Key, keyboard::Modifiers),
 }
 
 impl FileScout {
@@ -60,6 +68,7 @@ impl FileScout {
             panes: [PaneState::new(cwd.clone()), PaneState::new(cwd.clone())],
             active: PaneId::Left,
             drives: Vec::new(),
+            palette: None,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -73,28 +82,9 @@ impl FileScout {
     }
 
     fn subscription(_state: &Self) -> Subscription<Message> {
-        use keyboard::key::Named;
         event::listen_with(|ev, _status, _window| {
             if let Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = ev {
-                match key.as_ref() {
-                    keyboard::Key::Named(Named::F2) => {
-                        Some(Message::ActivePaneAction(ActiveAction::StartRename))
-                    }
-                    keyboard::Key::Named(Named::F8) => {
-                        Some(Message::ActivePaneAction(ActiveAction::Delete))
-                    }
-                    keyboard::Key::Named(Named::Enter) => {
-                        // Actual routing (rename commit vs navigate) is resolved in update_pane
-                        Some(Message::ActivePaneAction(ActiveAction::CommitRename))
-                    }
-                    keyboard::Key::Named(Named::Escape) => {
-                        Some(Message::ActivePaneAction(ActiveAction::CancelEdit))
-                    }
-                    keyboard::Key::Character("z") if modifiers.control() => {
-                        Some(Message::ActivePaneAction(ActiveAction::Undo))
-                    }
-                    _ => None,
-                }
+                Some(Message::KeyPressed(key, modifiers))
             } else {
                 None
             }
@@ -122,6 +112,118 @@ impl FileScout {
                 };
                 self.update_pane(id, msg)
             }
+            Message::Palette(msg) => self.handle_palette(msg),
+            Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
+        }
+    }
+
+    fn route_key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
+        use keyboard::key::Named;
+        if self.palette.is_some() {
+            // When palette is open, only palette-navigation keys are routed here.
+            // Character input is handled directly by the text_input widget.
+            match key.as_ref() {
+                keyboard::Key::Named(Named::ArrowUp) => {
+                    self.handle_palette(PaletteMessage::MoveUp)
+                }
+                keyboard::Key::Named(Named::ArrowDown) => {
+                    self.handle_palette(PaletteMessage::MoveDown)
+                }
+                keyboard::Key::Named(Named::Enter) => {
+                    self.handle_palette(PaletteMessage::Execute)
+                }
+                keyboard::Key::Named(Named::Escape) => {
+                    self.handle_palette(PaletteMessage::Close)
+                }
+                keyboard::Key::Character("p") if modifiers.control() && modifiers.shift() => {
+                    self.handle_palette(PaletteMessage::Close)
+                }
+                _ => Task::none(),
+            }
+        } else {
+            match key.as_ref() {
+                keyboard::Key::Character("p") if modifiers.control() && modifiers.shift() => {
+                    self.palette = Some(PaletteState::new());
+                    Task::none()
+                }
+                keyboard::Key::Named(Named::F2) => {
+                    self.update(Message::ActivePaneAction(ActiveAction::StartRename))
+                }
+                keyboard::Key::Named(Named::F8) => {
+                    self.update(Message::ActivePaneAction(ActiveAction::Delete))
+                }
+                keyboard::Key::Named(Named::Enter) => {
+                    self.update(Message::ActivePaneAction(ActiveAction::CommitRename))
+                }
+                keyboard::Key::Named(Named::Escape) => {
+                    self.update(Message::ActivePaneAction(ActiveAction::CancelEdit))
+                }
+                keyboard::Key::Character("z") if modifiers.control() => {
+                    self.update(Message::ActivePaneAction(ActiveAction::Undo))
+                }
+                _ => Task::none(),
+            }
+        }
+    }
+
+    fn handle_palette(&mut self, msg: PaletteMessage) -> Task<Message> {
+        match msg {
+            PaletteMessage::QueryChanged(q) => {
+                if let Some(ref mut p) = self.palette {
+                    p.query = q;
+                    p.selected = 0;
+                }
+                Task::none()
+            }
+            PaletteMessage::MoveUp => {
+                if let Some(ref mut p) = self.palette {
+                    p.move_up();
+                }
+                Task::none()
+            }
+            PaletteMessage::MoveDown => {
+                if let Some(ref mut p) = self.palette {
+                    let n = p.filtered_commands().len();
+                    p.move_down(n);
+                }
+                Task::none()
+            }
+            PaletteMessage::Close => {
+                self.palette = None;
+                Task::none()
+            }
+            PaletteMessage::Execute => {
+                let cmd_id = self.palette.as_ref().and_then(|p| p.selected_command());
+                self.palette = None;
+                self.execute_command(cmd_id)
+            }
+            PaletteMessage::ExecuteCommand(cmd_id) => {
+                self.palette = None;
+                self.execute_command(Some(cmd_id))
+            }
+        }
+    }
+
+    fn execute_command(&mut self, cmd_id: Option<CommandId>) -> Task<Message> {
+        let Some(cmd) = cmd_id else {
+            return Task::none();
+        };
+        let id = self.active;
+        let tab_idx = self.panes[id.index()].active_tab;
+        match cmd {
+            CommandId::NavigateBack => {
+                self.update_pane(id, PaneMessage::AddressBar(AddressBarMessage::Back))
+            }
+            CommandId::NavigateForward => {
+                self.update_pane(id, PaneMessage::AddressBar(AddressBarMessage::Forward))
+            }
+            CommandId::NewTab => self.update_pane(id, PaneMessage::TabBar(TabBarMessage::New)),
+            CommandId::CloseTab => {
+                self.update_pane(id, PaneMessage::TabBar(TabBarMessage::Close(tab_idx)))
+            }
+            CommandId::Rename => self.update_pane(id, PaneMessage::StartRename),
+            CommandId::Delete => self.update_pane(id, PaneMessage::DeleteSelected),
+            CommandId::Undo => self.update_pane(id, PaneMessage::Undo),
         }
     }
 
@@ -434,7 +536,7 @@ impl FileScout {
         let left = pane_view(PaneId::Left, &self.panes[0], &self.drives, self.active == PaneId::Left);
         let right = pane_view(PaneId::Right, &self.panes[1], &self.drives, self.active == PaneId::Right);
 
-        container(
+        let main: Element<'_, Message> = container(
             row![left, right]
                 .spacing(4)
                 .width(Length::Fill)
@@ -443,7 +545,14 @@ impl FileScout {
         .padding(10)
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
+        .into();
+
+        if let Some(ref pal) = self.palette {
+            let overlay = command_palette_view(pal).map(Message::Palette);
+            stack([main, overlay]).into()
+        } else {
+            main
+        }
     }
 
     fn theme(&self) -> Theme {
