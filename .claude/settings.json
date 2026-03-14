@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git log*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git stash*)",
+      "Bash(git tag*)",
+      "Bash(git fetch*)",
+      "Bash(git pull*)",
+      "Bash(git push origin*)",
+      "Bash(rustfmt *)",
+      "Bash(rustup *)",
+      "Bash(mkdir *)",
+      "Edit(*)",
+      "Write(*)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)"
+    ]
+  }
+}
