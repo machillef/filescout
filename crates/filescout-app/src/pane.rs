@@ -103,6 +103,8 @@ pub enum PaneMessage {
     RenameDone(usize, PathBuf, PathBuf, Result<PathBuf, String>),
     /// Result of an async delete or undo. Carries tab_idx, refresh_path, result.
     OperationDone(usize, PathBuf, Result<(), String>),
+    /// Result of a batch rename. Carries tab_idx, refresh_path, and one result per rename attempt.
+    BatchRenameDone(usize, PathBuf, Vec<(PathBuf, Result<PathBuf, String>)>),
 }
 
 /// All state owned by a single file-list pane (one or more tabs).

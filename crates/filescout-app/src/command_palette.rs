@@ -16,6 +16,7 @@ pub enum CommandId {
     Undo,
     SearchFiles,
     TogglePreview,
+    BatchRename,
 }
 
 pub struct CommandDef {
@@ -69,6 +70,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::TogglePreview,
         label: "Toggle Preview",
         description: "Show or hide the file preview panel (F3)",
+    },
+    CommandDef {
+        id: CommandId::BatchRename,
+        label: "Batch Rename",
+        description: "Rename multiple files using a pattern (Ctrl+R)",
     },
 ];
 

@@ -14,10 +14,12 @@ use iced::widget::{column, container, row, stack, text};
 use iced::{event, keyboard, Element, Event, Length, Size, Subscription, Task, Theme};
 use tracing_subscriber::EnvFilter;
 
+mod batch_rename;
 mod command_palette;
 mod pane;
 mod search;
 
+use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
 use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
 use pane::{PaneId, PaneMessage, PaneState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
@@ -42,6 +44,7 @@ struct FileScout {
     drives: Vec<PathBuf>,
     palette: Option<PaletteState>,
     search: Option<SearchState>,
+    batch_rename: Option<BatchRenameState>,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -65,6 +68,8 @@ enum Message {
     Palette(PaletteMessage),
     /// A message from the search overlay UI or background task.
     Search(SearchMessage),
+    /// A message from the batch rename overlay.
+    BatchRename(BatchRenameMessage),
     /// Raw key press forwarded from the subscription for stateful routing.
     KeyPressed(keyboard::Key, keyboard::Modifiers),
 }
@@ -79,6 +84,7 @@ impl FileScout {
             drives: Vec::new(),
             palette: None,
             search: None,
+            batch_rename: None,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -125,6 +131,7 @@ impl FileScout {
             }
             Message::Palette(msg) => self.handle_palette(msg),
             Message::Search(msg) => self.handle_search(msg),
+            Message::BatchRename(msg) => self.handle_batch_rename(msg),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
         }
     }
@@ -157,6 +164,20 @@ impl FileScout {
                 }
                 _ => Task::none(),
             }
+        } else if self.batch_rename.is_some() {
+            // Batch rename overlay is open: route Esc/Enter, let text_input handle typing.
+            match key.as_ref() {
+                keyboard::Key::Named(Named::Enter) => {
+                    self.handle_batch_rename(BatchRenameMessage::Apply)
+                }
+                keyboard::Key::Named(Named::Escape) => {
+                    self.handle_batch_rename(BatchRenameMessage::Close)
+                }
+                keyboard::Key::Character("r") if modifiers.control() => {
+                    self.handle_batch_rename(BatchRenameMessage::Close)
+                }
+                _ => Task::none(),
+            }
         } else {
             match key.as_ref() {
                 keyboard::Key::Character("p") if modifiers.control() && modifiers.shift() => {
@@ -166,6 +187,11 @@ impl FileScout {
                 keyboard::Key::Character("f") if modifiers.control() => {
                     let root = self.panes[self.active.index()].active().current_path.clone();
                     self.search = Some(SearchState::new(root));
+                    Task::none()
+                }
+                keyboard::Key::Character("r") if modifiers.control() => {
+                    let entries = self.panes[self.active.index()].active().entries.clone();
+                    self.batch_rename = Some(BatchRenameState::new(&entries));
                     Task::none()
                 }
                 keyboard::Key::Named(Named::F2) => {
@@ -293,6 +319,60 @@ impl FileScout {
         }
     }
 
+    fn handle_batch_rename(&mut self, msg: BatchRenameMessage) -> Task<Message> {
+        match msg {
+            BatchRenameMessage::PatternChanged(p) => {
+                if let Some(ref mut s) = self.batch_rename {
+                    s.set_pattern(p);
+                }
+                Task::none()
+            }
+            BatchRenameMessage::ExtFilterChanged(f) => {
+                if let Some(ref mut s) = self.batch_rename {
+                    s.set_ext_filter(f);
+                }
+                Task::none()
+            }
+            BatchRenameMessage::Close => {
+                self.batch_rename = None;
+                Task::none()
+            }
+            BatchRenameMessage::Apply => {
+                let Some(ref state) = self.batch_rename else {
+                    return Task::none();
+                };
+                let renames = state.valid_renames();
+                if renames.is_empty() {
+                    self.batch_rename = None;
+                    return Task::none();
+                }
+                let id = self.active;
+                let tab_idx = self.panes[id.index()].active_tab;
+                let refresh_path = self.panes[id.index()].active().current_path.clone();
+                self.batch_rename = None;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            renames
+                                .into_iter()
+                                .map(|(old_path, new_name)| {
+                                    let result = rename_file(old_path.clone(), new_name)
+                                        .map_err(|e| e.to_string());
+                                    (old_path, result)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .await
+                        .unwrap_or_default()
+                    },
+                    move |results| {
+                        Message::Pane(id, PaneMessage::BatchRenameDone(tab_idx, refresh_path, results))
+                    },
+                )
+            }
+        }
+    }
+
     fn navigate_to_file(&mut self, path: Option<PathBuf>) -> Task<Message> {
         let Some(path) = path else { return Task::none() };
         let id = self.active;
@@ -326,6 +406,11 @@ impl FileScout {
             }
             CommandId::TogglePreview => {
                 self.update_pane(id, PaneMessage::TogglePreview)
+            }
+            CommandId::BatchRename => {
+                let entries = self.panes[id.index()].active().entries.clone();
+                self.batch_rename = Some(BatchRenameState::new(&entries));
+                Task::none()
             }
         }
     }
@@ -673,6 +758,25 @@ impl FileScout {
                     }
                 }
             }
+
+            PaneMessage::BatchRenameDone(tab_idx, refresh_path, results) => {
+                let tab = &mut pane.tabs[tab_idx];
+                let mut errors: Vec<String> = Vec::new();
+                for (old_path, result) in results {
+                    match result {
+                        Ok(new_path) => {
+                            tab.undo_stack.push(UndoAction::Rename { from: old_path, to: new_path });
+                        }
+                        Err(e) => errors.push(e),
+                    }
+                }
+                tab.error = if errors.is_empty() {
+                    None
+                } else {
+                    Some(format!("{} rename(s) failed: {}", errors.len(), errors.join("; ")))
+                };
+                load_directory_for(id, tab_idx, refresh_path)
+            }
         }
     }
 
@@ -696,6 +800,9 @@ impl FileScout {
             stack([main, overlay]).into()
         } else if let Some(ref search_state) = self.search {
             let overlay = search_view(search_state).map(Message::Search);
+            stack([main, overlay]).into()
+        } else if let Some(ref br_state) = self.batch_rename {
+            let overlay = batch_rename_view(br_state).map(Message::BatchRename);
             stack([main, overlay]).into()
         } else {
             main
