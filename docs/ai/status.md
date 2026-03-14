@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 8: File Preview** — Complete
+**Slice 9: Batch Rename** — Complete
 
 ## Last Completed
-File preview panel (F3) — text, images, and metadata — 2026-03-14
+Batch rename overlay (Ctrl+R) — pattern-based multi-file rename with live preview — 2026-03-14
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -32,10 +32,11 @@ File preview panel (F3) — text, images, and metadata — 2026-03-14
 - **Command Palette** — Ctrl+Shift+P opens overlay; fuzzy-search via SkimMatcherV2; arrow keys + Enter to execute; Esc closes; mouse click on any row executes; dimmed backdrop using `stack` overlay
 - **File Search** — Ctrl+F opens search overlay; fuzzy recursive search via `walkdir` + `fuzzy-matcher`; optional extension filter; arrow keys navigate results; Enter / click navigates active pane to result and selects the file; Esc closes; "Search Files" also in command palette
 - **File Preview** — F3 toggles per-pane preview panel (60/40 split); text files show first 16 KB in monospace scrollable; images rendered via `iced::widget::image` (`Handle::from_path`); other files show type + size metadata; preview loads async on selection; "Toggle Preview" in command palette; `iced` feature `image` enabled
-- 87 unit tests total (39 app + 45 core + 3 ui), all passing, clippy clean
+- **Batch Rename** — Ctrl+R opens modal overlay; pattern tokens `{name}` `{ext}` `{n}` `{n:NN}`; optional extension filter; live preview table (original → new name); validation errors shown inline; Enter/Apply executes renames async; each successful rename pushed to undo stack; "Batch Rename" in command palette
+- 107 unit tests total (39 app + 65 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 9: Batch Rename)
-- Pattern-based multi-file rename with live preview
+## What's Next (Slice 10: Theming)
+- Dark/light theme toggle, custom color schemes
 
 ## Blockers
 None
@@ -73,6 +74,10 @@ None
 - `spawn_search_task()` in main.rs — free fn taking `&SearchState`, spawning blocking search and mapping result to `Message::Search(SearchMessage::ResultsLoaded(...))`
 - Search overlay is second priority in `route_key` (palette > search > pane keys)
 - `preview.rs` in `filescout-core/src/` — `PreviewContent` enum, `load_preview(path)`, `is_text_extension()`, `is_image_extension()` helpers
+- `batch_rename.rs` in `filescout-core/src/` — `apply_pattern(pattern, name, ext, index)`, `preview_batch_rename(entries, pattern, ext_filter)`, `BatchRenamePreview` struct
+- `batch_rename.rs` in `filescout-app/src/` — `BatchRenameState`, `BatchRenameMessage`, `batch_rename_view()`; opens via Ctrl+R or command palette; entries snapshot taken at open time; previews recomputed on every keystroke; `valid_renames()` returns only error-free pairs
+- `PaneMessage::BatchRenameDone(tab_idx, refresh_path, Vec<(PathBuf, Result<PathBuf, String>)>)` — each rename result pushed individually to undo stack
+- Pattern tokens: `{name}` (file stem), `{ext}` (extension without dot), `{n}` (1-based counter), `{n:NN}` (zero-padded N digits)
 - `preview_panel.rs` in `filescout-ui/src/` — `preview_panel_view<M>(content)` generic over message type
 - `PaneState.show_preview: bool` per pane; `TabState.preview: PreviewContent` per tab
 - `PaneMessage::TogglePreview` and `PaneMessage::PreviewLoaded(tab_idx, content)` for async results

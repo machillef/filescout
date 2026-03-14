@@ -42,8 +42,8 @@
 
 ## Slice 9: Batch Rename
 **Goal:** Pattern-based multi-file rename with preview
-**Status:** Not Started
-**Depends on:** Slice 5
+**Status:** Complete (Ctrl+R; tokens {name}/{ext}/{n}/{n:NN}; ext filter; live preview; undo support)
+**Depends on:** Slice 5 ✓
 
 ## Slice 10: Theming
 **Goal:** Dark/light themes, custom color schemes
