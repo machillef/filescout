@@ -1,6 +1,7 @@
 //! FileScout Core — file system operations, models, and business logic.
 
 pub mod batch_rename;
+pub mod config;
 pub mod fs;
 pub mod models;
 pub mod navigation;

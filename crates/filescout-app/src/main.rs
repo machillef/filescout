@@ -1,6 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
+use filescout_core::config::{load_config, save_config, AppConfig, ThemePreference};
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
 use filescout_core::ops::{delete_to_trash, rename_file, undo_rename, validate_file_name, UndoAction};
 use filescout_core::preview::{load_preview, PreviewContent};
@@ -45,6 +46,7 @@ struct FileScout {
     palette: Option<PaletteState>,
     search: Option<SearchState>,
     batch_rename: Option<BatchRenameState>,
+    theme: ThemePreference,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -70,6 +72,12 @@ enum Message {
     Search(SearchMessage),
     /// A message from the batch rename overlay.
     BatchRename(BatchRenameMessage),
+    /// Config loaded from disk at startup.
+    ConfigLoaded(AppConfig),
+    /// Toggle between dark and light theme.
+    ToggleTheme,
+    /// No-op sink for fire-and-forget async tasks.
+    Noop,
     /// Raw key press forwarded from the subscription for stateful routing.
     KeyPressed(keyboard::Key, keyboard::Modifiers),
 }
@@ -85,6 +93,7 @@ impl FileScout {
             palette: None,
             search: None,
             batch_rename: None,
+            theme: ThemePreference::Dark,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -93,8 +102,12 @@ impl FileScout {
             async { tokio::task::spawn_blocking(list_drives).await.unwrap_or_default() },
             Message::DrivesLoaded,
         );
+        let load_cfg = Task::perform(
+            async { tokio::task::spawn_blocking(load_config).await.unwrap_or_default() },
+            Message::ConfigLoaded,
+        );
 
-        (app, Task::batch([load_left, load_right, load_drvs]))
+        (app, Task::batch([load_left, load_right, load_drvs, load_cfg]))
     }
 
     fn subscription(_state: &Self) -> Subscription<Message> {
@@ -132,6 +145,25 @@ impl FileScout {
             Message::Palette(msg) => self.handle_palette(msg),
             Message::Search(msg) => self.handle_search(msg),
             Message::BatchRename(msg) => self.handle_batch_rename(msg),
+            Message::ConfigLoaded(cfg) => {
+                self.theme = cfg.theme;
+                Task::none()
+            }
+            Message::ToggleTheme => {
+                self.theme = self.theme.toggled();
+                let cfg = AppConfig { theme: self.theme };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let _ = save_config(&cfg);
+                        })
+                        .await
+                        .ok();
+                    },
+                    |_| Message::Noop,
+                )
+            }
+            Message::Noop => Task::none(),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
         }
     }
@@ -193,6 +225,9 @@ impl FileScout {
                     let entries = self.panes[self.active.index()].active().entries.clone();
                     self.batch_rename = Some(BatchRenameState::new(&entries));
                     Task::none()
+                }
+                keyboard::Key::Character("t") if modifiers.control() => {
+                    self.update(Message::ToggleTheme)
                 }
                 keyboard::Key::Named(Named::F2) => {
                     self.update(Message::ActivePaneAction(ActiveAction::StartRename))
@@ -412,6 +447,7 @@ impl FileScout {
                 self.batch_rename = Some(BatchRenameState::new(&entries));
                 Task::none()
             }
+            CommandId::ToggleTheme => self.update(Message::ToggleTheme),
         }
     }
 
@@ -810,7 +846,7 @@ impl FileScout {
     }
 
     fn theme(&self) -> Theme {
-        Theme::Dark
+        if self.theme.is_dark() { Theme::Dark } else { Theme::Light }
     }
 }
 

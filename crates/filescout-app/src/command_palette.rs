@@ -17,6 +17,7 @@ pub enum CommandId {
     SearchFiles,
     TogglePreview,
     BatchRename,
+    ToggleTheme,
 }
 
 pub struct CommandDef {
@@ -75,6 +76,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::BatchRename,
         label: "Batch Rename",
         description: "Rename multiple files using a pattern (Ctrl+R)",
+    },
+    CommandDef {
+        id: CommandId::ToggleTheme,
+        label: "Toggle Theme",
+        description: "Switch between dark and light theme (Ctrl+T)",
     },
 ];
 
