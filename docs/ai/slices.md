@@ -37,8 +37,8 @@
 
 ## Slice 8: File Preview
 **Goal:** Preview panel for images, text, PDFs
-**Status:** Not Started
-**Depends on:** Slice 1
+**Status:** Complete (text + images + metadata; PDF shows as metadata)
+**Depends on:** Slice 1 ✓
 
 ## Slice 9: Batch Rename
 **Goal:** Pattern-based multi-file rename with preview

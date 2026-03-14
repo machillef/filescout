@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 7: Search** — Complete
+**Slice 8: File Preview** — Complete
 
 ## Last Completed
-Recursive fuzzy file search overlay (Ctrl+F) — 2026-03-14
+File preview panel (F3) — text, images, and metadata — 2026-03-14
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -31,10 +31,11 @@ Recursive fuzzy file search overlay (Ctrl+F) — 2026-03-14
 - **File name validation** — rejects empty names, invalid characters, Windows reserved names
 - **Command Palette** — Ctrl+Shift+P opens overlay; fuzzy-search via SkimMatcherV2; arrow keys + Enter to execute; Esc closes; mouse click on any row executes; dimmed backdrop using `stack` overlay
 - **File Search** — Ctrl+F opens search overlay; fuzzy recursive search via `walkdir` + `fuzzy-matcher`; optional extension filter; arrow keys navigate results; Enter / click navigates active pane to result and selects the file; Esc closes; "Search Files" also in command palette
-- 76 unit tests total (39 app + 34 core + 3 ui), all passing, clippy clean
+- **File Preview** — F3 toggles per-pane preview panel (60/40 split); text files show first 16 KB in monospace scrollable; images rendered via `iced::widget::image` (`Handle::from_path`); other files show type + size metadata; preview loads async on selection; "Toggle Preview" in command palette; `iced` feature `image` enabled
+- 87 unit tests total (39 app + 45 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 8: File Preview)
-- Preview panel for images, text, PDFs
+## What's Next (Slice 9: Batch Rename)
+- Pattern-based multi-file rename with live preview
 
 ## Blockers
 None
@@ -71,3 +72,10 @@ None
 - `PaneMessage::NavigateToFile(PathBuf)` navigates to parent dir and sets `tab.selected = Some(path)` so file is highlighted after load
 - `spawn_search_task()` in main.rs — free fn taking `&SearchState`, spawning blocking search and mapping result to `Message::Search(SearchMessage::ResultsLoaded(...))`
 - Search overlay is second priority in `route_key` (palette > search > pane keys)
+- `preview.rs` in `filescout-core/src/` — `PreviewContent` enum, `load_preview(path)`, `is_text_extension()`, `is_image_extension()` helpers
+- `preview_panel.rs` in `filescout-ui/src/` — `preview_panel_view<M>(content)` generic over message type
+- `PaneState.show_preview: bool` per pane; `TabState.preview: PreviewContent` per tab
+- `PaneMessage::TogglePreview` and `PaneMessage::PreviewLoaded(tab_idx, content)` for async results
+- `load_preview_for()` in main.rs — free fn mirroring `load_directory_for` pattern
+- Preview triggered on `FileListMessage::Select` when `show_preview` is true
+- `image` feature added to `iced` in workspace `Cargo.toml`; `Handle::from_path` used (lazy decode at render time)
