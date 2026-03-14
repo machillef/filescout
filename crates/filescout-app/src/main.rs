@@ -2,12 +2,13 @@ use std::env;
 use std::path::PathBuf;
 
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
+use filescout_core::ops::{delete_to_trash, rename_file, undo_rename, validate_file_name, UndoAction};
 use filescout_core::SortDirection;
 use filescout_ui::address_bar::{address_bar_view, AddressBarMessage};
 use filescout_ui::file_list::{file_list_view, FileListMessage};
 use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
 use iced::widget::{column, container, row, text};
-use iced::{Element, Length, Size, Task, Theme};
+use iced::{event, keyboard, Element, Event, Length, Size, Subscription, Task, Theme};
 use tracing_subscriber::EnvFilter;
 
 mod pane;
@@ -21,6 +22,7 @@ fn main() -> iced::Result {
     iced::application(FileScout::new, FileScout::update, FileScout::view)
         .title("FileScout")
         .theme(FileScout::theme)
+        .subscription(FileScout::subscription)
         .window_size(Size::new(1400.0, 800.0))
         .centered()
         .run()
@@ -32,10 +34,22 @@ struct FileScout {
     drives: Vec<PathBuf>,
 }
 
+/// Keyboard actions that apply to whichever pane is currently active.
+#[derive(Debug, Clone)]
+enum ActiveAction {
+    StartRename,  // F2
+    Delete,       // F8
+    CommitRename, // Enter (commit rename OR navigate into selected dir — routed in update_pane)
+    CancelEdit,   // Esc
+    Undo,         // Ctrl+Z
+}
+
 #[derive(Debug, Clone)]
 enum Message {
     Pane(PaneId, PaneMessage),
     DrivesLoaded(Vec<PathBuf>),
+    /// A keyboard shortcut directed at the currently active pane.
+    ActivePaneAction(ActiveAction),
 }
 
 impl FileScout {
@@ -58,6 +72,35 @@ impl FileScout {
         (app, Task::batch([load_left, load_right, load_drvs]))
     }
 
+    fn subscription(_state: &Self) -> Subscription<Message> {
+        use keyboard::key::Named;
+        event::listen_with(|ev, _status, _window| {
+            if let Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = ev {
+                match key.as_ref() {
+                    keyboard::Key::Named(Named::F2) => {
+                        Some(Message::ActivePaneAction(ActiveAction::StartRename))
+                    }
+                    keyboard::Key::Named(Named::F8) => {
+                        Some(Message::ActivePaneAction(ActiveAction::Delete))
+                    }
+                    keyboard::Key::Named(Named::Enter) => {
+                        // Actual routing (rename commit vs navigate) is resolved in update_pane
+                        Some(Message::ActivePaneAction(ActiveAction::CommitRename))
+                    }
+                    keyboard::Key::Named(Named::Escape) => {
+                        Some(Message::ActivePaneAction(ActiveAction::CancelEdit))
+                    }
+                    keyboard::Key::Character("z") if modifiers.control() => {
+                        Some(Message::ActivePaneAction(ActiveAction::Undo))
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::DrivesLoaded(drives) => {
@@ -68,6 +111,17 @@ impl FileScout {
                 self.active = id;
                 self.update_pane(id, msg)
             }
+            Message::ActivePaneAction(action) => {
+                let id = self.active;
+                let msg = match action {
+                    ActiveAction::StartRename => PaneMessage::StartRename,
+                    ActiveAction::Delete => PaneMessage::DeleteSelected,
+                    ActiveAction::CommitRename => PaneMessage::CommitRename,
+                    ActiveAction::CancelEdit => PaneMessage::CancelRename,
+                    ActiveAction::Undo => PaneMessage::Undo,
+                };
+                self.update_pane(id, msg)
+            }
         }
     }
 
@@ -75,6 +129,7 @@ impl FileScout {
         let pane = &mut self.panes[id.index()];
 
         match msg {
+            // --- Tab management ---
             PaneMessage::TabBar(TabBarMessage::Switch(idx)) => {
                 pane.switch_tab(idx);
                 Task::none()
@@ -91,14 +146,41 @@ impl FileScout {
                 load_directory_for(id, tab_idx, path)
             }
 
+            // --- Navigation ---
             PaneMessage::FileList(FileListMessage::Navigate(path)) => {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
+                tab.selected = None;
                 load_directory_for(id, tab_idx, path)
             }
 
+            PaneMessage::FileList(FileListMessage::Select(path)) => {
+                pane.active_mut().selected = Some(path);
+                Task::none()
+            }
+
+            PaneMessage::NavigateSelected => {
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                // Ignore if rename is active — Enter commits the rename instead
+                if tab.renaming.is_some() {
+                    return Task::none();
+                }
+                if let Some(ref sel) = tab.selected.clone()
+                    && sel.is_dir()
+                {
+                    let path = sel.clone();
+                    tab.history.navigate(path.clone());
+                    tab.address_text = path.display().to_string();
+                    tab.selected = None;
+                    return load_directory_for(id, tab_idx, path);
+                }
+                Task::none()
+            }
+
+            // --- Sorting ---
             PaneMessage::FileList(FileListMessage::Sort(col)) => {
                 let tab = pane.active_mut();
                 if tab.sort_col == col {
@@ -115,11 +197,13 @@ impl FileScout {
                 Task::none()
             }
 
+            // --- Address bar ---
             PaneMessage::AddressBar(AddressBarMessage::Back) => {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
                 if let Some(path) = tab.history.back().cloned() {
                     tab.address_text = path.display().to_string();
+                    tab.selected = None;
                     load_directory_for(id, tab_idx, path)
                 } else {
                     Task::none()
@@ -131,6 +215,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 if let Some(path) = tab.history.forward().cloned() {
                     tab.address_text = path.display().to_string();
+                    tab.selected = None;
                     load_directory_for(id, tab_idx, path)
                 } else {
                     Task::none()
@@ -147,6 +232,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 let path = PathBuf::from(&tab.address_text);
                 tab.history.navigate(path.clone());
+                tab.selected = None;
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -155,6 +241,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
+                tab.selected = None;
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -163,9 +250,11 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
+                tab.selected = None;
                 load_directory_for(id, tab_idx, path)
             }
 
+            // --- Directory load result ---
             PaneMessage::DirectoryLoaded(tab_idx, path, Ok(mut entries)) => {
                 let tab = &mut pane.tabs[tab_idx];
                 sort_entries(&mut entries, &tab.sort_col, &tab.sort_dir);
@@ -179,6 +268,164 @@ impl FileScout {
             PaneMessage::DirectoryLoaded(tab_idx, _, Err(e)) => {
                 pane.tabs[tab_idx].error = Some(e);
                 Task::none()
+            }
+
+            // --- File operations ---
+            PaneMessage::StartRename => {
+                let tab = pane.active_mut();
+                if let Some(ref selected) = tab.selected.clone() {
+                    let name = selected
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    tab.renaming = Some((selected.clone(), name));
+                }
+                Task::none()
+            }
+
+            PaneMessage::FileList(FileListMessage::RenameEdit(text)) => {
+                if let Some(ref mut r) = pane.active_mut().renaming {
+                    r.1 = text;
+                }
+                Task::none()
+            }
+
+            PaneMessage::CommitRename => {
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                // If not renaming, try navigate-into-selected-dir (Enter dual purpose)
+                if tab.renaming.is_none() {
+                    let _ = tab;
+                    return self.update_pane(id, PaneMessage::NavigateSelected);
+                }
+                let (old_path, new_name) = tab.renaming.take().unwrap();
+                // Validate the new name before attempting rename
+                if let Err(e) = validate_file_name(&new_name) {
+                    tab.error = Some(e.to_string());
+                    return Task::none();
+                }
+                let refresh_path = tab.current_path.clone();
+                let old_path_for_msg = old_path.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || rename_file(old_path, new_name))
+                            .await
+                            .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                    },
+                    move |result| {
+                        Message::Pane(
+                            id,
+                            PaneMessage::RenameDone(
+                                tab_idx,
+                                refresh_path,
+                                old_path_for_msg,
+                                result.map_err(|e| e.to_string()),
+                            ),
+                        )
+                    },
+                )
+            }
+
+            PaneMessage::CancelRename => {
+                let tab = pane.active_mut();
+                if tab.renaming.is_some() {
+                    tab.renaming = None;
+                } else {
+                    tab.selected = None;
+                }
+                Task::none()
+            }
+
+            PaneMessage::DeleteSelected => {
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                // Don't delete while rename is in progress
+                if tab.renaming.is_some() || tab.selected.is_none() {
+                    return Task::none();
+                }
+                let path = tab.selected.take().unwrap();
+                let refresh_path = tab.current_path.clone();
+                tab.error = None;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || delete_to_trash(path))
+                            .await
+                            .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                    },
+                    move |result| {
+                        Message::Pane(
+                            id,
+                            PaneMessage::OperationDone(
+                                tab_idx,
+                                refresh_path,
+                                result.map_err(|e| e.to_string()),
+                            ),
+                        )
+                    },
+                )
+            }
+
+            PaneMessage::Undo => {
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                // Don't undo while rename is active (Ctrl+Z edits text_input text)
+                if tab.renaming.is_some() {
+                    return Task::none();
+                }
+                if let Some(UndoAction::Rename { from, to }) = tab.undo_stack.pop() {
+                    let refresh_path = tab.current_path.clone();
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || undo_rename(from, to))
+                                .await
+                                .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                        },
+                        move |result| {
+                            Message::Pane(
+                                id,
+                                PaneMessage::OperationDone(
+                                    tab_idx,
+                                    refresh_path,
+                                    result.map_err(|e| e.to_string()),
+                                ),
+                            )
+                        },
+                    )
+                } else {
+                    Task::none()
+                }
+            }
+
+            // --- Async results ---
+            PaneMessage::RenameDone(tab_idx, refresh_path, old_path, result) => {
+                let tab = &mut pane.tabs[tab_idx];
+                match result {
+                    Ok(new_path) => {
+                        tab.error = None;
+                        tab.undo_stack
+                            .push(UndoAction::Rename { from: old_path, to: new_path.clone() });
+                        tab.selected = Some(new_path);
+                        load_directory_for(id, tab_idx, refresh_path)
+                    }
+                    Err(e) => {
+                        tab.error = Some(e);
+                        Task::none()
+                    }
+                }
+            }
+
+            PaneMessage::OperationDone(tab_idx, refresh_path, result) => {
+                let tab = &mut pane.tabs[tab_idx];
+                match result {
+                    Ok(()) => {
+                        tab.error = None;
+                        load_directory_for(id, tab_idx, refresh_path)
+                    }
+                    Err(e) => {
+                        tab.error = Some(e);
+                        Task::none()
+                    }
+                }
             }
         }
     }
@@ -226,11 +473,24 @@ fn pane_view<'a>(
     )
     .map(move |msg| Message::Pane(id, PaneMessage::AddressBar(msg)));
 
+    let selected_ref = active_tab.selected.as_deref();
+    let renaming_ref = active_tab
+        .renaming
+        .as_ref()
+        .map(|(p, s)| (p.as_path(), s.as_str()));
+
     let content: Element<'_, Message> = if let Some(ref err) = active_tab.error {
         text(format!("Error: {err}")).into()
     } else {
-        file_list_view(&active_tab.entries, parent, &active_tab.sort_col, &active_tab.sort_dir)
-            .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
+        file_list_view(
+            &active_tab.entries,
+            parent,
+            &active_tab.sort_col,
+            &active_tab.sort_dir,
+            selected_ref,
+            renaming_ref,
+        )
+        .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
     };
 
     let inner = column![tabs, addr_bar, content]

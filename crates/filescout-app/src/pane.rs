@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use filescout_core::{FileEntry, History, SortColumn, SortDirection};
+use filescout_core::{FileEntry, History, SortColumn, SortDirection, UndoStack};
 use filescout_ui::address_bar::AddressBarMessage;
 use filescout_ui::file_list::FileListMessage;
 use filescout_ui::tab_bar::TabBarMessage;
@@ -14,6 +14,12 @@ pub struct TabState {
     pub sort_dir: SortDirection,
     pub history: History,
     pub address_text: String,
+    /// Currently selected file or directory (single-selection).
+    pub selected: Option<PathBuf>,
+    /// Inline rename state: `(original_path, current_text_being_edited)`.
+    pub renaming: Option<(PathBuf, String)>,
+    /// Undo stack for reversible file operations (rename only in this version).
+    pub undo_stack: UndoStack,
 }
 
 impl TabState {
@@ -27,6 +33,9 @@ impl TabState {
             error: None,
             sort_col: SortColumn::default(),
             sort_dir: SortDirection::default(),
+            selected: None,
+            renaming: None,
+            undo_stack: UndoStack::new(),
         }
     }
 
@@ -37,6 +46,7 @@ impl TabState {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.current_path.display().to_string())
     }
+
 }
 
 /// Identifies which of the two panes a message belongs to.
@@ -64,6 +74,24 @@ pub enum PaneMessage {
     TabBar(TabBarMessage),
     /// Async directory load result. Carries the tab index it was requested for.
     DirectoryLoaded(usize, PathBuf, Result<Vec<FileEntry>, String>),
+    // --- File operation messages (emitted from keyboard subscription) ---
+    /// Begin renaming the currently selected item.
+    StartRename,
+    /// Commit the in-progress rename.
+    CommitRename,
+    /// Cancel the in-progress rename without changing anything.
+    CancelRename,
+    /// Delete the currently selected item to trash.
+    DeleteSelected,
+    /// Undo the last reversible operation.
+    Undo,
+    /// Navigate into the currently selected directory (Enter key).
+    NavigateSelected,
+    // --- Async operation results ---
+    /// Result of an async rename. Carries tab_idx, refresh_path, original_path, result(new_path).
+    RenameDone(usize, PathBuf, PathBuf, Result<PathBuf, String>),
+    /// Result of an async delete or undo. Carries tab_idx, refresh_path, result.
+    OperationDone(usize, PathBuf, Result<(), String>),
 }
 
 /// All state owned by a single file-list pane (one or more tabs).
@@ -102,7 +130,6 @@ impl PaneState {
             return;
         }
         self.tabs.remove(idx);
-        // Keep active_tab in bounds and consistent.
         if self.active_tab > idx {
             self.active_tab -= 1;
         } else if self.active_tab >= self.tabs.len() {
@@ -135,6 +162,9 @@ mod tests {
         assert_eq!(tab.address_text, "C:\\Users");
         assert!(tab.entries.is_empty());
         assert!(tab.error.is_none());
+        assert!(tab.selected.is_none());
+        assert!(tab.renaming.is_none());
+        assert!(!tab.undo_stack.can_undo());
         assert!(!tab.history.can_go_back());
         assert!(!tab.history.can_go_forward());
     }
@@ -148,7 +178,6 @@ mod tests {
     #[test]
     fn tab_state_title_at_drive_root_returns_full_path() {
         let tab = TabState::new(p("C:\\"));
-        // file_name() is None at a drive root → falls back to display()
         assert_eq!(tab.title(), "C:\\");
     }
 
@@ -215,7 +244,6 @@ mod tests {
     fn pane_state_close_active_tab_adjusts_to_previous() {
         let mut pane = PaneState::new(p("C:\\"));
         pane.new_tab(p("C:\\Users"));
-        // active_tab = 1; close it → active should fall to 0
         pane.close_tab(1);
         assert_eq!(pane.tabs.len(), 1);
         assert_eq!(pane.active_tab, 0);
@@ -227,7 +255,6 @@ mod tests {
         let mut pane = PaneState::new(p("C:\\"));
         pane.new_tab(p("C:\\Users"));
         pane.new_tab(p("C:\\Windows"));
-        // active_tab = 2; close tab 0 → active_tab should shift to 1
         pane.close_tab(0);
         assert_eq!(pane.tabs.len(), 2);
         assert_eq!(pane.active_tab, 1);

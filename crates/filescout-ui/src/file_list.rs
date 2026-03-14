@@ -1,25 +1,39 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use filescout_core::{FileEntry, SortColumn, SortDirection};
-use iced::widget::{button, column, row, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text, text_input};
 use iced::{Element, Length};
+use iced::widget::Id;
+
+/// Unique ID for the inline rename text input (used for programmatic focus).
+pub const RENAME_INPUT_ID: &str = "rename_input";
 
 /// Messages emitted by the file list component.
 #[derive(Debug, Clone)]
 pub enum FileListMessage {
+    /// A directory row was clicked — navigate into it (for ".." and dirs).
     Navigate(PathBuf),
+    /// A column header was clicked — sort by that column.
     Sort(SortColumn),
+    /// A file or directory row was clicked for selection.
+    Select(PathBuf),
+    /// The inline rename text input changed.
+    RenameEdit(String),
 }
 
 /// Render a sortable, scrollable list of file entries.
 ///
-/// `parent_path` — if `Some`, a `..` row is shown at the top for navigating up.
-/// `sort_col` / `sort_dir` — current sort state, used to render column indicators.
+/// - `parent_path` — if `Some`, a `..` row is shown at the top.
+/// - `sort_col` / `sort_dir` — current sort state for column indicators.
+/// - `selected` — path of the currently selected item (for highlight).
+/// - `renaming` — if `Some((path, text))`, that row shows an inline text input.
 pub fn file_list_view<'a>(
     entries: &'a [FileEntry],
     parent_path: Option<PathBuf>,
     sort_col: &'a SortColumn,
     sort_dir: &'a SortDirection,
+    selected: Option<&'a Path>,
+    renaming: Option<(&'a Path, &'a str)>,
 ) -> Element<'a, FileListMessage> {
     let header = row![
         button(text(format!("Name{}", sort_indicator(sort_col, sort_dir, &SortColumn::Name))).width(300))
@@ -37,6 +51,7 @@ pub fn file_list_view<'a>(
 
     let mut rows: Vec<Element<'a, FileListMessage>> = Vec::new();
 
+    // ".." parent row — always navigates, never selectable
     if let Some(parent) = parent_path {
         let up_row = button(
             row![
@@ -55,7 +70,10 @@ pub fn file_list_view<'a>(
     }
 
     for entry in entries {
-        let icon = if entry.is_dir { "📁" } else { "📄" };
+        let path = &entry.path;
+        let is_selected = selected.is_some_and(|s| s == path);
+        let is_renaming = renaming.is_some_and(|(rp, _)| rp == path);
+
         let size_text = if entry.is_dir {
             String::new()
         } else {
@@ -66,25 +84,54 @@ pub fn file_list_view<'a>(
             .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
             .unwrap_or_default();
 
-        let row_content = row![
-            text(format!("{icon} {}", entry.name)).width(300),
-            text(size_text).width(100),
-            text(modified_text).width(200),
-        ]
-        .spacing(10)
-        .padding(2);
+        let icon = if entry.is_dir { "📁" } else { "📄" };
 
-        if entry.is_dir {
-            let path = entry.path.clone();
-            rows.push(
-                button(row_content)
-                    .on_press(FileListMessage::Navigate(path))
-                    .style(button::text)
-                    .width(Length::Fill)
-                    .into(),
-            );
+        if is_renaming {
+            let (_, rename_text) = renaming.unwrap();
+            // Inline rename row — plain container, no button wrapper
+            let rename_row = container(
+                row![
+                    text_input("New name…", rename_text)
+                        .id(Id::new(RENAME_INPUT_ID))
+                        .on_input(FileListMessage::RenameEdit)
+                        .width(300),
+                    text(size_text).width(100),
+                    text(modified_text).width(200),
+                ]
+                .spacing(10)
+                .padding(2),
+            )
+            .style(container::bordered_box)
+            .width(Length::Fill);
+
+            rows.push(rename_row.into());
         } else {
-            rows.push(row_content.into());
+            let row_content = row![
+                text(format!("{icon} {}", entry.name)).width(300),
+                text(size_text).width(100),
+                text(modified_text).width(200),
+            ]
+            .spacing(10)
+            .padding(2);
+
+            let path_clone = path.clone();
+            let style = if is_selected { button::primary } else { button::text };
+
+            let row_btn = if entry.is_dir {
+                // Dirs: click → Select (navigate via Enter key)
+                button(row_content)
+                    .on_press(FileListMessage::Select(path_clone))
+                    .style(style)
+                    .width(Length::Fill)
+            } else {
+                // Files: click → Select
+                button(row_content)
+                    .on_press(FileListMessage::Select(path_clone))
+                    .style(style)
+                    .width(Length::Fill)
+            };
+
+            rows.push(row_btn.into());
         }
     }
 
