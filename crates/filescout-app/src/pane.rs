@@ -1,10 +1,128 @@
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use filescout_core::preview::PreviewContent;
 use filescout_core::{FileEntry, History, SortColumn, SortDirection, UndoStack};
 use filescout_ui::address_bar::AddressBarMessage;
 use filescout_ui::file_list::FileListMessage;
 use filescout_ui::tab_bar::TabBarMessage;
+
+/// Multi-selection state for a single tab.
+///
+/// - `items` — all selected paths (for batch operations).
+/// - `focus` — the "primary" item: used for rename, preview, and Enter-to-navigate.
+/// - `anchor` — the base of the last Shift+click range.
+#[derive(Default)]
+pub struct SelectionState {
+    items: HashSet<PathBuf>,
+    focus: Option<PathBuf>,
+    anchor: Option<PathBuf>,
+}
+
+impl SelectionState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// All selected paths (for batch operations).
+    pub fn items(&self) -> &HashSet<PathBuf> {
+        &self.items
+    }
+
+    /// The primary selected item (rename, preview, Enter-to-navigate).
+    pub fn focus(&self) -> Option<&Path> {
+        self.focus.as_deref()
+    }
+
+    /// Single click — replace the entire selection with just this item.
+    pub fn single_select(&mut self, path: PathBuf) {
+        self.items.clear();
+        self.items.insert(path.clone());
+        self.focus = Some(path.clone());
+        self.anchor = Some(path);
+    }
+
+    /// Ctrl+click — toggle this item; update focus and anchor.
+    pub fn ctrl_click(&mut self, path: PathBuf) {
+        if self.items.contains(&path) {
+            self.items.remove(&path);
+            if self.focus.as_ref() == Some(&path) {
+                self.focus = self.items.iter().next().cloned();
+            }
+        } else {
+            self.items.insert(path.clone());
+            self.focus = Some(path.clone());
+        }
+        self.anchor = Some(path);
+    }
+
+    /// Shift+click — range-select from anchor to `path` using the given ordered entry list.
+    ///
+    /// The anchor does NOT change on shift-click.
+    pub fn shift_click(&mut self, path: PathBuf, ordered_entries: &[FileEntry]) {
+        let anchor = self.anchor.clone().unwrap_or_else(|| path.clone());
+        let anchor_idx = ordered_entries.iter().position(|e| e.path == anchor);
+        let target_idx = ordered_entries.iter().position(|e| e.path == path);
+        match (anchor_idx, target_idx) {
+            (Some(a), Some(t)) => {
+                let (lo, hi) = if a <= t { (a, t) } else { (t, a) };
+                for entry in &ordered_entries[lo..=hi] {
+                    self.items.insert(entry.path.clone());
+                }
+            }
+            _ => {
+                self.items.insert(path.clone());
+            }
+        }
+        self.focus = Some(path);
+    }
+
+    /// Ctrl+A — select all entries. Does not change the anchor.
+    pub fn select_all(&mut self, entries: &[FileEntry]) {
+        self.items.clear();
+        for e in entries {
+            self.items.insert(e.path.clone());
+        }
+        self.focus = entries.last().map(|e| e.path.clone());
+    }
+
+    /// Shift+arrow — extend or shrink the selection to `new_focus_idx` in the entry list.
+    ///
+    /// Selects the range from anchor to the new focus index.
+    pub fn extend_to(&mut self, entries: &[FileEntry], new_focus_idx: usize) {
+        let anchor = self.anchor.clone();
+        let anchor_idx = anchor
+            .as_ref()
+            .and_then(|a| entries.iter().position(|e| &e.path == a));
+
+        if let Some(new_entry) = entries.get(new_focus_idx) {
+            if let Some(a) = anchor_idx {
+                let (lo, hi) = if a <= new_focus_idx { (a, new_focus_idx) } else { (new_focus_idx, a) };
+                for entry in &entries[lo..=hi] {
+                    self.items.insert(entry.path.clone());
+                }
+            } else {
+                self.items.insert(new_entry.path.clone());
+            }
+            self.focus = Some(new_entry.path.clone());
+        }
+    }
+
+    /// Clear the entire selection (items, focus, and anchor).
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.focus = None;
+        self.anchor = None;
+    }
+}
 
 /// All state owned by a single tab within a pane.
 pub struct TabState {
@@ -15,8 +133,8 @@ pub struct TabState {
     pub sort_dir: SortDirection,
     pub history: History,
     pub address_text: String,
-    /// Currently selected file or directory (single-selection).
-    pub selected: Option<PathBuf>,
+    /// Multi-selection state (replaces single `selected: Option<PathBuf>`).
+    pub selection: SelectionState,
     /// Inline rename state: `(original_path, current_text_being_edited)`.
     pub renaming: Option<(PathBuf, String)>,
     /// Undo stack for reversible file operations (rename only in this version).
@@ -36,7 +154,7 @@ impl TabState {
             error: None,
             sort_col: SortColumn::default(),
             sort_dir: SortDirection::default(),
-            selected: None,
+            selection: SelectionState::new(),
             renaming: None,
             undo_stack: UndoStack::new(),
             preview: PreviewContent::None,
@@ -103,6 +221,12 @@ pub enum PaneMessage {
     Undo,
     /// Navigate into the currently selected directory (Enter key).
     NavigateSelected,
+    /// Select all entries in the active tab (Ctrl+A).
+    SelectAll,
+    /// Extend selection one row down (Shift+Down).
+    ExtendSelectionDown,
+    /// Extend selection one row up (Shift+Up).
+    ExtendSelectionUp,
     /// Navigate to the parent of `path` and select `path` in the resulting listing.
     /// Used by the search overlay to jump to a result.
     NavigateToFile(PathBuf),
@@ -186,7 +310,7 @@ mod tests {
         assert_eq!(tab.address_text, "C:\\Users");
         assert!(tab.entries.is_empty());
         assert!(tab.error.is_none());
-        assert!(tab.selected.is_none());
+        assert!(tab.selection.is_empty());
         assert!(tab.renaming.is_none());
         assert!(!tab.undo_stack.can_undo());
         assert!(!tab.history.can_go_back());
@@ -319,5 +443,159 @@ mod tests {
     #[test]
     fn pane_id_other_right_is_left() {
         assert_eq!(PaneId::Right.other(), PaneId::Left);
+    }
+
+    // --- SelectionState helpers ---
+
+    fn entry(name: &str) -> FileEntry {
+        FileEntry {
+            name: name.to_string(),
+            path: PathBuf::from(name),
+            is_dir: false,
+            size: 0,
+            modified: None,
+        }
+    }
+
+    fn entries(names: &[&str]) -> Vec<FileEntry> {
+        names.iter().map(|n| entry(n)).collect()
+    }
+
+    // --- SelectionState ---
+
+    #[test]
+    fn selection_new_is_empty() {
+        let s = SelectionState::new();
+        assert!(s.is_empty());
+        assert_eq!(s.len(), 0);
+        assert!(s.focus().is_none());
+    }
+
+    #[test]
+    fn single_select_sets_item_and_focus() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        assert!(!s.is_empty());
+        assert_eq!(s.len(), 1);
+        assert!(s.items().contains(Path::new("a.txt")));
+        assert_eq!(s.focus(), Some(Path::new("a.txt")));
+    }
+
+    #[test]
+    fn single_select_replaces_previous_selection() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        s.single_select(p("b.txt"));
+        assert_eq!(s.len(), 1);
+        assert!(!s.items().contains(Path::new("a.txt")));
+        assert!(s.items().contains(Path::new("b.txt")));
+    }
+
+    #[test]
+    fn ctrl_click_adds_second_item() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        s.ctrl_click(p("b.txt"));
+        assert_eq!(s.len(), 2);
+        assert!(s.items().contains(Path::new("a.txt")));
+        assert!(s.items().contains(Path::new("b.txt")));
+        assert_eq!(s.focus(), Some(Path::new("b.txt")));
+    }
+
+    #[test]
+    fn ctrl_click_toggles_item_off() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        s.ctrl_click(p("a.txt"));
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn ctrl_click_focus_falls_back_when_toggled_off() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        s.ctrl_click(p("b.txt"));
+        s.ctrl_click(p("b.txt")); // toggle off focus
+        // focus should fall back to some remaining item
+        assert_eq!(s.len(), 1);
+        assert!(s.items().contains(Path::new("a.txt")));
+    }
+
+    #[test]
+    fn shift_click_selects_forward_range() {
+        let list = entries(&["a", "b", "c", "d"]);
+        let mut s = SelectionState::new();
+        s.single_select(p("a"));
+        s.shift_click(p("c"), &list);
+        assert_eq!(s.len(), 3);
+        assert!(s.items().contains(Path::new("a")));
+        assert!(s.items().contains(Path::new("b")));
+        assert!(s.items().contains(Path::new("c")));
+        assert!(!s.items().contains(Path::new("d")));
+    }
+
+    #[test]
+    fn shift_click_selects_backward_range() {
+        let list = entries(&["a", "b", "c", "d"]);
+        let mut s = SelectionState::new();
+        s.single_select(p("c"));
+        s.shift_click(p("a"), &list);
+        assert_eq!(s.len(), 3);
+        assert!(s.items().contains(Path::new("a")));
+        assert!(s.items().contains(Path::new("b")));
+        assert!(s.items().contains(Path::new("c")));
+    }
+
+    #[test]
+    fn shift_click_does_not_move_anchor() {
+        let list = entries(&["a", "b", "c"]);
+        let mut s = SelectionState::new();
+        s.single_select(p("a")); // anchor = a
+        s.shift_click(p("c"), &list); // anchor stays a
+        s.shift_click(p("b"), &list); // should select a..b
+        assert!(s.items().contains(Path::new("a")));
+        assert!(s.items().contains(Path::new("b")));
+        assert!(s.items().contains(Path::new("c"))); // c was added in first shift_click, stays
+    }
+
+    #[test]
+    fn select_all_selects_every_entry() {
+        let list = entries(&["a", "b", "c"]);
+        let mut s = SelectionState::new();
+        s.select_all(&list);
+        assert_eq!(s.len(), 3);
+        assert!(s.items().contains(Path::new("a")));
+        assert!(s.items().contains(Path::new("b")));
+        assert!(s.items().contains(Path::new("c")));
+    }
+
+    #[test]
+    fn select_all_empty_entries_clears_selection() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        s.select_all(&[]);
+        assert!(s.is_empty());
+        assert!(s.focus().is_none());
+    }
+
+    #[test]
+    fn extend_to_selects_range_from_anchor() {
+        let list = entries(&["a", "b", "c", "d"]);
+        let mut s = SelectionState::new();
+        s.single_select(p("b")); // anchor = b, idx=1
+        s.extend_to(&list, 3); // target idx=3 (d)
+        assert!(s.items().contains(Path::new("b")));
+        assert!(s.items().contains(Path::new("c")));
+        assert!(s.items().contains(Path::new("d")));
+        assert_eq!(s.focus(), Some(Path::new("d")));
+    }
+
+    #[test]
+    fn clear_empties_selection() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        s.clear();
+        assert!(s.is_empty());
+        assert!(s.focus().is_none());
     }
 }

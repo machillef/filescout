@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 11: Copy & Move** — Complete
+**Slice 12: Multi-Selection** — Complete
 
 ## Last Completed
-F5/F6 copy and move between panes with progress overlay — 2026-03-14
+Multi-selection with Ctrl+click, Shift+click, Ctrl+A, Shift+arrows — 2026-03-14
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -34,10 +34,11 @@ F5/F6 copy and move between panes with progress overlay — 2026-03-14
 - **File Preview** — F3 toggles per-pane preview panel (60/40 split); text files show first 16 KB in monospace scrollable; images rendered via `iced::widget::image` (`Handle::from_path`); other files show type + size metadata; preview loads async on selection; "Toggle Preview" in command palette; `iced` feature `image` enabled
 - **Batch Rename** — Ctrl+R opens modal overlay; pattern tokens `{name}` `{ext}` `{n}` `{n:NN}`; optional extension filter; live preview table (original → new name); validation errors shown inline; Enter/Apply executes renames async; each successful rename pushed to undo stack; "Batch Rename" in command palette
 - **Theming** — Ctrl+T toggles between Dark and Light theme; persisted to `%APPDATA%\filescout\config.toml` (TOML via `serde`/`toml`); loaded async at startup; "Toggle Theme" in command palette; `Message::Noop` sink for fire-and-forget async tasks
-- **Copy & Move** — F5 copies selected item to other pane's current dir; F6 moves; both async with progress overlay; "Copy to Other Pane" / "Move to Other Pane" in command palette; cross-device fallback (copy+delete); 134 unit tests total (41 app + 90 core + 3 ui), all passing, clippy clean
+- **Copy & Move** — F5 copies selected item(s) to other pane's current dir; F6 moves; both async with progress overlay; batch-aware (operates on entire selection); "Copy to Other Pane" / "Move to Other Pane" in command palette; cross-device fallback (copy+delete)
+- **Multi-Selection** — Ctrl+click toggles; Shift+click range-selects from anchor; Ctrl+A selects all; Shift+↑/↓ extends selection; modifier state tracked via `ModifiersChanged` subscription event; selection count shown in pane status bar; `SelectionState` in `pane.rs` holds items/focus/anchor; F8 delete / F5 copy / F6 move operate on all selected items; 147 unit tests total (54 app + 90 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 12: Multi-Selection)
-- Shift+click, Ctrl+click, Shift+arrows, Ctrl+A selection; batch delete/copy/move
+## What's Next (Slice 13: Bookmarks / Favorites)
+- Save and jump to frequently-used directories; sidebar or overlay
 
 ## Blockers
 None
@@ -81,6 +82,12 @@ None
 - Pattern tokens: `{name}` (file stem), `{ext}` (extension without dot), `{n}` (1-based counter), `{n:NN}` (zero-padded N digits)
 - `config.rs` in `filescout-core/src/` — `ThemePreference` enum (Dark/Light), `AppConfig { theme }`, `load_config()` (returns default on missing/corrupt file), `save_config(&config)` (creates dirs); config path: `dirs::config_dir().join("filescout/config.toml")`
 - `copy_item(src, dest_dir)` / `move_item(src, dest_dir)` in `filescout-core/src/ops.rs` — recursive dir copy via `walkdir`; move tries `rename` first, falls back to copy+delete for cross-device
+- `SelectionState` in `filescout-app/src/pane.rs` — `items: HashSet<PathBuf>`, `focus: Option<PathBuf>`, `anchor: Option<PathBuf>`; methods: `single_select`, `ctrl_click`, `shift_click`, `select_all`, `extend_to`, `clear`
+- `TabState.selection: SelectionState` replaces `selected: Option<PathBuf>`; `selection.focus()` used for rename/preview/Enter-navigate; `selection.items()` used for batch delete/copy/move
+- `FileScout.current_modifiers: keyboard::Modifiers` updated via `Message::ModifiersChanged`; read in `update_pane` before the mutable borrow to guide click routing (single/ctrl/shift)
+- `file_list_view` accepts `selection: &HashSet<PathBuf>` instead of `selected: Option<&Path>`; rows highlighted when their path is in the set
+- `PaneMessage::SelectAll` / `ExtendSelectionDown` / `ExtendSelectionUp`; `ActiveAction::SelectAll` / `ExtendSelectionUp/Down`; Ctrl+A / Shift+↑↓ in route_key
+- Selection count status bar shown at bottom of pane when ≥1 item selected
 - `PaneId::other()` returns the opposite pane ID
 - `FileScout.copy_move_label: Option<String>` drives the progress overlay during in-flight copy/move
 - `Message::CopyToOtherPane` / `MoveToOtherPane` routed to `start_copy()` / `start_move()`

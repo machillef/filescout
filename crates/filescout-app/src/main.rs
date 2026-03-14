@@ -51,17 +51,22 @@ struct FileScout {
     theme: ThemePreference,
     /// Label shown in the progress overlay while a copy/move is in flight.
     copy_move_label: Option<String>,
+    /// Currently held modifier keys — used to detect Ctrl/Shift during mouse clicks.
+    current_modifiers: keyboard::Modifiers,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
 #[derive(Debug, Clone)]
 enum ActiveAction {
-    StartRename,    // F2
-    Delete,         // F8
-    CommitRename,   // Enter (commit rename OR navigate into selected dir — routed in update_pane)
-    CancelEdit,     // Esc
-    Undo,           // Ctrl+Z
-    TogglePreview,  // F3
+    StartRename,         // F2
+    Delete,              // F8
+    CommitRename,        // Enter (commit rename OR navigate into selected dir — routed in update_pane)
+    CancelEdit,          // Esc
+    Undo,                // Ctrl+Z
+    TogglePreview,       // F3
+    SelectAll,           // Ctrl+A
+    ExtendSelectionDown, // Shift+Down
+    ExtendSelectionUp,   // Shift+Up
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +89,8 @@ enum Message {
     Noop,
     /// Raw key press forwarded from the subscription for stateful routing.
     KeyPressed(keyboard::Key, keyboard::Modifiers),
+    /// Modifier keys changed (used to track Ctrl/Shift for click handling).
+    ModifiersChanged(keyboard::Modifiers),
     /// Copy the active pane's selected item to the other pane's current directory (F5).
     CopyToOtherPane,
     /// Move the active pane's selected item to the other pane's current directory (F6).
@@ -112,6 +119,7 @@ impl FileScout {
             batch_rename: None,
             theme: ThemePreference::Dark,
             copy_move_label: None,
+            current_modifiers: keyboard::Modifiers::default(),
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -129,12 +137,14 @@ impl FileScout {
     }
 
     fn subscription(_state: &Self) -> Subscription<Message> {
-        event::listen_with(|ev, _status, _window| {
-            if let Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = ev {
+        event::listen_with(|ev, _status, _window| match ev {
+            Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 Some(Message::KeyPressed(key, modifiers))
-            } else {
-                None
             }
+            Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) => {
+                Some(Message::ModifiersChanged(mods))
+            }
+            _ => None,
         })
     }
 
@@ -157,6 +167,9 @@ impl FileScout {
                     ActiveAction::CancelEdit => PaneMessage::CancelRename,
                     ActiveAction::Undo => PaneMessage::Undo,
                     ActiveAction::TogglePreview => PaneMessage::TogglePreview,
+                    ActiveAction::SelectAll => PaneMessage::SelectAll,
+                    ActiveAction::ExtendSelectionDown => PaneMessage::ExtendSelectionDown,
+                    ActiveAction::ExtendSelectionUp => PaneMessage::ExtendSelectionUp,
                 };
                 self.update_pane(id, msg)
             }
@@ -183,6 +196,10 @@ impl FileScout {
             }
             Message::Noop => Task::none(),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
+            Message::ModifiersChanged(mods) => {
+                self.current_modifiers = mods;
+                Task::none()
+            }
             Message::CopyToOtherPane => self.start_copy(),
             Message::MoveToOtherPane => self.start_move(),
             Message::CopyMoveDone { dest_pane, dest_tab, dest_dir, src_refresh, result } => {
@@ -196,7 +213,7 @@ impl FileScout {
                         let dest_task = load_directory_for(dest_pane, dest_tab, dest_dir);
                         if let Some((src_pane, src_tab, src_dir)) = src_refresh {
                             if src_tab < self.panes[src_pane.index()].tabs.len() {
-                                self.panes[src_pane.index()].tabs[src_tab].selected = None;
+                                self.panes[src_pane.index()].tabs[src_tab].selection.clear();
                             }
                             Task::batch([dest_task, load_directory_for(src_pane, src_tab, src_dir)])
                         } else {
@@ -214,26 +231,42 @@ impl FileScout {
         }
         let src_pane = self.active;
         let dest_pane = src_pane.other();
-        let Some(src) = self.panes[src_pane.index()].active().selected.clone() else {
+        let paths: Vec<PathBuf> =
+            self.panes[src_pane.index()].active().selection.items().iter().cloned().collect();
+        if paths.is_empty() {
             return Task::none();
-        };
+        }
         let dest_dir = self.panes[dest_pane.index()].active().current_path.clone();
         let dest_tab = self.panes[dest_pane.index()].active_tab;
-        let name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        self.copy_move_label = Some(format!("Copying '{name}'  →  {}…", dest_dir.display()));
+        let label = if paths.len() == 1 {
+            format!(
+                "Copying '{}'  →  {}…",
+                paths[0].file_name().unwrap_or_default().to_string_lossy(),
+                dest_dir.display()
+            )
+        } else {
+            format!("Copying {} items  →  {}…", paths.len(), dest_dir.display())
+        };
+        self.copy_move_label = Some(label);
         let dest_dir2 = dest_dir.clone();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || copy_item(src, dest_dir))
-                    .await
-                    .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                tokio::task::spawn_blocking(move || {
+                    let errors: Vec<String> = paths
+                        .into_iter()
+                        .filter_map(|p| copy_item(p, dest_dir.clone()).err().map(|e| e.to_string()))
+                        .collect();
+                    if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
             },
             move |result| Message::CopyMoveDone {
                 dest_pane,
                 dest_tab,
                 dest_dir: dest_dir2,
                 src_refresh: None,
-                result: result.map(|_| ()).map_err(|e| e.to_string()),
+                result,
             },
         )
     }
@@ -244,28 +277,44 @@ impl FileScout {
         }
         let src_pane = self.active;
         let dest_pane = src_pane.other();
-        let Some(src) = self.panes[src_pane.index()].active().selected.clone() else {
+        let paths: Vec<PathBuf> =
+            self.panes[src_pane.index()].active().selection.items().iter().cloned().collect();
+        if paths.is_empty() {
             return Task::none();
-        };
+        }
         let dest_dir = self.panes[dest_pane.index()].active().current_path.clone();
         let dest_tab = self.panes[dest_pane.index()].active_tab;
         let src_tab = self.panes[src_pane.index()].active_tab;
         let src_dir = self.panes[src_pane.index()].active().current_path.clone();
-        let name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        self.copy_move_label = Some(format!("Moving '{name}'  →  {}…", dest_dir.display()));
+        let label = if paths.len() == 1 {
+            format!(
+                "Moving '{}'  →  {}…",
+                paths[0].file_name().unwrap_or_default().to_string_lossy(),
+                dest_dir.display()
+            )
+        } else {
+            format!("Moving {} items  →  {}…", paths.len(), dest_dir.display())
+        };
+        self.copy_move_label = Some(label);
         let dest_dir2 = dest_dir.clone();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || move_item(src, dest_dir))
-                    .await
-                    .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                tokio::task::spawn_blocking(move || {
+                    let errors: Vec<String> = paths
+                        .into_iter()
+                        .filter_map(|p| move_item(p, dest_dir.clone()).err().map(|e| e.to_string()))
+                        .collect();
+                    if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
             },
             move |result| Message::CopyMoveDone {
                 dest_pane,
                 dest_tab,
                 dest_dir: dest_dir2,
                 src_refresh: Some((src_pane, src_tab, src_dir)),
-                result: result.map(|_| ()).map_err(|e| e.to_string()),
+                result,
             },
         )
     }
@@ -333,6 +382,15 @@ impl FileScout {
                 }
                 keyboard::Key::Named(Named::F5) => self.update(Message::CopyToOtherPane),
                 keyboard::Key::Named(Named::F6) => self.update(Message::MoveToOtherPane),
+                keyboard::Key::Character("a") if modifiers.control() => {
+                    self.update(Message::ActivePaneAction(ActiveAction::SelectAll))
+                }
+                keyboard::Key::Named(Named::ArrowDown) if modifiers.shift() => {
+                    self.update(Message::ActivePaneAction(ActiveAction::ExtendSelectionDown))
+                }
+                keyboard::Key::Named(Named::ArrowUp) if modifiers.shift() => {
+                    self.update(Message::ActivePaneAction(ActiveAction::ExtendSelectionUp))
+                }
                 keyboard::Key::Named(Named::F2) => {
                     self.update(Message::ActivePaneAction(ActiveAction::StartRename))
                 }
@@ -558,6 +616,7 @@ impl FileScout {
     }
 
     fn update_pane(&mut self, id: PaneId, msg: PaneMessage) -> Task<Message> {
+        let current_mods = self.current_modifiers;
         let pane = &mut self.panes[id.index()];
 
         match msg {
@@ -584,16 +643,26 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
-                tab.selected = None;
+                tab.selection.clear();
                 load_directory_for(id, tab_idx, path)
             }
 
             PaneMessage::FileList(FileListMessage::Select(path)) => {
                 let tab_idx = pane.active_tab;
-                pane.active_mut().selected = Some(path.clone());
-                if pane.show_preview {
+                let entries = pane.active().entries.clone();
+                let tab = pane.active_mut();
+                if current_mods.control() {
+                    tab.selection.ctrl_click(path.clone());
+                } else if current_mods.shift() {
+                    tab.selection.shift_click(path.clone(), &entries);
+                } else {
+                    tab.selection.single_select(path.clone());
+                }
+                if pane.show_preview
+                    && let Some(focus) = pane.active().selection.focus().map(|p| p.to_path_buf())
+                {
                     pane.active_mut().preview = PreviewContent::Loading;
-                    return load_preview_for(id, tab_idx, path);
+                    return load_preview_for(id, tab_idx, focus);
                 }
                 Task::none()
             }
@@ -605,14 +674,13 @@ impl FileScout {
                 if tab.renaming.is_some() {
                     return Task::none();
                 }
-                if let Some(ref sel) = tab.selected.clone()
-                    && sel.is_dir()
+                if let Some(focus) = tab.selection.focus().map(|p| p.to_path_buf())
+                    && focus.is_dir()
                 {
-                    let path = sel.clone();
-                    tab.history.navigate(path.clone());
-                    tab.address_text = path.display().to_string();
-                    tab.selected = None;
-                    return load_directory_for(id, tab_idx, path);
+                    tab.history.navigate(focus.clone());
+                    tab.address_text = focus.display().to_string();
+                    tab.selection.clear();
+                    return load_directory_for(id, tab_idx, focus);
                 }
                 Task::none()
             }
@@ -624,7 +692,7 @@ impl FileScout {
                 let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.clone());
                 tab.history.navigate(parent.clone());
                 tab.address_text = parent.display().to_string();
-                tab.selected = Some(path);
+                tab.selection.single_select(path);
                 load_directory_for(id, tab_idx, parent)
             }
 
@@ -632,9 +700,9 @@ impl FileScout {
             PaneMessage::TogglePreview => {
                 pane.show_preview = !pane.show_preview;
                 if pane.show_preview {
-                    // Load preview for the currently selected file, if any.
+                    // Load preview for the focused file, if any.
                     let tab_idx = pane.active_tab;
-                    if let Some(path) = pane.tabs[tab_idx].selected.clone() {
+                    if let Some(path) = pane.tabs[tab_idx].selection.focus().map(|p| p.to_path_buf()) {
                         pane.tabs[tab_idx].preview = PreviewContent::Loading;
                         return load_preview_for(id, tab_idx, path);
                     }
@@ -676,7 +744,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 if let Some(path) = tab.history.back().cloned() {
                     tab.address_text = path.display().to_string();
-                    tab.selected = None;
+                    tab.selection.clear();
                     load_directory_for(id, tab_idx, path)
                 } else {
                     Task::none()
@@ -688,7 +756,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 if let Some(path) = tab.history.forward().cloned() {
                     tab.address_text = path.display().to_string();
-                    tab.selected = None;
+                    tab.selection.clear();
                     load_directory_for(id, tab_idx, path)
                 } else {
                     Task::none()
@@ -705,7 +773,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 let path = PathBuf::from(&tab.address_text);
                 tab.history.navigate(path.clone());
-                tab.selected = None;
+                tab.selection.clear();
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -714,7 +782,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
-                tab.selected = None;
+                tab.selection.clear();
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -723,7 +791,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
-                tab.selected = None;
+                tab.selection.clear();
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -746,12 +814,12 @@ impl FileScout {
             // --- File operations ---
             PaneMessage::StartRename => {
                 let tab = pane.active_mut();
-                if let Some(ref selected) = tab.selected.clone() {
-                    let name = selected
+                if let Some(focus) = tab.selection.focus().map(|p| p.to_path_buf()) {
+                    let name = focus
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    tab.renaming = Some((selected.clone(), name));
+                    tab.renaming = Some((focus, name));
                 }
                 Task::none()
             }
@@ -804,7 +872,7 @@ impl FileScout {
                 if tab.renaming.is_some() {
                     tab.renaming = None;
                 } else {
-                    tab.selected = None;
+                    tab.selection.clear();
                 }
                 Task::none()
             }
@@ -812,18 +880,29 @@ impl FileScout {
             PaneMessage::DeleteSelected => {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
-                // Don't delete while rename is in progress
-                if tab.renaming.is_some() || tab.selected.is_none() {
+                // Don't delete while rename is in progress or nothing is selected
+                if tab.renaming.is_some() || tab.selection.is_empty() {
                     return Task::none();
                 }
-                let path = tab.selected.take().unwrap();
+                let paths: Vec<PathBuf> = tab.selection.items().iter().cloned().collect();
+                tab.selection.clear();
                 let refresh_path = tab.current_path.clone();
                 tab.error = None;
                 Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || delete_to_trash(path))
-                            .await
-                            .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                        tokio::task::spawn_blocking(move || {
+                            let errors: Vec<String> = paths
+                                .into_iter()
+                                .filter_map(|p| delete_to_trash(p).err().map(|e| e.to_string()))
+                                .collect();
+                            if errors.is_empty() {
+                                Ok(())
+                            } else {
+                                Err(format!("{} delete(s) failed: {}", errors.len(), errors.join("; ")))
+                            }
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
                     },
                     move |result| {
                         Message::Pane(
@@ -831,11 +910,49 @@ impl FileScout {
                             PaneMessage::OperationDone(
                                 tab_idx,
                                 refresh_path,
-                                result.map_err(|e| e.to_string()),
+                                result,
                             ),
                         )
                     },
                 )
+            }
+
+            PaneMessage::SelectAll => {
+                let entries = pane.active().entries.clone();
+                pane.active_mut().selection.select_all(&entries);
+                Task::none()
+            }
+
+            PaneMessage::ExtendSelectionDown => {
+                let tab = pane.active_mut();
+                let current_idx = tab
+                    .selection
+                    .focus()
+                    .and_then(|f| tab.entries.iter().position(|e| e.path == *f));
+                let next_idx = match current_idx {
+                    Some(i) if i + 1 < tab.entries.len() => i + 1,
+                    None if !tab.entries.is_empty() => 0,
+                    _ => return Task::none(),
+                };
+                let entries = tab.entries.clone();
+                tab.selection.extend_to(&entries, next_idx);
+                Task::none()
+            }
+
+            PaneMessage::ExtendSelectionUp => {
+                let tab = pane.active_mut();
+                let current_idx = tab
+                    .selection
+                    .focus()
+                    .and_then(|f| tab.entries.iter().position(|e| e.path == *f));
+                let prev_idx = match current_idx {
+                    Some(i) if i > 0 => i - 1,
+                    None if !tab.entries.is_empty() => 0,
+                    _ => return Task::none(),
+                };
+                let entries = tab.entries.clone();
+                tab.selection.extend_to(&entries, prev_idx);
+                Task::none()
             }
 
             PaneMessage::Undo => {
@@ -877,7 +994,7 @@ impl FileScout {
                         tab.error = None;
                         tab.undo_stack
                             .push(UndoAction::Rename { from: old_path, to: new_path.clone() });
-                        tab.selected = Some(new_path);
+                        tab.selection.single_select(new_path);
                         load_directory_for(id, tab_idx, refresh_path)
                     }
                     Err(e) => {
@@ -981,7 +1098,7 @@ fn pane_view<'a>(
     )
     .map(move |msg| Message::Pane(id, PaneMessage::AddressBar(msg)));
 
-    let selected_ref = active_tab.selected.as_deref();
+    let selection_items = active_tab.selection.items();
     let renaming_ref = active_tab
         .renaming
         .as_ref()
@@ -995,7 +1112,7 @@ fn pane_view<'a>(
             parent,
             &active_tab.sort_col,
             &active_tab.sort_dir,
-            selected_ref,
+            selection_items,
             renaming_ref,
         )
         .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
@@ -1016,7 +1133,16 @@ fn pane_view<'a>(
         file_list
     };
 
-    let inner = column![tabs, addr_bar, content]
+    // Status line: show selection count when ≥1 item selected
+    let sel_count = active_tab.selection.len();
+    let status_line: Element<'_, Message> = if sel_count > 0 {
+        let label = if sel_count == 1 { "1 item selected".to_string() } else { format!("{sel_count} items selected") };
+        text(label).size(12).into()
+    } else {
+        text("").size(12).into()
+    };
+
+    let inner = column![tabs, addr_bar, content, status_line]
         .spacing(4)
         .padding(8)
         .width(Length::Fill)

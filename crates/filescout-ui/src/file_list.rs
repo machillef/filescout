@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use filescout_core::{FileEntry, SortColumn, SortDirection};
@@ -25,14 +26,14 @@ pub enum FileListMessage {
 ///
 /// - `parent_path` — if `Some`, a `..` row is shown at the top.
 /// - `sort_col` / `sort_dir` — current sort state for column indicators.
-/// - `selected` — path of the currently selected item (for highlight).
+/// - `selection` — set of selected paths (for multi-row highlight).
 /// - `renaming` — if `Some((path, text))`, that row shows an inline text input.
 pub fn file_list_view<'a>(
     entries: &'a [FileEntry],
     parent_path: Option<PathBuf>,
     sort_col: &'a SortColumn,
     sort_dir: &'a SortDirection,
-    selected: Option<&'a Path>,
+    selection: &'a HashSet<PathBuf>,
     renaming: Option<(&'a Path, &'a str)>,
 ) -> Element<'a, FileListMessage> {
     let header = row![
@@ -71,7 +72,7 @@ pub fn file_list_view<'a>(
 
     for entry in entries {
         let path = &entry.path;
-        let is_selected = selected.is_some_and(|s| s == path);
+        let is_selected = selection.contains(path);
         let is_renaming = renaming.is_some_and(|(rp, _)| rp == path);
 
         let size_text = if entry.is_dir {

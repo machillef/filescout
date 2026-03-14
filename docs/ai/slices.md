@@ -55,8 +55,7 @@
 
 ## Slice 12: Multi-Selection
 **Goal:** Select multiple files with Shift+click, Ctrl+click, Shift+arrows, Ctrl+A; batch delete/copy/move
-**Status:** Not Started
-**Depends on:** Slice 5 ✓
+**Status:** Complete (Ctrl+click, Shift+click, Shift+↑↓, Ctrl+A; batch F5/F6/F8; selection count status bar)
 
 ## Slice 13: Bookmarks / Favorites
 **Goal:** Save and jump to frequently-used directories; sidebar or overlay
