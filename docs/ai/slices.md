@@ -32,7 +32,7 @@
 
 ## Slice 7: Search
 **Goal:** Fuzzy file search, recursive, with extension filtering
-**Status:** Up Next
+**Status:** Complete
 **Depends on:** Slice 1 ✓
 
 ## Slice 8: File Preview

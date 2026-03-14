@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 6: Command Palette** — Complete
+**Slice 7: Search** — Complete
 
 ## Last Completed
-Fuzzy-matched command palette overlay (Ctrl+Shift+P) — 2026-03-14
+Recursive fuzzy file search overlay (Ctrl+F) — 2026-03-14
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -30,10 +30,11 @@ Fuzzy-matched command palette overlay (Ctrl+Shift+P) — 2026-03-14
 - **Undo rename** — Ctrl+Z reverses the last rename (LIFO stack, capped at 50)
 - **File name validation** — rejects empty names, invalid characters, Windows reserved names
 - **Command Palette** — Ctrl+Shift+P opens overlay; fuzzy-search via SkimMatcherV2; arrow keys + Enter to execute; Esc closes; mouse click on any row executes; dimmed backdrop using `stack` overlay
-- 57 unit tests total (28 app + 26 core + 3 ui), all passing, clippy clean
+- **File Search** — Ctrl+F opens search overlay; fuzzy recursive search via `walkdir` + `fuzzy-matcher`; optional extension filter; arrow keys navigate results; Enter / click navigates active pane to result and selects the file; Esc closes; "Search Files" also in command palette
+- 76 unit tests total (39 app + 34 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 7: Search)
-- Fuzzy file search, recursive, with extension filtering
+## What's Next (Slice 8: File Preview)
+- Preview panel for images, text, PDFs
 
 ## Blockers
 None
@@ -65,3 +66,8 @@ None
 - `iced::widget::stack([base, overlay])` used for the dimmed backdrop overlay
 - `PaletteState::filtered_commands()` uses `SkimMatcherV2` from `fuzzy-matcher` crate
 - Palette query change resets `selected` to 0 in the `handle_palette` update handler
+- `search.rs` in `filescout-app/src/` — `SearchState`, `SearchMessage`, `search_view()` overlays same way as palette
+- `search.rs` in `filescout-core/src/` — `search_files(root, query, ext_filter, max)` using `walkdir` + `SkimMatcherV2`
+- `PaneMessage::NavigateToFile(PathBuf)` navigates to parent dir and sets `tab.selected = Some(path)` so file is highlighted after load
+- `spawn_search_task()` in main.rs — free fn taking `&SearchState`, spawning blocking search and mapping result to `Message::Search(SearchMessage::ResultsLoaded(...))`
+- Search overlay is second priority in `route_key` (palette > search > pane keys)
