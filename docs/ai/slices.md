@@ -2,13 +2,13 @@
 
 ## Slice 1: Directory Listing
 **Goal:** Display files/folders in a scrollable list with name, size, date, type columns
-**Status:** In Progress
-**Acceptance:** User sees sorted file list for any directory, directories first
+**Status:** Complete
+**Acceptance:** User sees sorted file list for any directory, directories first ✓
 
 ## Slice 2: Navigation
 **Goal:** Address bar, breadcrumbs, back/forward, drive selector
-**Status:** Not Started
-**Depends on:** Slice 1
+**Status:** Up Next
+**Depends on:** Slice 1 ✓
 
 ## Slice 3: Dual Pane
 **Goal:** Split view with independent navigation per pane
