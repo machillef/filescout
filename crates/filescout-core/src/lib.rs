@@ -4,6 +4,7 @@ pub mod fs;
 pub mod models;
 pub mod navigation;
 pub mod ops;
+pub mod preview;
 pub mod search;
 
 pub use models::{FileEntry, SortColumn, SortDirection};

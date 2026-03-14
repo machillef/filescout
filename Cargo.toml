@@ -15,7 +15,7 @@ repository = "https://github.com/TODO/filescout"
 
 [workspace.dependencies]
 # GUI
-iced = { version = "0.14", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio", "image"] }
 
 # Async
 tokio = { version = "1", features = ["full"] }

@@ -15,6 +15,7 @@ pub enum CommandId {
     Delete,
     Undo,
     SearchFiles,
+    TogglePreview,
 }
 
 pub struct CommandDef {
@@ -63,6 +64,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::SearchFiles,
         label: "Search Files",
         description: "Fuzzy-search files recursively from the current directory (Ctrl+F)",
+    },
+    CommandDef {
+        id: CommandId::TogglePreview,
+        label: "Toggle Preview",
+        description: "Show or hide the file preview panel (F3)",
     },
 ];
 

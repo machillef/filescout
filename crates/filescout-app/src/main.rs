@@ -3,10 +3,12 @@ use std::path::PathBuf;
 
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
 use filescout_core::ops::{delete_to_trash, rename_file, undo_rename, validate_file_name, UndoAction};
+use filescout_core::preview::{load_preview, PreviewContent};
 use filescout_core::search::search_files;
 use filescout_core::SortDirection;
 use filescout_ui::address_bar::{address_bar_view, AddressBarMessage};
 use filescout_ui::file_list::{file_list_view, FileListMessage};
+use filescout_ui::preview_panel::preview_panel_view;
 use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
 use iced::widget::{column, container, row, stack, text};
 use iced::{event, keyboard, Element, Event, Length, Size, Subscription, Task, Theme};
@@ -45,11 +47,12 @@ struct FileScout {
 /// Keyboard actions that apply to whichever pane is currently active.
 #[derive(Debug, Clone)]
 enum ActiveAction {
-    StartRename,  // F2
-    Delete,       // F8
-    CommitRename, // Enter (commit rename OR navigate into selected dir — routed in update_pane)
-    CancelEdit,   // Esc
-    Undo,         // Ctrl+Z
+    StartRename,    // F2
+    Delete,         // F8
+    CommitRename,   // Enter (commit rename OR navigate into selected dir — routed in update_pane)
+    CancelEdit,     // Esc
+    Undo,           // Ctrl+Z
+    TogglePreview,  // F3
 }
 
 #[derive(Debug, Clone)]
@@ -116,6 +119,7 @@ impl FileScout {
                     ActiveAction::CommitRename => PaneMessage::CommitRename,
                     ActiveAction::CancelEdit => PaneMessage::CancelRename,
                     ActiveAction::Undo => PaneMessage::Undo,
+                    ActiveAction::TogglePreview => PaneMessage::TogglePreview,
                 };
                 self.update_pane(id, msg)
             }
@@ -166,6 +170,9 @@ impl FileScout {
                 }
                 keyboard::Key::Named(Named::F2) => {
                     self.update(Message::ActivePaneAction(ActiveAction::StartRename))
+                }
+                keyboard::Key::Named(Named::F3) => {
+                    self.update(Message::ActivePaneAction(ActiveAction::TogglePreview))
                 }
                 keyboard::Key::Named(Named::F8) => {
                     self.update(Message::ActivePaneAction(ActiveAction::Delete))
@@ -317,6 +324,9 @@ impl FileScout {
                 self.search = Some(SearchState::new(root));
                 Task::none()
             }
+            CommandId::TogglePreview => {
+                self.update_pane(id, PaneMessage::TogglePreview)
+            }
         }
     }
 
@@ -352,7 +362,12 @@ impl FileScout {
             }
 
             PaneMessage::FileList(FileListMessage::Select(path)) => {
-                pane.active_mut().selected = Some(path);
+                let tab_idx = pane.active_tab;
+                pane.active_mut().selected = Some(path.clone());
+                if pane.show_preview {
+                    pane.active_mut().preview = PreviewContent::Loading;
+                    return load_preview_for(id, tab_idx, path);
+                }
                 Task::none()
             }
 
@@ -384,6 +399,31 @@ impl FileScout {
                 tab.address_text = parent.display().to_string();
                 tab.selected = Some(path);
                 load_directory_for(id, tab_idx, parent)
+            }
+
+            // --- Preview ---
+            PaneMessage::TogglePreview => {
+                pane.show_preview = !pane.show_preview;
+                if pane.show_preview {
+                    // Load preview for the currently selected file, if any.
+                    let tab_idx = pane.active_tab;
+                    if let Some(path) = pane.tabs[tab_idx].selected.clone() {
+                        pane.tabs[tab_idx].preview = PreviewContent::Loading;
+                        return load_preview_for(id, tab_idx, path);
+                    }
+                } else {
+                    // Clear preview to free memory when panel is hidden.
+                    let tab_idx = pane.active_tab;
+                    pane.tabs[tab_idx].preview = PreviewContent::None;
+                }
+                Task::none()
+            }
+
+            PaneMessage::PreviewLoaded(tab_idx, content) => {
+                if tab_idx < pane.tabs.len() {
+                    pane.tabs[tab_idx].preview = content;
+                }
+                Task::none()
             }
 
             // --- Sorting ---
@@ -695,7 +735,7 @@ fn pane_view<'a>(
         .as_ref()
         .map(|(p, s)| (p.as_path(), s.as_str()));
 
-    let content: Element<'_, Message> = if let Some(ref err) = active_tab.error {
+    let file_list: Element<'_, Message> = if let Some(ref err) = active_tab.error {
         text(format!("Error: {err}")).into()
     } else {
         file_list_view(
@@ -707,6 +747,21 @@ fn pane_view<'a>(
             renaming_ref,
         )
         .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
+    };
+
+    // When preview is enabled, split the content area between file list and preview panel.
+    let content: Element<'_, Message> = if pane.show_preview {
+        let preview = preview_panel_view::<Message>(&active_tab.preview);
+        row![
+            container(file_list).width(Length::FillPortion(3)).height(Length::Fill),
+            container(preview).width(Length::FillPortion(2)).height(Length::Fill),
+        ]
+        .spacing(4)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    } else {
+        file_list
     };
 
     let inner = column![tabs, addr_bar, content]
@@ -744,6 +799,18 @@ fn spawn_search_task(state: &SearchState) -> Task<Message> {
             .unwrap_or_default()
         },
         |results| Message::Search(SearchMessage::ResultsLoaded(results)),
+    )
+}
+
+/// Spawn an async preview load for `path` in the given pane/tab.
+fn load_preview_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || load_preview(&path))
+                .await
+                .unwrap_or_else(|e| PreviewContent::Error(e.to_string()))
+        },
+        move |content| Message::Pane(pane, PaneMessage::PreviewLoaded(tab_idx, content)),
     )
 }
 

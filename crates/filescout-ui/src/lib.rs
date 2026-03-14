@@ -2,6 +2,7 @@
 
 pub mod address_bar;
 pub mod file_list;
+pub mod preview_panel;
 pub mod tab_bar;
 
 pub use address_bar::AddressBarMessage;

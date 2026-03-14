@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use filescout_core::preview::PreviewContent;
 use filescout_core::{FileEntry, History, SortColumn, SortDirection, UndoStack};
 use filescout_ui::address_bar::AddressBarMessage;
 use filescout_ui::file_list::FileListMessage;
@@ -20,6 +21,8 @@ pub struct TabState {
     pub renaming: Option<(PathBuf, String)>,
     /// Undo stack for reversible file operations (rename only in this version).
     pub undo_stack: UndoStack,
+    /// Preview content for the currently selected file.
+    pub preview: PreviewContent,
 }
 
 impl TabState {
@@ -36,6 +39,7 @@ impl TabState {
             selected: None,
             renaming: None,
             undo_stack: UndoStack::new(),
+            preview: PreviewContent::None,
         }
     }
 
@@ -74,6 +78,10 @@ pub enum PaneMessage {
     TabBar(TabBarMessage),
     /// Async directory load result. Carries the tab index it was requested for.
     DirectoryLoaded(usize, PathBuf, Result<Vec<FileEntry>, String>),
+    /// Toggle the preview panel on/off for this pane.
+    TogglePreview,
+    /// Async preview load result. Carries the tab index it was loaded for.
+    PreviewLoaded(usize, PreviewContent),
     // --- File operation messages (emitted from keyboard subscription) ---
     /// Begin renaming the currently selected item.
     StartRename,
@@ -101,6 +109,8 @@ pub enum PaneMessage {
 pub struct PaneState {
     pub tabs: Vec<TabState>,
     pub active_tab: usize,
+    /// Whether the preview panel is visible for this pane.
+    pub show_preview: bool,
 }
 
 impl PaneState {
@@ -108,6 +118,7 @@ impl PaneState {
         Self {
             tabs: vec![TabState::new(path)],
             active_tab: 0,
+            show_preview: false,
         }
     }
 
@@ -170,6 +181,7 @@ mod tests {
         assert!(!tab.undo_stack.can_undo());
         assert!(!tab.history.can_go_back());
         assert!(!tab.history.can_go_forward());
+        assert!(matches!(tab.preview, PreviewContent::None));
     }
 
     #[test]
