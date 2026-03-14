@@ -12,13 +12,13 @@
 
 ## Slice 3: Dual Pane
 **Goal:** Split view with independent navigation per pane
-**Status:** Up Next
+**Status:** Complete
 **Depends on:** Slice 2 ✓
 
 ## Slice 4: Tabs
 **Goal:** Multiple tabs per pane with tab management
-**Status:** Not Started
-**Depends on:** Slice 3
+**Status:** Up Next
+**Depends on:** Slice 3 ✓
 
 ## Slice 5: File Operations
 **Goal:** Copy, move, delete (to trash), rename with undo/redo
