@@ -47,7 +47,7 @@
 
 ## Slice 10: Theming
 **Goal:** Dark/light themes, custom color schemes
-**Status:** Not Started
+**Status:** Complete (Ctrl+T toggle; TOML persistence; startup load; command palette entry)
 
 ## Slice 11: AI Features
 **Goal:** Natural language search, smart organization suggestions

@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 9: Batch Rename** — Complete
+**Slice 10: Theming** — Complete
 
 ## Last Completed
-Batch rename overlay (Ctrl+R) — pattern-based multi-file rename with live preview — 2026-03-14
+Dark/light theme toggle (Ctrl+T) with TOML persistence — 2026-03-14
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -33,10 +33,11 @@ Batch rename overlay (Ctrl+R) — pattern-based multi-file rename with live prev
 - **File Search** — Ctrl+F opens search overlay; fuzzy recursive search via `walkdir` + `fuzzy-matcher`; optional extension filter; arrow keys navigate results; Enter / click navigates active pane to result and selects the file; Esc closes; "Search Files" also in command palette
 - **File Preview** — F3 toggles per-pane preview panel (60/40 split); text files show first 16 KB in monospace scrollable; images rendered via `iced::widget::image` (`Handle::from_path`); other files show type + size metadata; preview loads async on selection; "Toggle Preview" in command palette; `iced` feature `image` enabled
 - **Batch Rename** — Ctrl+R opens modal overlay; pattern tokens `{name}` `{ext}` `{n}` `{n:NN}`; optional extension filter; live preview table (original → new name); validation errors shown inline; Enter/Apply executes renames async; each successful rename pushed to undo stack; "Batch Rename" in command palette
-- 107 unit tests total (39 app + 65 core + 3 ui), all passing, clippy clean
+- **Theming** — Ctrl+T toggles between Dark and Light theme; persisted to `%APPDATA%\filescout\config.toml` (TOML via `serde`/`toml`); loaded async at startup; "Toggle Theme" in command palette; `Message::Noop` sink for fire-and-forget async tasks
+- 124 unit tests total (39 app + 82 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 10: Theming)
-- Dark/light theme toggle, custom color schemes
+## What's Next (Slice 11: AI Features)
+- Natural language search, smart organization suggestions
 
 ## Blockers
 None
@@ -78,6 +79,9 @@ None
 - `batch_rename.rs` in `filescout-app/src/` — `BatchRenameState`, `BatchRenameMessage`, `batch_rename_view()`; opens via Ctrl+R or command palette; entries snapshot taken at open time; previews recomputed on every keystroke; `valid_renames()` returns only error-free pairs
 - `PaneMessage::BatchRenameDone(tab_idx, refresh_path, Vec<(PathBuf, Result<PathBuf, String>)>)` — each rename result pushed individually to undo stack
 - Pattern tokens: `{name}` (file stem), `{ext}` (extension without dot), `{n}` (1-based counter), `{n:NN}` (zero-padded N digits)
+- `config.rs` in `filescout-core/src/` — `ThemePreference` enum (Dark/Light), `AppConfig { theme }`, `load_config()` (returns default on missing/corrupt file), `save_config(&config)` (creates dirs); config path: `dirs::config_dir().join("filescout/config.toml")`
+- `ThemePreference::toggled()` returns the opposite theme; `is_dark()` helper
+- `FileScout.theme: ThemePreference` drives `fn theme(&self) -> Theme`; `Message::ConfigLoaded(AppConfig)` applies on startup; `Message::ToggleTheme` flips + persists; `Message::Noop` is the fire-and-forget sink
 - `preview_panel.rs` in `filescout-ui/src/` — `preview_panel_view<M>(content)` generic over message type
 - `PaneState.show_preview: bool` per pane; `TabState.preview: PreviewContent` per tab
 - `PaneMessage::TogglePreview` and `PaneMessage::PreviewLoaded(tab_idx, content)` for async results
