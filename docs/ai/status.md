@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 10: Theming** — Complete
+**Slice 11: Copy & Move** — Complete
 
 ## Last Completed
-Dark/light theme toggle (Ctrl+T) with TOML persistence — 2026-03-14
+F5/F6 copy and move between panes with progress overlay — 2026-03-14
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -34,10 +34,10 @@ Dark/light theme toggle (Ctrl+T) with TOML persistence — 2026-03-14
 - **File Preview** — F3 toggles per-pane preview panel (60/40 split); text files show first 16 KB in monospace scrollable; images rendered via `iced::widget::image` (`Handle::from_path`); other files show type + size metadata; preview loads async on selection; "Toggle Preview" in command palette; `iced` feature `image` enabled
 - **Batch Rename** — Ctrl+R opens modal overlay; pattern tokens `{name}` `{ext}` `{n}` `{n:NN}`; optional extension filter; live preview table (original → new name); validation errors shown inline; Enter/Apply executes renames async; each successful rename pushed to undo stack; "Batch Rename" in command palette
 - **Theming** — Ctrl+T toggles between Dark and Light theme; persisted to `%APPDATA%\filescout\config.toml` (TOML via `serde`/`toml`); loaded async at startup; "Toggle Theme" in command palette; `Message::Noop` sink for fire-and-forget async tasks
-- 124 unit tests total (39 app + 82 core + 3 ui), all passing, clippy clean
+- **Copy & Move** — F5 copies selected item to other pane's current dir; F6 moves; both async with progress overlay; "Copy to Other Pane" / "Move to Other Pane" in command palette; cross-device fallback (copy+delete); 134 unit tests total (41 app + 90 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 11: Copy & Move)
-- F5/F6 copy and move between panes with progress feedback
+## What's Next (Slice 12: Multi-Selection)
+- Shift+click, Ctrl+click, Shift+arrows, Ctrl+A selection; batch delete/copy/move
 
 ## Blockers
 None
@@ -80,6 +80,13 @@ None
 - `PaneMessage::BatchRenameDone(tab_idx, refresh_path, Vec<(PathBuf, Result<PathBuf, String>)>)` — each rename result pushed individually to undo stack
 - Pattern tokens: `{name}` (file stem), `{ext}` (extension without dot), `{n}` (1-based counter), `{n:NN}` (zero-padded N digits)
 - `config.rs` in `filescout-core/src/` — `ThemePreference` enum (Dark/Light), `AppConfig { theme }`, `load_config()` (returns default on missing/corrupt file), `save_config(&config)` (creates dirs); config path: `dirs::config_dir().join("filescout/config.toml")`
+- `copy_item(src, dest_dir)` / `move_item(src, dest_dir)` in `filescout-core/src/ops.rs` — recursive dir copy via `walkdir`; move tries `rename` first, falls back to copy+delete for cross-device
+- `PaneId::other()` returns the opposite pane ID
+- `FileScout.copy_move_label: Option<String>` drives the progress overlay during in-flight copy/move
+- `Message::CopyToOtherPane` / `MoveToOtherPane` routed to `start_copy()` / `start_move()`
+- `Message::CopyMoveDone` carries `dest_pane/tab/dir` and optional `src_refresh` (pane/tab/dir) for moves
+- `copy_move_progress_overlay(label)` in main.rs — centered card with dimmed backdrop, same stack pattern as palette/search
+- Copy/move blocked while `copy_move_label.is_some()` to prevent concurrent operations
 - `ThemePreference::toggled()` returns the opposite theme; `is_dark()` helper
 - `FileScout.theme: ThemePreference` drives `fn theme(&self) -> Theme`; `Message::ConfigLoaded(AppConfig)` applies on startup; `Message::ToggleTheme` flips + persists; `Message::Noop` is the fire-and-forget sink
 - `preview_panel.rs` in `filescout-ui/src/` — `preview_panel_view<M>(content)` generic over message type

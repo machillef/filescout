@@ -18,6 +18,8 @@ pub enum CommandId {
     TogglePreview,
     BatchRename,
     ToggleTheme,
+    CopyToOther,
+    MoveToOther,
 }
 
 pub struct CommandDef {
@@ -81,6 +83,16 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::ToggleTheme,
         label: "Toggle Theme",
         description: "Switch between dark and light theme (Ctrl+T)",
+    },
+    CommandDef {
+        id: CommandId::CopyToOther,
+        label: "Copy to Other Pane",
+        description: "Copy the selected item to the other pane's directory (F5)",
+    },
+    CommandDef {
+        id: CommandId::MoveToOther,
+        label: "Move to Other Pane",
+        description: "Move the selected item to the other pane's directory (F6)",
     },
 ];
 

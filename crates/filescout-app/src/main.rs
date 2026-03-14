@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 use filescout_core::config::{load_config, save_config, AppConfig, ThemePreference};
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
-use filescout_core::ops::{delete_to_trash, rename_file, undo_rename, validate_file_name, UndoAction};
+use filescout_core::ops::{
+    copy_item, delete_to_trash, move_item, rename_file, undo_rename, validate_file_name, UndoAction,
+};
 use filescout_core::preview::{load_preview, PreviewContent};
 use filescout_core::search::search_files;
 use filescout_core::SortDirection;
@@ -12,7 +14,7 @@ use filescout_ui::file_list::{file_list_view, FileListMessage};
 use filescout_ui::preview_panel::preview_panel_view;
 use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
 use iced::widget::{column, container, row, stack, text};
-use iced::{event, keyboard, Element, Event, Length, Size, Subscription, Task, Theme};
+use iced::{event, keyboard, Background, Color, Element, Event, Length, Size, Subscription, Task, Theme};
 use tracing_subscriber::EnvFilter;
 
 mod batch_rename;
@@ -47,6 +49,8 @@ struct FileScout {
     search: Option<SearchState>,
     batch_rename: Option<BatchRenameState>,
     theme: ThemePreference,
+    /// Label shown in the progress overlay while a copy/move is in flight.
+    copy_move_label: Option<String>,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -80,6 +84,19 @@ enum Message {
     Noop,
     /// Raw key press forwarded from the subscription for stateful routing.
     KeyPressed(keyboard::Key, keyboard::Modifiers),
+    /// Copy the active pane's selected item to the other pane's current directory (F5).
+    CopyToOtherPane,
+    /// Move the active pane's selected item to the other pane's current directory (F6).
+    MoveToOtherPane,
+    /// Result of an async copy or move operation.
+    CopyMoveDone {
+        dest_pane: PaneId,
+        dest_tab: usize,
+        dest_dir: PathBuf,
+        /// Source pane/tab/dir to refresh after a move; `None` for copy.
+        src_refresh: Option<(PaneId, usize, PathBuf)>,
+        result: Result<(), String>,
+    },
 }
 
 impl FileScout {
@@ -94,6 +111,7 @@ impl FileScout {
             search: None,
             batch_rename: None,
             theme: ThemePreference::Dark,
+            copy_move_label: None,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -165,7 +183,91 @@ impl FileScout {
             }
             Message::Noop => Task::none(),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
+            Message::CopyToOtherPane => self.start_copy(),
+            Message::MoveToOtherPane => self.start_move(),
+            Message::CopyMoveDone { dest_pane, dest_tab, dest_dir, src_refresh, result } => {
+                self.copy_move_label = None;
+                match result {
+                    Err(e) => {
+                        self.panes[self.active.index()].active_mut().error = Some(e);
+                        Task::none()
+                    }
+                    Ok(()) => {
+                        let dest_task = load_directory_for(dest_pane, dest_tab, dest_dir);
+                        if let Some((src_pane, src_tab, src_dir)) = src_refresh {
+                            if src_tab < self.panes[src_pane.index()].tabs.len() {
+                                self.panes[src_pane.index()].tabs[src_tab].selected = None;
+                            }
+                            Task::batch([dest_task, load_directory_for(src_pane, src_tab, src_dir)])
+                        } else {
+                            dest_task
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    fn start_copy(&mut self) -> Task<Message> {
+        if self.copy_move_label.is_some() {
+            return Task::none();
+        }
+        let src_pane = self.active;
+        let dest_pane = src_pane.other();
+        let Some(src) = self.panes[src_pane.index()].active().selected.clone() else {
+            return Task::none();
+        };
+        let dest_dir = self.panes[dest_pane.index()].active().current_path.clone();
+        let dest_tab = self.panes[dest_pane.index()].active_tab;
+        let name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        self.copy_move_label = Some(format!("Copying '{name}'  →  {}…", dest_dir.display()));
+        let dest_dir2 = dest_dir.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || copy_item(src, dest_dir))
+                    .await
+                    .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+            },
+            move |result| Message::CopyMoveDone {
+                dest_pane,
+                dest_tab,
+                dest_dir: dest_dir2,
+                src_refresh: None,
+                result: result.map(|_| ()).map_err(|e| e.to_string()),
+            },
+        )
+    }
+
+    fn start_move(&mut self) -> Task<Message> {
+        if self.copy_move_label.is_some() {
+            return Task::none();
+        }
+        let src_pane = self.active;
+        let dest_pane = src_pane.other();
+        let Some(src) = self.panes[src_pane.index()].active().selected.clone() else {
+            return Task::none();
+        };
+        let dest_dir = self.panes[dest_pane.index()].active().current_path.clone();
+        let dest_tab = self.panes[dest_pane.index()].active_tab;
+        let src_tab = self.panes[src_pane.index()].active_tab;
+        let src_dir = self.panes[src_pane.index()].active().current_path.clone();
+        let name = src.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        self.copy_move_label = Some(format!("Moving '{name}'  →  {}…", dest_dir.display()));
+        let dest_dir2 = dest_dir.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || move_item(src, dest_dir))
+                    .await
+                    .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+            },
+            move |result| Message::CopyMoveDone {
+                dest_pane,
+                dest_tab,
+                dest_dir: dest_dir2,
+                src_refresh: Some((src_pane, src_tab, src_dir)),
+                result: result.map(|_| ()).map_err(|e| e.to_string()),
+            },
+        )
     }
 
     fn route_key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
@@ -229,6 +331,8 @@ impl FileScout {
                 keyboard::Key::Character("t") if modifiers.control() => {
                     self.update(Message::ToggleTheme)
                 }
+                keyboard::Key::Named(Named::F5) => self.update(Message::CopyToOtherPane),
+                keyboard::Key::Named(Named::F6) => self.update(Message::MoveToOtherPane),
                 keyboard::Key::Named(Named::F2) => {
                     self.update(Message::ActivePaneAction(ActiveAction::StartRename))
                 }
@@ -448,6 +552,8 @@ impl FileScout {
                 Task::none()
             }
             CommandId::ToggleTheme => self.update(Message::ToggleTheme),
+            CommandId::CopyToOther => self.update(Message::CopyToOtherPane),
+            CommandId::MoveToOther => self.update(Message::MoveToOtherPane),
         }
     }
 
@@ -840,6 +946,9 @@ impl FileScout {
         } else if let Some(ref br_state) = self.batch_rename {
             let overlay = batch_rename_view(br_state).map(Message::BatchRename);
             stack([main, overlay]).into()
+        } else if let Some(ref label) = self.copy_move_label {
+            let overlay = copy_move_progress_overlay(label);
+            stack([main, overlay]).into()
         } else {
             main
         }
@@ -955,6 +1064,29 @@ fn load_preview_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message
         },
         move |content| Message::Pane(pane, PaneMessage::PreviewLoaded(tab_idx, content)),
     )
+}
+
+fn copy_move_backdrop_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.7))),
+        ..Default::default()
+    }
+}
+
+/// Renders a centered progress card while a copy/move is in flight.
+fn copy_move_progress_overlay(label: &str) -> Element<'_, Message> {
+    let card = container(
+        column![text(label).size(14), text("Please wait…").size(12)]
+            .spacing(8)
+            .align_x(iced::alignment::Horizontal::Center),
+    )
+    .padding(28)
+    .style(container::rounded_box);
+
+    container(card)
+        .center(Length::Fill)
+        .style(copy_move_backdrop_style)
+        .into()
 }
 
 fn load_directory_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message> {

@@ -51,9 +51,7 @@
 
 ## Slice 11: Copy & Move
 **Goal:** Copy (F5) and Move (F6) files/directories between panes with progress feedback
-**Status:** Not Started
-**Depends on:** Slice 3 ✓
-**Notes:** Classic dual-pane manager workflow; destination defaults to opposite pane
+**Status:** Complete (F5/F6 + command palette; async with progress overlay; cross-device support)
 
 ## Slice 12: Multi-Selection
 **Goal:** Select multiple files with Shift+click, Ctrl+click, Shift+arrows, Ctrl+A; batch delete/copy/move

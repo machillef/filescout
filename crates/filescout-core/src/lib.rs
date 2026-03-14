@@ -11,5 +11,5 @@ pub mod search;
 
 pub use models::{FileEntry, SortColumn, SortDirection};
 pub use navigation::History;
-pub use ops::{UndoAction, UndoStack};
+pub use ops::{copy_item, move_item, UndoAction, UndoStack};
 pub use search::SearchResult;

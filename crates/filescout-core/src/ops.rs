@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use walkdir::WalkDir;
 
 /// A reversible file operation that can be undone.
 #[derive(Debug, Clone)]
@@ -53,6 +54,67 @@ pub fn rename_file(old_path: PathBuf, new_name: String) -> Result<PathBuf> {
     let new_path = parent.join(&new_name);
     std::fs::rename(&old_path, &new_path)?;
     Ok(new_path)
+}
+
+/// Copy `src` into `dest_dir`, preserving the entry name.
+///
+/// Directories are copied recursively. Returns the full destination path on success.
+pub fn copy_item(src: PathBuf, dest_dir: PathBuf) -> Result<PathBuf> {
+    let name = src
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("source path has no file name"))?;
+    let dest = dest_dir.join(name);
+    if src.is_dir() {
+        copy_dir_recursive(&src, &dest)?;
+    } else {
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&src, &dest)?;
+    }
+    Ok(dest)
+}
+
+/// Recursively copy directory `src` to `dest` (dest must not yet exist).
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
+    std::fs::create_dir_all(dest)?;
+    for entry in WalkDir::new(src).min_depth(1) {
+        let entry = entry?;
+        let rel = entry.path().strip_prefix(src).map_err(|e| anyhow::anyhow!(e))?;
+        let target = dest.join(rel);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+/// Move `src` into `dest_dir`, preserving the entry name.
+///
+/// Tries `std::fs::rename` first (fast, same filesystem). Falls back to copy-then-delete
+/// for cross-device moves. Returns the full destination path on success.
+pub fn move_item(src: PathBuf, dest_dir: PathBuf) -> Result<PathBuf> {
+    let name = src
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("source path has no file name"))?;
+    let dest = dest_dir.join(name);
+    // Fast path: same-filesystem rename
+    if std::fs::rename(&src, &dest).is_ok() {
+        return Ok(dest);
+    }
+    // Cross-device: copy then delete
+    let dest = copy_item(src.clone(), dest_dir)?;
+    if src.is_dir() {
+        std::fs::remove_dir_all(&src)?;
+    } else {
+        std::fs::remove_file(&src)?;
+    }
+    Ok(dest)
 }
 
 /// Undo a rename: rename `to` back to the file-name component of `from`.
@@ -190,6 +252,110 @@ mod tests {
     fn validate_normal_name_passes() {
         assert!(validate_file_name("hello world.txt").is_ok());
         assert!(validate_file_name("my-file_2024.rs").is_ok());
+    }
+
+    // --- copy_item ---
+
+    #[test]
+    fn copy_item_copies_file_to_dest_dir() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dest_dir = tempfile::tempdir().unwrap();
+        let src = src_dir.path().join("hello.txt");
+        std::fs::write(&src, b"hello").unwrap();
+
+        let dest = copy_item(src, dest_dir.path().to_path_buf()).unwrap();
+
+        assert_eq!(dest, dest_dir.path().join("hello.txt"));
+        assert!(dest.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn copy_item_returns_correct_dest_path() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dest_dir = tempfile::tempdir().unwrap();
+        let src = src_dir.path().join("data.bin");
+        std::fs::write(&src, b"data").unwrap();
+
+        let dest = copy_item(src, dest_dir.path().to_path_buf()).unwrap();
+
+        assert_eq!(dest.file_name().unwrap(), "data.bin");
+    }
+
+    #[test]
+    fn copy_item_copies_directory_recursively() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("srcdir");
+        std::fs::create_dir_all(src.join("sub")).unwrap();
+        std::fs::write(src.join("a.txt"), b"a").unwrap();
+        std::fs::write(src.join("sub/b.txt"), b"b").unwrap();
+
+        let dest_dir = tempfile::tempdir().unwrap();
+        copy_item(src, dest_dir.path().to_path_buf()).unwrap();
+
+        assert!(dest_dir.path().join("srcdir/a.txt").exists());
+        assert!(dest_dir.path().join("srcdir/sub/b.txt").exists());
+    }
+
+    #[test]
+    fn copy_item_fails_when_source_missing() {
+        let dest_dir = tempfile::tempdir().unwrap();
+        let src = PathBuf::from("/nonexistent/path/file.txt");
+        assert!(copy_item(src, dest_dir.path().to_path_buf()).is_err());
+    }
+
+    // --- move_item ---
+
+    #[test]
+    fn move_item_moves_file_to_dest_dir() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dest_dir = tempfile::tempdir().unwrap();
+        let src = src_dir.path().join("move_me.txt");
+        std::fs::write(&src, b"content").unwrap();
+
+        let dest = move_item(src.clone(), dest_dir.path().to_path_buf()).unwrap();
+
+        assert_eq!(dest, dest_dir.path().join("move_me.txt"));
+        assert!(dest.exists());
+        assert!(!src.exists());
+    }
+
+    #[test]
+    fn move_item_returns_correct_dest_path() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dest_dir = tempfile::tempdir().unwrap();
+        let src = src_dir.path().join("file.txt");
+        std::fs::write(&src, b"x").unwrap();
+
+        let dest = move_item(src, dest_dir.path().to_path_buf()).unwrap();
+
+        assert_eq!(dest.file_name().unwrap(), "file.txt");
+    }
+
+    #[test]
+    fn move_item_removes_source() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dest_dir = tempfile::tempdir().unwrap();
+        let src = src_dir.path().join("gone.txt");
+        std::fs::write(&src, b"bye").unwrap();
+
+        move_item(src.clone(), dest_dir.path().to_path_buf()).unwrap();
+
+        assert!(!src.exists());
+    }
+
+    #[test]
+    fn move_item_moves_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("movedir");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("file.txt"), b"inside").unwrap();
+
+        let dest_dir = tempfile::tempdir().unwrap();
+        let dest = move_item(src.clone(), dest_dir.path().to_path_buf()).unwrap();
+
+        assert!(dest.join("file.txt").exists());
+        assert!(!src.exists());
     }
 
     // --- rename_file (integration) ---

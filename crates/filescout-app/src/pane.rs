@@ -68,6 +68,14 @@ impl PaneId {
             PaneId::Right => 1,
         }
     }
+
+    /// Returns the opposite pane id.
+    pub fn other(self) -> Self {
+        match self {
+            PaneId::Left => PaneId::Right,
+            PaneId::Right => PaneId::Left,
+        }
+    }
 }
 
 /// Messages that belong to a specific pane.
@@ -301,5 +309,15 @@ mod tests {
     #[test]
     fn pane_id_default_is_left() {
         assert_eq!(PaneId::default(), PaneId::Left);
+    }
+
+    #[test]
+    fn pane_id_other_left_is_right() {
+        assert_eq!(PaneId::Left.other(), PaneId::Right);
+    }
+
+    #[test]
+    fn pane_id_other_right_is_left() {
+        assert_eq!(PaneId::Right.other(), PaneId::Left);
     }
 }
