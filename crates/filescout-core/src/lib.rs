@@ -1,6 +1,7 @@
 //! FileScout Core — file system operations, models, and business logic.
 
 pub mod batch_rename;
+pub mod bookmarks;
 pub mod config;
 pub mod fs;
 pub mod models;
@@ -9,6 +10,7 @@ pub mod ops;
 pub mod preview;
 pub mod search;
 
+pub use bookmarks::{Bookmark, Bookmarks};
 pub use models::{FileEntry, SortColumn, SortDirection};
 pub use navigation::History;
 pub use ops::{copy_item, move_item, UndoAction, UndoStack};

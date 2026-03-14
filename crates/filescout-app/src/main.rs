@@ -1,6 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
+use filescout_core::bookmarks::Bookmarks;
 use filescout_core::config::{load_config, save_config, AppConfig, ThemePreference};
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
 use filescout_core::ops::{
@@ -18,11 +19,13 @@ use iced::{event, keyboard, Background, Color, Element, Event, Length, Size, Sub
 use tracing_subscriber::EnvFilter;
 
 mod batch_rename;
+mod bookmarks;
 mod command_palette;
 mod pane;
 mod search;
 
 use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
+use bookmarks::{bookmarks_view, BookmarkMessage};
 use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
 use pane::{PaneId, PaneMessage, PaneState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
@@ -49,6 +52,9 @@ struct FileScout {
     search: Option<SearchState>,
     batch_rename: Option<BatchRenameState>,
     theme: ThemePreference,
+    bookmarks: Bookmarks,
+    /// When `true`, the bookmarks overlay is shown.
+    show_bookmarks: bool,
     /// Label shown in the progress overlay while a copy/move is in flight.
     copy_move_label: Option<String>,
     /// Currently held modifier keys — used to detect Ctrl/Shift during mouse clicks.
@@ -95,6 +101,12 @@ enum Message {
     CopyToOtherPane,
     /// Move the active pane's selected item to the other pane's current directory (F6).
     MoveToOtherPane,
+    /// Open the bookmarks overlay (Ctrl+B).
+    OpenBookmarks,
+    /// Bookmark the active pane's current directory (Ctrl+D).
+    AddBookmark,
+    /// A message from the bookmarks overlay.
+    Bookmark(BookmarkMessage),
     /// Result of an async copy or move operation.
     CopyMoveDone {
         dest_pane: PaneId,
@@ -118,6 +130,8 @@ impl FileScout {
             search: None,
             batch_rename: None,
             theme: ThemePreference::Dark,
+            bookmarks: Bookmarks::default(),
+            show_bookmarks: false,
             copy_move_label: None,
             current_modifiers: keyboard::Modifiers::default(),
         };
@@ -178,11 +192,12 @@ impl FileScout {
             Message::BatchRename(msg) => self.handle_batch_rename(msg),
             Message::ConfigLoaded(cfg) => {
                 self.theme = cfg.theme;
+                self.bookmarks = cfg.bookmarks;
                 Task::none()
             }
             Message::ToggleTheme => {
                 self.theme = self.theme.toggled();
-                let cfg = AppConfig { theme: self.theme };
+                let cfg = AppConfig { theme: self.theme, bookmarks: self.bookmarks.clone() };
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -202,6 +217,31 @@ impl FileScout {
             }
             Message::CopyToOtherPane => self.start_copy(),
             Message::MoveToOtherPane => self.start_move(),
+            Message::OpenBookmarks => {
+                self.show_bookmarks = true;
+                Task::none()
+            }
+            Message::AddBookmark => {
+                let path = self.panes[self.active.index()].active().current_path.clone();
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+                self.bookmarks = self.bookmarks.add(name, path);
+                let bm = self.bookmarks.clone();
+                let cfg = AppConfig { theme: self.theme, bookmarks: bm };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let _ = save_config(&cfg);
+                        })
+                        .await
+                        .ok();
+                    },
+                    |_| Message::Noop,
+                )
+            }
+            Message::Bookmark(msg) => self.handle_bookmark(msg),
             Message::CopyMoveDone { dest_pane, dest_tab, dest_dir, src_refresh, result } => {
                 self.copy_move_label = None;
                 match result {
@@ -322,8 +362,18 @@ impl FileScout {
     fn route_key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
         use keyboard::key::Named;
 
-        // Command palette takes highest priority.
-        if self.palette.is_some() {
+        // Bookmarks overlay.
+        if self.show_bookmarks {
+            match key.as_ref() {
+                keyboard::Key::Named(Named::Escape) => {
+                    self.handle_bookmark(BookmarkMessage::Close)
+                }
+                keyboard::Key::Character("b") if modifiers.control() => {
+                    self.handle_bookmark(BookmarkMessage::Close)
+                }
+                _ => Task::none(),
+            }
+        } else if self.palette.is_some() {
             // Character input is handled by the text_input widget; route only navigation keys.
             match key.as_ref() {
                 keyboard::Key::Named(Named::ArrowUp) => self.handle_palette(PaletteMessage::MoveUp),
@@ -379,6 +429,12 @@ impl FileScout {
                 }
                 keyboard::Key::Character("t") if modifiers.control() => {
                     self.update(Message::ToggleTheme)
+                }
+                keyboard::Key::Character("b") if modifiers.control() => {
+                    self.update(Message::OpenBookmarks)
+                }
+                keyboard::Key::Character("d") if modifiers.control() => {
+                    self.update(Message::AddBookmark)
                 }
                 keyboard::Key::Named(Named::F5) => self.update(Message::CopyToOtherPane),
                 keyboard::Key::Named(Named::F6) => self.update(Message::MoveToOtherPane),
@@ -570,6 +626,35 @@ impl FileScout {
         }
     }
 
+    fn handle_bookmark(&mut self, msg: BookmarkMessage) -> Task<Message> {
+        match msg {
+            BookmarkMessage::Navigate(path) => {
+                self.show_bookmarks = false;
+                let id = self.active;
+                self.update_pane(id, PaneMessage::AddressBar(AddressBarMessage::BreadcrumbNavigate(path)))
+            }
+            BookmarkMessage::Remove(index) => {
+                self.bookmarks = self.bookmarks.remove(index);
+                let bm = self.bookmarks.clone();
+                let cfg = AppConfig { theme: self.theme, bookmarks: bm };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let _ = save_config(&cfg);
+                        })
+                        .await
+                        .ok();
+                    },
+                    |_| Message::Noop,
+                )
+            }
+            BookmarkMessage::Close => {
+                self.show_bookmarks = false;
+                Task::none()
+            }
+        }
+    }
+
     fn navigate_to_file(&mut self, path: Option<PathBuf>) -> Task<Message> {
         let Some(path) = path else { return Task::none() };
         let id = self.active;
@@ -612,6 +697,8 @@ impl FileScout {
             CommandId::ToggleTheme => self.update(Message::ToggleTheme),
             CommandId::CopyToOther => self.update(Message::CopyToOtherPane),
             CommandId::MoveToOther => self.update(Message::MoveToOtherPane),
+            CommandId::OpenBookmarks => self.update(Message::OpenBookmarks),
+            CommandId::AddBookmark => self.update(Message::AddBookmark),
         }
     }
 
@@ -1062,6 +1149,13 @@ impl FileScout {
             stack([main, overlay]).into()
         } else if let Some(ref br_state) = self.batch_rename {
             let overlay = batch_rename_view(br_state).map(Message::BatchRename);
+            stack([main, overlay]).into()
+        } else if self.show_bookmarks {
+            let overlay = bookmarks_view(
+                &self.bookmarks,
+                &self.panes[self.active.index()].active().current_path,
+            )
+            .map(Message::Bookmark);
             stack([main, overlay]).into()
         } else if let Some(ref label) = self.copy_move_label {
             let overlay = copy_move_progress_overlay(label);

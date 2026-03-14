@@ -20,6 +20,8 @@ pub enum CommandId {
     ToggleTheme,
     CopyToOther,
     MoveToOther,
+    OpenBookmarks,
+    AddBookmark,
 }
 
 pub struct CommandDef {
@@ -93,6 +95,16 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::MoveToOther,
         label: "Move to Other Pane",
         description: "Move the selected item to the other pane's directory (F6)",
+    },
+    CommandDef {
+        id: CommandId::OpenBookmarks,
+        label: "Open Bookmarks",
+        description: "Show bookmarked directories (Ctrl+B)",
+    },
+    CommandDef {
+        id: CommandId::AddBookmark,
+        label: "Bookmark This Directory",
+        description: "Save the current directory as a bookmark (Ctrl+D)",
     },
 ];
 

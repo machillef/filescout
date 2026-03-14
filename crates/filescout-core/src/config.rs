@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::bookmarks::Bookmarks;
+
 /// Which visual theme the application should use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +38,8 @@ impl ThemePreference {
 pub struct AppConfig {
     #[serde(default)]
     pub theme: ThemePreference,
+    #[serde(default)]
+    pub bookmarks: Bookmarks,
 }
 
 /// Returns the path to the config file, or `None` if the OS has no config dir.
@@ -108,14 +112,14 @@ mod tests {
 
     #[test]
     fn serialize_dark_theme() {
-        let cfg = AppConfig { theme: ThemePreference::Dark };
+        let cfg = AppConfig { theme: ThemePreference::Dark, ..Default::default() };
         let text = toml::to_string_pretty(&cfg).unwrap();
         assert!(text.contains("theme = \"dark\""));
     }
 
     #[test]
     fn serialize_light_theme() {
-        let cfg = AppConfig { theme: ThemePreference::Light };
+        let cfg = AppConfig { theme: ThemePreference::Light, ..Default::default() };
         let text = toml::to_string_pretty(&cfg).unwrap();
         assert!(text.contains("theme = \"light\""));
     }
@@ -142,7 +146,7 @@ mod tests {
 
     #[test]
     fn round_trip_dark() {
-        let original = AppConfig { theme: ThemePreference::Dark };
+        let original = AppConfig { theme: ThemePreference::Dark, ..Default::default() };
         let text = toml::to_string_pretty(&original).unwrap();
         let restored: AppConfig = toml::from_str(&text).unwrap();
         assert_eq!(restored.theme, original.theme);
@@ -150,7 +154,7 @@ mod tests {
 
     #[test]
     fn round_trip_light() {
-        let original = AppConfig { theme: ThemePreference::Light };
+        let original = AppConfig { theme: ThemePreference::Light, ..Default::default() };
         let text = toml::to_string_pretty(&original).unwrap();
         let restored: AppConfig = toml::from_str(&text).unwrap();
         assert_eq!(restored.theme, original.theme);
@@ -169,7 +173,7 @@ mod tests {
     fn save_creates_file_with_correct_content() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("filescout").join("config.toml");
-        let cfg = AppConfig { theme: ThemePreference::Light };
+        let cfg = AppConfig { theme: ThemePreference::Light, ..Default::default() };
 
         // Manually exercise save logic using a known path
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -198,7 +202,7 @@ mod tests {
     #[test]
     fn write_and_read_via_temp_file() {
         let dir = TempDir::new().unwrap();
-        let cfg = AppConfig { theme: ThemePreference::Light };
+        let cfg = AppConfig { theme: ThemePreference::Light, ..Default::default() };
         let path = write_config_to(&dir, &cfg);
 
         let text = fs::read_to_string(path).unwrap();
