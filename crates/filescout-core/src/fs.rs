@@ -49,10 +49,27 @@ pub fn sort_entries(entries: &mut [FileEntry], col: &SortColumn, dir: &SortDirec
     });
 }
 
+/// List available drive roots on Windows by probing A:\ through Z:\.
+pub fn list_drives() -> Vec<std::path::PathBuf> {
+    ('A'..='Z')
+        .map(|c| std::path::PathBuf::from(format!("{}:\\", c)))
+        .filter(|p| p.exists())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::env;
+
+    #[test]
+    fn list_drives_returns_at_least_c_drive() {
+        let drives = list_drives();
+        assert!(
+            drives.iter().any(|d| d == &std::path::PathBuf::from("C:\\")),
+            "C:\\ should be present on a Windows dev machine"
+        );
+    }
 
     #[test]
     fn list_current_directory() {

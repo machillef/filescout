@@ -16,10 +16,10 @@
 - [ ] File icons by type
 
 ## Phase 3: Navigation
-- [ ] Address bar with editable path
-- [ ] Breadcrumb navigation
-- [ ] Back/forward history
-- [ ] Drive/volume selector
+- [x] Address bar with editable path
+- [x] Breadcrumb navigation
+- [x] Back/forward history
+- [x] Drive/volume selector
 - [ ] GoTo dialog with autocompletion
 
 ## Phase 4: Dual Pane & Tabs

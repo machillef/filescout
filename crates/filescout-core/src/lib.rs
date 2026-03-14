@@ -2,5 +2,7 @@
 
 pub mod fs;
 pub mod models;
+pub mod navigation;
 
 pub use models::{FileEntry, SortColumn, SortDirection};
+pub use navigation::History;

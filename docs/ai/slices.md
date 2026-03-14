@@ -7,13 +7,13 @@
 
 ## Slice 2: Navigation
 **Goal:** Address bar, breadcrumbs, back/forward, drive selector
-**Status:** Up Next
+**Status:** Complete
 **Depends on:** Slice 1 ✓
 
 ## Slice 3: Dual Pane
 **Goal:** Split view with independent navigation per pane
-**Status:** Not Started
-**Depends on:** Slice 2
+**Status:** Up Next
+**Depends on:** Slice 2 ✓
 
 ## Slice 4: Tabs
 **Goal:** Multiple tabs per pane with tab management
