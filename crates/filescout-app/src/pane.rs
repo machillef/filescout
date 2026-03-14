@@ -87,6 +87,9 @@ pub enum PaneMessage {
     Undo,
     /// Navigate into the currently selected directory (Enter key).
     NavigateSelected,
+    /// Navigate to the parent of `path` and select `path` in the resulting listing.
+    /// Used by the search overlay to jump to a result.
+    NavigateToFile(PathBuf),
     // --- Async operation results ---
     /// Result of an async rename. Carries tab_idx, refresh_path, original_path, result(new_path).
     RenameDone(usize, PathBuf, PathBuf, Result<PathBuf, String>),

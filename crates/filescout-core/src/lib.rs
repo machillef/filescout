@@ -4,7 +4,9 @@ pub mod fs;
 pub mod models;
 pub mod navigation;
 pub mod ops;
+pub mod search;
 
 pub use models::{FileEntry, SortColumn, SortDirection};
 pub use navigation::History;
 pub use ops::{UndoAction, UndoStack};
+pub use search::SearchResult;

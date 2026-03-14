@@ -14,6 +14,7 @@ pub enum CommandId {
     Rename,
     Delete,
     Undo,
+    SearchFiles,
 }
 
 pub struct CommandDef {
@@ -57,6 +58,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::Undo,
         label: "Undo",
         description: "Undo the last file operation (Ctrl+Z)",
+    },
+    CommandDef {
+        id: CommandId::SearchFiles,
+        label: "Search Files",
+        description: "Fuzzy-search files recursively from the current directory (Ctrl+F)",
     },
 ];
 
