@@ -36,8 +36,8 @@ Dark/light theme toggle (Ctrl+T) with TOML persistence — 2026-03-14
 - **Theming** — Ctrl+T toggles between Dark and Light theme; persisted to `%APPDATA%\filescout\config.toml` (TOML via `serde`/`toml`); loaded async at startup; "Toggle Theme" in command palette; `Message::Noop` sink for fire-and-forget async tasks
 - 124 unit tests total (39 app + 82 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 11: AI Features)
-- Natural language search, smart organization suggestions
+## What's Next (Slice 11: Copy & Move)
+- F5/F6 copy and move between panes with progress feedback
 
 ## Blockers
 None

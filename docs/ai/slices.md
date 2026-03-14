@@ -20,7 +20,7 @@
 **Status:** Complete
 **Depends on:** Slice 3 ✓
 
-## Slice 5: File Operations
+## Slice 5: File Operations (Basic)
 **Goal:** Copy, move, delete (to trash), rename with undo/redo
 **Status:** Complete (delete+rename+undo; copy/move deferred to Slice 5b)
 **Depends on:** Slice 1 ✓
@@ -49,7 +49,42 @@
 **Goal:** Dark/light themes, custom color schemes
 **Status:** Complete (Ctrl+T toggle; TOML persistence; startup load; command palette entry)
 
-## Slice 11: AI Features
-**Goal:** Natural language search, smart organization suggestions
+## Slice 11: Copy & Move
+**Goal:** Copy (F5) and Move (F6) files/directories between panes with progress feedback
 **Status:** Not Started
-**Depends on:** Slice 7
+**Depends on:** Slice 3 ✓
+**Notes:** Classic dual-pane manager workflow; destination defaults to opposite pane
+
+## Slice 12: Multi-Selection
+**Goal:** Select multiple files with Shift+click, Ctrl+click, Shift+arrows, Ctrl+A; batch delete/copy/move
+**Status:** Not Started
+**Depends on:** Slice 5 ✓
+
+## Slice 13: Bookmarks / Favorites
+**Goal:** Save and jump to frequently-used directories; sidebar or overlay
+**Status:** Not Started
+**Depends on:** Slice 2 ✓
+
+## Slice 14: File Watcher (Auto-Refresh)
+**Goal:** Watch current directory for changes and refresh listing automatically
+**Status:** Not Started
+**Depends on:** Slice 1 ✓
+**Notes:** `notify` crate already in deps
+
+## Slice 15: Properties & Permissions
+**Goal:** File/directory properties dialog (size, dates, attributes, permissions)
+**Status:** Not Started
+**Depends on:** Slice 1 ✓
+
+## Slice 16: Archive Support
+**Goal:** Browse ZIP archives as virtual directories; extract to current/other pane
+**Status:** Not Started
+**Depends on:** Slice 3 ✓
+
+---
+
+## Slice 17: AI Features (Optional — Last)
+**Goal:** Natural language search, smart organization suggestions, AI-assisted rename
+**Status:** Not Started
+**Depends on:** Slices 7, 9 ✓
+**Notes:** Deferred until core functionality is solid; uses `AiProvider` trait for swappable backends
