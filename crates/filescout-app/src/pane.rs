@@ -3,6 +3,41 @@ use std::path::PathBuf;
 use filescout_core::{FileEntry, History, SortColumn, SortDirection};
 use filescout_ui::address_bar::AddressBarMessage;
 use filescout_ui::file_list::FileListMessage;
+use filescout_ui::tab_bar::TabBarMessage;
+
+/// All state owned by a single tab within a pane.
+pub struct TabState {
+    pub current_path: PathBuf,
+    pub entries: Vec<FileEntry>,
+    pub error: Option<String>,
+    pub sort_col: SortColumn,
+    pub sort_dir: SortDirection,
+    pub history: History,
+    pub address_text: String,
+}
+
+impl TabState {
+    pub fn new(path: PathBuf) -> Self {
+        let address_text = path.display().to_string();
+        Self {
+            history: History::new(path.clone()),
+            address_text,
+            current_path: path,
+            entries: Vec::new(),
+            error: None,
+            sort_col: SortColumn::default(),
+            sort_dir: SortDirection::default(),
+        }
+    }
+
+    /// Short display title for the tab (last path component, or full path at root).
+    pub fn title(&self) -> String {
+        self.current_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.current_path.display().to_string())
+    }
+}
 
 /// Identifies which of the two panes a message belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -26,31 +61,59 @@ impl PaneId {
 pub enum PaneMessage {
     FileList(FileListMessage),
     AddressBar(AddressBarMessage),
-    DirectoryLoaded(PathBuf, Result<Vec<FileEntry>, String>),
+    TabBar(TabBarMessage),
+    /// Async directory load result. Carries the tab index it was requested for.
+    DirectoryLoaded(usize, PathBuf, Result<Vec<FileEntry>, String>),
 }
 
-/// All state owned by a single file-list pane.
+/// All state owned by a single file-list pane (one or more tabs).
 pub struct PaneState {
-    pub current_path: PathBuf,
-    pub entries: Vec<FileEntry>,
-    pub error: Option<String>,
-    pub sort_col: SortColumn,
-    pub sort_dir: SortDirection,
-    pub history: History,
-    pub address_text: String,
+    pub tabs: Vec<TabState>,
+    pub active_tab: usize,
 }
 
 impl PaneState {
     pub fn new(path: PathBuf) -> Self {
-        let address_text = path.display().to_string();
         Self {
-            history: History::new(path.clone()),
-            address_text,
-            current_path: path,
-            entries: Vec::new(),
-            error: None,
-            sort_col: SortColumn::default(),
-            sort_dir: SortDirection::default(),
+            tabs: vec![TabState::new(path)],
+            active_tab: 0,
+        }
+    }
+
+    pub fn active(&self) -> &TabState {
+        &self.tabs[self.active_tab]
+    }
+
+    pub fn active_mut(&mut self) -> &mut TabState {
+        &mut self.tabs[self.active_tab]
+    }
+
+    /// Open a new tab at `path`, activate it, and return the new tab index.
+    pub fn new_tab(&mut self, path: PathBuf) -> usize {
+        self.tabs.push(TabState::new(path));
+        self.active_tab = self.tabs.len() - 1;
+        self.active_tab
+    }
+
+    /// Close the tab at `idx`. No-op if it is the only remaining tab.
+    /// Adjusts `active_tab` to remain valid after removal.
+    pub fn close_tab(&mut self, idx: usize) {
+        if self.tabs.len() <= 1 || idx >= self.tabs.len() {
+            return;
+        }
+        self.tabs.remove(idx);
+        // Keep active_tab in bounds and consistent.
+        if self.active_tab > idx {
+            self.active_tab -= 1;
+        } else if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len() - 1;
+        }
+    }
+
+    /// Switch the active tab to `idx`. No-op if `idx` is out of bounds.
+    pub fn switch_tab(&mut self, idx: usize) {
+        if idx < self.tabs.len() {
+            self.active_tab = idx;
         }
     }
 }
@@ -59,17 +122,127 @@ impl PaneState {
 mod tests {
     use super::*;
 
-    #[test]
-    fn pane_state_initializes_correctly() {
-        let path = PathBuf::from("C:\\Users");
-        let state = PaneState::new(path.clone());
-        assert_eq!(state.current_path, path);
-        assert_eq!(state.address_text, "C:\\Users");
-        assert!(state.entries.is_empty());
-        assert!(state.error.is_none());
-        assert!(!state.history.can_go_back());
-        assert!(!state.history.can_go_forward());
+    fn p(s: &str) -> PathBuf {
+        PathBuf::from(s)
     }
+
+    // --- TabState ---
+
+    #[test]
+    fn tab_state_initializes_correctly() {
+        let tab = TabState::new(p("C:\\Users"));
+        assert_eq!(tab.current_path, p("C:\\Users"));
+        assert_eq!(tab.address_text, "C:\\Users");
+        assert!(tab.entries.is_empty());
+        assert!(tab.error.is_none());
+        assert!(!tab.history.can_go_back());
+        assert!(!tab.history.can_go_forward());
+    }
+
+    #[test]
+    fn tab_state_title_returns_last_component() {
+        let tab = TabState::new(p("C:\\Users\\machi"));
+        assert_eq!(tab.title(), "machi");
+    }
+
+    #[test]
+    fn tab_state_title_at_drive_root_returns_full_path() {
+        let tab = TabState::new(p("C:\\"));
+        // file_name() is None at a drive root → falls back to display()
+        assert_eq!(tab.title(), "C:\\");
+    }
+
+    // --- PaneState ---
+
+    #[test]
+    fn pane_state_new_has_one_tab() {
+        let pane = PaneState::new(p("C:\\"));
+        assert_eq!(pane.tabs.len(), 1);
+        assert_eq!(pane.active_tab, 0);
+    }
+
+    #[test]
+    fn pane_state_active_returns_first_tab_path() {
+        let path = p("C:\\Users");
+        let pane = PaneState::new(path.clone());
+        assert_eq!(pane.active().current_path, path);
+    }
+
+    #[test]
+    fn pane_state_new_tab_appends_and_activates() {
+        let mut pane = PaneState::new(p("C:\\"));
+        let idx = pane.new_tab(p("C:\\Users"));
+        assert_eq!(idx, 1);
+        assert_eq!(pane.tabs.len(), 2);
+        assert_eq!(pane.active_tab, 1);
+        assert_eq!(pane.active().current_path, p("C:\\Users"));
+    }
+
+    #[test]
+    fn pane_state_switch_tab_changes_active() {
+        let mut pane = PaneState::new(p("C:\\"));
+        pane.new_tab(p("C:\\Users"));
+        pane.switch_tab(0);
+        assert_eq!(pane.active_tab, 0);
+        assert_eq!(pane.active().current_path, p("C:\\"));
+    }
+
+    #[test]
+    fn pane_state_switch_tab_out_of_bounds_is_noop() {
+        let mut pane = PaneState::new(p("C:\\"));
+        pane.switch_tab(5);
+        assert_eq!(pane.active_tab, 0);
+    }
+
+    #[test]
+    fn pane_state_close_tab_removes_tab() {
+        let mut pane = PaneState::new(p("C:\\"));
+        pane.new_tab(p("C:\\Users"));
+        pane.close_tab(0);
+        assert_eq!(pane.tabs.len(), 1);
+        assert_eq!(pane.active().current_path, p("C:\\Users"));
+    }
+
+    #[test]
+    fn pane_state_close_last_tab_is_noop() {
+        let mut pane = PaneState::new(p("C:\\"));
+        pane.close_tab(0);
+        assert_eq!(pane.tabs.len(), 1);
+        assert_eq!(pane.active_tab, 0);
+    }
+
+    #[test]
+    fn pane_state_close_active_tab_adjusts_to_previous() {
+        let mut pane = PaneState::new(p("C:\\"));
+        pane.new_tab(p("C:\\Users"));
+        // active_tab = 1; close it → active should fall to 0
+        pane.close_tab(1);
+        assert_eq!(pane.tabs.len(), 1);
+        assert_eq!(pane.active_tab, 0);
+        assert_eq!(pane.active().current_path, p("C:\\"));
+    }
+
+    #[test]
+    fn pane_state_close_earlier_tab_adjusts_active_index() {
+        let mut pane = PaneState::new(p("C:\\"));
+        pane.new_tab(p("C:\\Users"));
+        pane.new_tab(p("C:\\Windows"));
+        // active_tab = 2; close tab 0 → active_tab should shift to 1
+        pane.close_tab(0);
+        assert_eq!(pane.tabs.len(), 2);
+        assert_eq!(pane.active_tab, 1);
+        assert_eq!(pane.active().current_path, p("C:\\Windows"));
+    }
+
+    #[test]
+    fn pane_state_close_out_of_bounds_is_noop() {
+        let mut pane = PaneState::new(p("C:\\"));
+        pane.new_tab(p("C:\\Users"));
+        pane.close_tab(99);
+        assert_eq!(pane.tabs.len(), 2);
+    }
+
+    // --- PaneId ---
 
     #[test]
     fn pane_id_index_left_is_zero() {

@@ -5,6 +5,7 @@ use filescout_core::fs::{list_directory, list_drives, sort_entries};
 use filescout_core::SortDirection;
 use filescout_ui::address_bar::{address_bar_view, AddressBarMessage};
 use filescout_ui::file_list::{file_list_view, FileListMessage};
+use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
 use iced::widget::{column, container, row, text};
 use iced::{Element, Length, Size, Task, Theme};
 use tracing_subscriber::EnvFilter;
@@ -47,8 +48,8 @@ impl FileScout {
             drives: Vec::new(),
         };
 
-        let load_left = load_directory_for(PaneId::Left, cwd.clone());
-        let load_right = load_directory_for(PaneId::Right, cwd);
+        let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
+        let load_right = load_directory_for(PaneId::Right, 0, cwd);
         let load_drvs = Task::perform(
             async { tokio::task::spawn_blocking(list_drives).await.unwrap_or_default() },
             Message::DrivesLoaded,
@@ -74,79 +75,109 @@ impl FileScout {
         let pane = &mut self.panes[id.index()];
 
         match msg {
+            PaneMessage::TabBar(TabBarMessage::Switch(idx)) => {
+                pane.switch_tab(idx);
+                Task::none()
+            }
+
+            PaneMessage::TabBar(TabBarMessage::Close(idx)) => {
+                pane.close_tab(idx);
+                Task::none()
+            }
+
+            PaneMessage::TabBar(TabBarMessage::New) => {
+                let path = pane.active().current_path.clone();
+                let tab_idx = pane.new_tab(path.clone());
+                load_directory_for(id, tab_idx, path)
+            }
+
             PaneMessage::FileList(FileListMessage::Navigate(path)) => {
-                pane.history.navigate(path.clone());
-                pane.address_text = path.display().to_string();
-                load_directory_for(id, path)
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                tab.history.navigate(path.clone());
+                tab.address_text = path.display().to_string();
+                load_directory_for(id, tab_idx, path)
             }
 
             PaneMessage::FileList(FileListMessage::Sort(col)) => {
-                if pane.sort_col == col {
-                    pane.sort_dir = if pane.sort_dir == SortDirection::Asc {
+                let tab = pane.active_mut();
+                if tab.sort_col == col {
+                    tab.sort_dir = if tab.sort_dir == SortDirection::Asc {
                         SortDirection::Desc
                     } else {
                         SortDirection::Asc
                     };
                 } else {
-                    pane.sort_col = col;
-                    pane.sort_dir = SortDirection::Asc;
+                    tab.sort_col = col;
+                    tab.sort_dir = SortDirection::Asc;
                 }
-                sort_entries(&mut pane.entries, &pane.sort_col, &pane.sort_dir);
+                sort_entries(&mut tab.entries, &tab.sort_col, &tab.sort_dir);
                 Task::none()
             }
 
             PaneMessage::AddressBar(AddressBarMessage::Back) => {
-                if let Some(path) = pane.history.back().cloned() {
-                    pane.address_text = path.display().to_string();
-                    load_directory_for(id, path)
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                if let Some(path) = tab.history.back().cloned() {
+                    tab.address_text = path.display().to_string();
+                    load_directory_for(id, tab_idx, path)
                 } else {
                     Task::none()
                 }
             }
 
             PaneMessage::AddressBar(AddressBarMessage::Forward) => {
-                if let Some(path) = pane.history.forward().cloned() {
-                    pane.address_text = path.display().to_string();
-                    load_directory_for(id, path)
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                if let Some(path) = tab.history.forward().cloned() {
+                    tab.address_text = path.display().to_string();
+                    load_directory_for(id, tab_idx, path)
                 } else {
                     Task::none()
                 }
             }
 
             PaneMessage::AddressBar(AddressBarMessage::Edit(t)) => {
-                pane.address_text = t;
+                pane.active_mut().address_text = t;
                 Task::none()
             }
 
             PaneMessage::AddressBar(AddressBarMessage::Submit) => {
-                let path = PathBuf::from(&pane.address_text);
-                pane.history.navigate(path.clone());
-                load_directory_for(id, path)
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                let path = PathBuf::from(&tab.address_text);
+                tab.history.navigate(path.clone());
+                load_directory_for(id, tab_idx, path)
             }
 
             PaneMessage::AddressBar(AddressBarMessage::BreadcrumbNavigate(path)) => {
-                pane.history.navigate(path.clone());
-                pane.address_text = path.display().to_string();
-                load_directory_for(id, path)
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                tab.history.navigate(path.clone());
+                tab.address_text = path.display().to_string();
+                load_directory_for(id, tab_idx, path)
             }
 
             PaneMessage::AddressBar(AddressBarMessage::DriveSelected(path)) => {
-                pane.history.navigate(path.clone());
-                pane.address_text = path.display().to_string();
-                load_directory_for(id, path)
+                let tab_idx = pane.active_tab;
+                let tab = &mut pane.tabs[tab_idx];
+                tab.history.navigate(path.clone());
+                tab.address_text = path.display().to_string();
+                load_directory_for(id, tab_idx, path)
             }
 
-            PaneMessage::DirectoryLoaded(path, Ok(mut entries)) => {
-                sort_entries(&mut entries, &pane.sort_col, &pane.sort_dir);
-                pane.entries = entries;
-                pane.current_path = path.clone();
-                pane.address_text = path.display().to_string();
-                pane.error = None;
+            PaneMessage::DirectoryLoaded(tab_idx, path, Ok(mut entries)) => {
+                let tab = &mut pane.tabs[tab_idx];
+                sort_entries(&mut entries, &tab.sort_col, &tab.sort_dir);
+                tab.entries = entries;
+                tab.current_path = path.clone();
+                tab.address_text = path.display().to_string();
+                tab.error = None;
                 Task::none()
             }
 
-            PaneMessage::DirectoryLoaded(_, Err(e)) => {
-                pane.error = Some(e);
+            PaneMessage::DirectoryLoaded(tab_idx, _, Err(e)) => {
+                pane.tabs[tab_idx].error = Some(e);
                 Task::none()
             }
         }
@@ -179,25 +210,30 @@ fn pane_view<'a>(
     drives: &'a [PathBuf],
     is_active: bool,
 ) -> Element<'a, Message> {
-    let parent = pane.current_path.parent().map(|p| p.to_path_buf());
+    let tab_titles: Vec<String> = pane.tabs.iter().map(|t| t.title()).collect();
+    let tabs = tab_bar_view(tab_titles, pane.active_tab)
+        .map(move |msg| Message::Pane(id, PaneMessage::TabBar(msg)));
+
+    let active_tab = pane.active();
+    let parent = active_tab.current_path.parent().map(|p| p.to_path_buf());
 
     let addr_bar = address_bar_view(
-        &pane.current_path,
-        &pane.address_text,
+        &active_tab.current_path,
+        &active_tab.address_text,
         drives,
-        pane.history.can_go_back(),
-        pane.history.can_go_forward(),
+        active_tab.history.can_go_back(),
+        active_tab.history.can_go_forward(),
     )
     .map(move |msg| Message::Pane(id, PaneMessage::AddressBar(msg)));
 
-    let content: Element<'_, Message> = if let Some(ref err) = pane.error {
+    let content: Element<'_, Message> = if let Some(ref err) = active_tab.error {
         text(format!("Error: {err}")).into()
     } else {
-        file_list_view(&pane.entries, parent, &pane.sort_col, &pane.sort_dir)
+        file_list_view(&active_tab.entries, parent, &active_tab.sort_col, &active_tab.sort_dir)
             .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
     };
 
-    let inner = column![addr_bar, content]
+    let inner = column![tabs, addr_bar, content]
         .spacing(4)
         .padding(8)
         .width(Length::Fill)
@@ -217,7 +253,7 @@ fn pane_view<'a>(
     }
 }
 
-fn load_directory_for(pane: PaneId, path: PathBuf) -> Task<Message> {
+fn load_directory_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message> {
     let path_for_msg = path.clone();
     Task::perform(
         async move {
@@ -228,7 +264,7 @@ fn load_directory_for(pane: PaneId, path: PathBuf) -> Task<Message> {
         move |result| {
             Message::Pane(
                 pane,
-                PaneMessage::DirectoryLoaded(path_for_msg, result.map_err(|e| e.to_string())),
+                PaneMessage::DirectoryLoaded(tab_idx, path_for_msg, result.map_err(|e| e.to_string())),
             )
         },
     )

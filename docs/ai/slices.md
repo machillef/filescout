@@ -17,13 +17,13 @@
 
 ## Slice 4: Tabs
 **Goal:** Multiple tabs per pane with tab management
-**Status:** Up Next
+**Status:** Complete
 **Depends on:** Slice 3 ✓
 
 ## Slice 5: File Operations
 **Goal:** Copy, move, delete (to trash), rename with undo/redo
-**Status:** Not Started
-**Depends on:** Slice 1
+**Status:** Up Next
+**Depends on:** Slice 1 ✓
 
 ## Slice 6: Command Palette
 **Goal:** Fuzzy-matched command search (Ctrl+Shift+P)
