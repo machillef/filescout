@@ -11,3 +11,18 @@ pub struct FileEntry {
     pub size: u64,
     pub modified: Option<DateTime<Local>>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SortColumn {
+    #[default]
+    Name,
+    Size,
+    Modified,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SortDirection {
+    #[default]
+    Asc,
+    Desc,
+}

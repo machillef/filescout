@@ -3,4 +3,4 @@
 pub mod fs;
 pub mod models;
 
-pub use models::FileEntry;
+pub use models::{FileEntry, SortColumn, SortDirection};

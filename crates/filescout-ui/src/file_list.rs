@@ -1,45 +1,104 @@
-use filescout_core::FileEntry;
-use iced::widget::{column, row, scrollable, text};
-use iced::Element;
+use std::path::PathBuf;
 
-/// Render a list of file entries as a scrollable column.
-pub fn file_list_view<'a, Message: 'a>(entries: &'a [FileEntry]) -> Element<'a, Message> {
+use filescout_core::{FileEntry, SortColumn, SortDirection};
+use iced::widget::{button, column, row, scrollable, text};
+use iced::{Element, Length};
+
+/// Messages emitted by the file list component.
+#[derive(Debug, Clone)]
+pub enum FileListMessage {
+    Navigate(PathBuf),
+    Sort(SortColumn),
+}
+
+/// Render a sortable, scrollable list of file entries.
+///
+/// `parent_path` — if `Some`, a `..` row is shown at the top for navigating up.
+/// `sort_col` / `sort_dir` — current sort state, used to render column indicators.
+pub fn file_list_view<'a>(
+    entries: &'a [FileEntry],
+    parent_path: Option<PathBuf>,
+    sort_col: &'a SortColumn,
+    sort_dir: &'a SortDirection,
+) -> Element<'a, FileListMessage> {
     let header = row![
-        text("Name").width(300),
-        text("Size").width(100),
-        text("Modified").width(200),
+        button(text(format!("Name{}", sort_indicator(sort_col, sort_dir, &SortColumn::Name))).width(300))
+            .on_press(FileListMessage::Sort(SortColumn::Name))
+            .style(button::text),
+        button(text(format!("Size{}", sort_indicator(sort_col, sort_dir, &SortColumn::Size))).width(100))
+            .on_press(FileListMessage::Sort(SortColumn::Size))
+            .style(button::text),
+        button(text(format!("Modified{}", sort_indicator(sort_col, sort_dir, &SortColumn::Modified))).width(200))
+            .on_press(FileListMessage::Sort(SortColumn::Modified))
+            .style(button::text),
     ]
     .spacing(10)
     .padding(5);
 
-    let rows: Vec<Element<'a, Message>> = entries
-        .iter()
-        .map(|entry| {
-            let icon = if entry.is_dir { "📁" } else { "📄" };
-            let size_text = if entry.is_dir {
-                String::new()
-            } else {
-                format_size(entry.size)
-            };
-            let modified_text = entry
-                .modified
-                .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-                .unwrap_or_default();
+    let mut rows: Vec<Element<'a, FileListMessage>> = Vec::new();
 
+    if let Some(parent) = parent_path {
+        let up_row = button(
             row![
-                text(format!("{icon} {}", entry.name)).width(300),
-                text(size_text).width(100),
-                text(modified_text).width(200),
+                text("📁 ..").width(300),
+                text("").width(100),
+                text("").width(200),
             ]
             .spacing(10)
-            .padding(2)
-            .into()
-        })
-        .collect();
+            .padding(2),
+        )
+        .on_press(FileListMessage::Navigate(parent))
+        .style(button::text)
+        .width(Length::Fill);
+
+        rows.push(up_row.into());
+    }
+
+    for entry in entries {
+        let icon = if entry.is_dir { "📁" } else { "📄" };
+        let size_text = if entry.is_dir {
+            String::new()
+        } else {
+            format_size(entry.size)
+        };
+        let modified_text = entry
+            .modified
+            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+            .unwrap_or_default();
+
+        let row_content = row![
+            text(format!("{icon} {}", entry.name)).width(300),
+            text(size_text).width(100),
+            text(modified_text).width(200),
+        ]
+        .spacing(10)
+        .padding(2);
+
+        if entry.is_dir {
+            let path = entry.path.clone();
+            rows.push(
+                button(row_content)
+                    .on_press(FileListMessage::Navigate(path))
+                    .style(button::text)
+                    .width(Length::Fill)
+                    .into(),
+            );
+        } else {
+            rows.push(row_content.into());
+        }
+    }
 
     let list = column(rows).spacing(1);
 
     scrollable(column![header, list].spacing(5)).into()
+}
+
+fn sort_indicator<'a>(current: &SortColumn, dir: &SortDirection, col: &SortColumn) -> &'a str {
+    if current == col {
+        if *dir == SortDirection::Asc { " ▲" } else { " ▼" }
+    } else {
+        ""
+    }
 }
 
 fn format_size(bytes: u64) -> String {
