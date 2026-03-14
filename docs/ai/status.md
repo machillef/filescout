@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 12: Multi-Selection** — Complete
+**Slice 13: Bookmarks / Favorites** — Complete
 
 ## Last Completed
-Multi-selection with Ctrl+click, Shift+click, Ctrl+A, Shift+arrows — 2026-03-14
+Bookmarks overlay (Ctrl+B / Ctrl+D) with TOML persistence — 2026-03-14
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -35,10 +35,11 @@ Multi-selection with Ctrl+click, Shift+click, Ctrl+A, Shift+arrows — 2026-03-1
 - **Batch Rename** — Ctrl+R opens modal overlay; pattern tokens `{name}` `{ext}` `{n}` `{n:NN}`; optional extension filter; live preview table (original → new name); validation errors shown inline; Enter/Apply executes renames async; each successful rename pushed to undo stack; "Batch Rename" in command palette
 - **Theming** — Ctrl+T toggles between Dark and Light theme; persisted to `%APPDATA%\filescout\config.toml` (TOML via `serde`/`toml`); loaded async at startup; "Toggle Theme" in command palette; `Message::Noop` sink for fire-and-forget async tasks
 - **Copy & Move** — F5 copies selected item(s) to other pane's current dir; F6 moves; both async with progress overlay; batch-aware (operates on entire selection); "Copy to Other Pane" / "Move to Other Pane" in command palette; cross-device fallback (copy+delete)
-- **Multi-Selection** — Ctrl+click toggles; Shift+click range-selects from anchor; Ctrl+A selects all; Shift+↑/↓ extends selection; modifier state tracked via `ModifiersChanged` subscription event; selection count shown in pane status bar; `SelectionState` in `pane.rs` holds items/focus/anchor; F8 delete / F5 copy / F6 move operate on all selected items; 147 unit tests total (54 app + 90 core + 3 ui), all passing, clippy clean
+- **Multi-Selection** — Ctrl+click toggles; Shift+click range-selects from anchor; Ctrl+A selects all; Shift+↑/↓ extends selection; modifier state tracked via `ModifiersChanged` subscription event; selection count shown in pane status bar; `SelectionState` in `pane.rs` holds items/focus/anchor; F8 delete / F5 copy / F6 move operate on all selected items
+- **Bookmarks / Favorites** — Ctrl+D bookmarks current directory; Ctrl+B opens overlay; click navigates active pane; ✕ removes; persisted in `AppConfig.bookmarks` (same `config.toml`); "Open Bookmarks" / "Bookmark This Directory" in command palette; `Bookmark`/`Bookmarks` in `filescout-core/src/bookmarks.rs`; overlay in `filescout-app/src/bookmarks.rs`; 161 unit tests total (54 app + 104 core + 3 ui), all passing, clippy clean
 
-## What's Next (Slice 13: Bookmarks / Favorites)
-- Save and jump to frequently-used directories; sidebar or overlay
+## What's Next (Slice 14: File Watcher / Auto-Refresh)
+- Watch current directory for changes and refresh listing automatically (`notify` crate already in deps)
 
 ## Blockers
 None

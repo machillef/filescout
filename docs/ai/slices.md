@@ -59,7 +59,7 @@
 
 ## Slice 13: Bookmarks / Favorites
 **Goal:** Save and jump to frequently-used directories; sidebar or overlay
-**Status:** Not Started
+**Status:** Complete (Ctrl+D adds; Ctrl+B opens overlay; TOML persistence; command palette entries)
 **Depends on:** Slice 2 ✓
 
 ## Slice 14: File Watcher (Auto-Refresh)
