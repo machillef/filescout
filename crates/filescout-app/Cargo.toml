@@ -1,0 +1,20 @@
+[package]
+name = "filescout-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "FileScout — a high-performance, open-source file explorer for Windows"
+
+[[bin]]
+name = "filescout"
+path = "src/main.rs"
+
+[dependencies]
+iced = { workspace = true }
+tokio = { workspace = true }
+filescout-core = { workspace = true }
+filescout-ui = { workspace = true }
+filescout-ai = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

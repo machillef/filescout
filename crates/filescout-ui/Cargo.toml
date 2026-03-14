@@ -1,0 +1,11 @@
+[package]
+name = "filescout-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Reusable iced UI components for FileScout"
+
+[dependencies]
+iced = { workspace = true }
+filescout-core = { workspace = true }
+tracing = { workspace = true }
