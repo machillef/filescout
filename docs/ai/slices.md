@@ -22,13 +22,13 @@
 
 ## Slice 5: File Operations
 **Goal:** Copy, move, delete (to trash), rename with undo/redo
-**Status:** Up Next
+**Status:** Complete (delete+rename+undo; copy/move deferred to Slice 5b)
 **Depends on:** Slice 1 ✓
 
 ## Slice 6: Command Palette
 **Goal:** Fuzzy-matched command search (Ctrl+Shift+P)
-**Status:** Not Started
-**Depends on:** Slice 2
+**Status:** Up Next
+**Depends on:** Slice 2 ✓
 
 ## Slice 7: Search
 **Goal:** Fuzzy file search, recursive, with extension filtering
