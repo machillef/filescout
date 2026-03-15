@@ -32,6 +32,13 @@ pub enum CommandId {
     ViewList,
     ViewDetails,
     ToggleDualPane,
+    NewFolder,
+    NavigateThisPC,
+    NavigateHome,
+    NavigateDownloads,
+    NavigateDocuments,
+    NavigateDesktop,
+    RefreshDir,
 }
 
 pub struct CommandDef {
@@ -165,6 +172,41 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::ToggleDualPane,
         label: "Toggle Dual Pane",
         description: "Switch between single-pane and dual-pane layout (F9)",
+    },
+    CommandDef {
+        id: CommandId::NewFolder,
+        label: "New Folder",
+        description: "Create a new folder in the current directory",
+    },
+    CommandDef {
+        id: CommandId::NavigateThisPC,
+        label: "This PC",
+        description: "Navigate to drive root (C:\\)",
+    },
+    CommandDef {
+        id: CommandId::NavigateHome,
+        label: "Go to Home",
+        description: "Navigate to your home directory",
+    },
+    CommandDef {
+        id: CommandId::NavigateDownloads,
+        label: "Go to Downloads",
+        description: "Navigate to the Downloads folder",
+    },
+    CommandDef {
+        id: CommandId::NavigateDocuments,
+        label: "Go to Documents",
+        description: "Navigate to the Documents folder",
+    },
+    CommandDef {
+        id: CommandId::NavigateDesktop,
+        label: "Go to Desktop",
+        description: "Navigate to the Desktop folder",
+    },
+    CommandDef {
+        id: CommandId::RefreshDir,
+        label: "Refresh",
+        description: "Reload the current directory listing",
     },
 ];
 

@@ -18,6 +18,8 @@ pub enum AddressBarMessage {
     Back,
     /// User pressed the Forward button.
     Forward,
+    /// User clicked a quick-access shortcut (Home, Downloads, etc.).
+    QuickAccess(PathBuf),
 }
 
 /// Render the full address bar:
@@ -83,8 +85,42 @@ pub fn address_bar_view<'a>(
 
     let crumbs = breadcrumbs(current_path);
 
-    column![top_row, crumbs]
+    // Quick-access shortcuts row (Home, Downloads, Documents, Desktop).
+    let quick_access = quick_access_row();
+
+    column![top_row, crumbs, quick_access]
         .spacing(2)
+        .width(Length::Fill)
+        .into()
+}
+
+/// Builds a row of quick-access shortcut buttons for common directories.
+fn quick_access_row<'a>() -> Element<'a, AddressBarMessage> {
+    let shortcuts: Vec<(&str, Option<PathBuf>)> = vec![
+        ("Home", dirs::home_dir()),
+        ("Desktop", dirs::desktop_dir()),
+        ("Documents", dirs::document_dir()),
+        ("Downloads", dirs::download_dir()),
+    ];
+
+    let buttons: Vec<Element<'a, AddressBarMessage>> = shortcuts
+        .into_iter()
+        .filter_map(|(label, path)| {
+            let target = path?;
+            Some(
+                button(text(label).size(11))
+                    .on_press(AddressBarMessage::QuickAccess(target))
+                    .style(button::text)
+                    .padding([2, 6])
+                    .into(),
+            )
+        })
+        .collect();
+
+    row(buttons)
+        .spacing(2)
+        .align_y(Alignment::Center)
+        .padding([0, 5])
         .width(Length::Fill)
         .into()
 }

@@ -1442,6 +1442,41 @@ impl FileScout {
             CommandId::ViewList => self.update(Message::SetViewMode(ViewMode::List)),
             CommandId::ViewDetails => self.update(Message::SetViewMode(ViewMode::Details)),
             CommandId::ToggleDualPane => self.update(Message::ToggleDualPane),
+            CommandId::NewFolder => self.update(Message::NewFolder),
+            CommandId::RefreshDir => self.update(Message::RefreshActivePane),
+            CommandId::NavigateThisPC => {
+                // Navigate to C:\ as the "This PC" equivalent.
+                let path = PathBuf::from("C:\\");
+                self.update_pane(id, PaneMessage::FileList(FileListMessage::Navigate(path)))
+            }
+            CommandId::NavigateHome => {
+                if let Some(home) = dirs::home_dir() {
+                    self.update_pane(id, PaneMessage::FileList(FileListMessage::Navigate(home)))
+                } else {
+                    Task::none()
+                }
+            }
+            CommandId::NavigateDownloads => {
+                if let Some(dl) = dirs::download_dir() {
+                    self.update_pane(id, PaneMessage::FileList(FileListMessage::Navigate(dl)))
+                } else {
+                    Task::none()
+                }
+            }
+            CommandId::NavigateDocuments => {
+                if let Some(docs) = dirs::document_dir() {
+                    self.update_pane(id, PaneMessage::FileList(FileListMessage::Navigate(docs)))
+                } else {
+                    Task::none()
+                }
+            }
+            CommandId::NavigateDesktop => {
+                if let Some(desk) = dirs::desktop_dir() {
+                    self.update_pane(id, PaneMessage::FileList(FileListMessage::Navigate(desk)))
+                } else {
+                    Task::none()
+                }
+            }
         }
     }
 
@@ -1774,7 +1809,8 @@ impl FileScout {
                 load_directory_for(id, tab_idx, path)
             }
 
-            PaneMessage::AddressBar(AddressBarMessage::DriveSelected(path)) => {
+            PaneMessage::AddressBar(AddressBarMessage::DriveSelected(path))
+            | PaneMessage::AddressBar(AddressBarMessage::QuickAccess(path)) => {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
                 tab.archive_context = None;

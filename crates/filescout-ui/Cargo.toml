@@ -9,3 +9,4 @@ description = "Reusable iced UI components for FileScout"
 iced = { workspace = true }
 filescout-core = { workspace = true }
 tracing = { workspace = true }
+dirs = { workspace = true }
