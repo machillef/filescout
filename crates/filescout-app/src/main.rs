@@ -86,6 +86,8 @@ struct FileScout {
     show_hidden: bool,
     /// Internal clipboard for copy/cut/paste.
     clipboard: Option<ClipboardState>,
+    /// Ratio of left pane width (0.2..0.8), default 0.5.
+    split_ratio: f32,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -187,6 +189,7 @@ impl FileScout {
             confirm: None,
             show_hidden: false,
             clipboard: None,
+            split_ratio: 0.5,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -258,11 +261,12 @@ impl FileScout {
                 self.theme = cfg.theme;
                 self.bookmarks = cfg.bookmarks;
                 self.show_hidden = cfg.show_hidden;
+                self.split_ratio = cfg.split_ratio.clamp(0.2, 0.8);
                 Task::none()
             }
             Message::ToggleTheme => {
                 self.theme = self.theme.toggled();
-                let cfg = AppConfig { theme: self.theme, bookmarks: self.bookmarks.clone(), show_hidden: self.show_hidden };
+                let cfg = self.current_config();
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -277,11 +281,7 @@ impl FileScout {
             Message::ToggleHidden => {
                 self.show_hidden = !self.show_hidden;
                 // Persist and refresh all visible tabs.
-                let cfg = AppConfig {
-                    theme: self.theme,
-                    bookmarks: self.bookmarks.clone(),
-                    show_hidden: self.show_hidden,
-                };
+                let cfg = self.current_config();
                 let save_task = Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -431,8 +431,7 @@ impl FileScout {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| path.display().to_string());
                 self.bookmarks = self.bookmarks.add(name, path);
-                let bm = self.bookmarks.clone();
-                let cfg = AppConfig { theme: self.theme, bookmarks: bm, show_hidden: self.show_hidden };
+                let cfg = self.current_config();
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -1015,8 +1014,7 @@ impl FileScout {
             }
             BookmarkMessage::Remove(index) => {
                 self.bookmarks = self.bookmarks.remove(index);
-                let bm = self.bookmarks.clone();
-                let cfg = AppConfig { theme: self.theme, bookmarks: bm, show_hidden: self.show_hidden };
+                let cfg = self.current_config();
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -1085,6 +1083,15 @@ impl FileScout {
                     }
                 }
             }
+        }
+    }
+
+    fn current_config(&self) -> AppConfig {
+        AppConfig {
+            theme: self.theme,
+            bookmarks: self.bookmarks.clone(),
+            show_hidden: self.show_hidden,
+            split_ratio: self.split_ratio,
         }
     }
 
@@ -1706,8 +1713,20 @@ impl FileScout {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let left = pane_view(PaneId::Left, &self.panes[0], &self.drives, self.active == PaneId::Left);
-        let right = pane_view(PaneId::Right, &self.panes[1], &self.drives, self.active == PaneId::Right);
+        let left_portion = (self.split_ratio * 100.0) as u16;
+        let right_portion = 100 - left_portion;
+
+        let left = container(
+            pane_view(PaneId::Left, &self.panes[0], &self.drives, self.active == PaneId::Left),
+        )
+        .width(Length::FillPortion(left_portion))
+        .height(Length::Fill);
+
+        let right = container(
+            pane_view(PaneId::Right, &self.panes[1], &self.drives, self.active == PaneId::Right),
+        )
+        .width(Length::FillPortion(right_portion))
+        .height(Length::Fill);
 
         let main: Element<'_, Message> = container(
             row![left, right]

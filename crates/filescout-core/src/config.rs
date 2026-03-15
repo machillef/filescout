@@ -34,7 +34,7 @@ impl ThemePreference {
 }
 
 /// All persisted user preferences.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     pub theme: ThemePreference,
@@ -42,6 +42,23 @@ pub struct AppConfig {
     pub bookmarks: Bookmarks,
     #[serde(default)]
     pub show_hidden: bool,
+    #[serde(default = "default_split_ratio")]
+    pub split_ratio: f32,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            theme: ThemePreference::default(),
+            bookmarks: Bookmarks::default(),
+            show_hidden: false,
+            split_ratio: 0.5,
+        }
+    }
+}
+
+fn default_split_ratio() -> f32 {
+    0.5
 }
 
 /// Returns the path to the config file, or `None` if the OS has no config dir.
@@ -206,6 +223,20 @@ mod tests {
         let text = toml::to_string_pretty(&cfg).unwrap();
         let restored: AppConfig = toml::from_str(&text).unwrap();
         assert!(restored.show_hidden);
+    }
+
+    #[test]
+    fn split_ratio_defaults_to_half() {
+        let cfg = AppConfig::default();
+        assert!((cfg.split_ratio - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn split_ratio_round_trip() {
+        let cfg = AppConfig { split_ratio: 0.3, ..Default::default() };
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        let restored: AppConfig = toml::from_str(&text).unwrap();
+        assert!((restored.split_ratio - 0.3).abs() < f32::EPSILON);
     }
 
     #[test]
