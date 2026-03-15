@@ -64,15 +64,15 @@ None — all UX bugs resolved.
 ## Polish Phase
 
 ### [x] P1: Window title shows current directory path
-- Dynamic title: `"C:\path — FileScout"` format
-
 ### [x] P2: Keyboard shortcut help overlay (F1)
-- F1 opens categorized overlay; Esc/F1 closes
-- Also in command palette as "Keyboard Shortcuts"
-
 ### [x] P3: Address bar dropdown autocomplete
-- Dropdown suggestions appear below address bar as user types
-- Click suggestion to navigate; clears on navigation
+### [x] P4: Draggable pane divider (already done in Slice 25)
 
-### Already Done
-- Draggable pane divider — Slice 25 already implemented resizable split
+### UX Bugs Fixed (Round 3)
+- [x] Ext/Type columns overlap → dynamic FillPortion widths
+- [x] Folder size blank → shows `<DIR>`
+- [x] Large directory loading delay → loading indicator
+- [x] Ctrl+L focuses address bar with text selected
+- [x] Command palette arrows don't scroll → auto-scroll to selection
+- [x] Context menu highlight doesn't follow mouse → hover styles
+- [x] F1 shortcuts help confirmed working
