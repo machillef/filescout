@@ -26,8 +26,11 @@ desktop.ini
 .env.local
 .env*.local
 
-# Claude / AI session files
-.claude/sessions/
+# Claude Code config and AI session files (private tooling)
+.claude/
+
+# AI-assisted development notes (private session docs)
+docs/ai/
 
 # Logs
 *.log

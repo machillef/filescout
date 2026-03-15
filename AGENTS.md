@@ -27,7 +27,6 @@ filescout/
 │   ├── filescout-ui/     # Reusable iced widgets
 │   └── filescout-ai/     # AI features (trait-based, swappable backends)
 ├── assets/               # Icons, themes
-├── docs/ai/              # AI-readable project docs
 └── tests/                # Integration tests
 ```
 
