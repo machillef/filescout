@@ -62,7 +62,7 @@ fn main() -> iced::Result {
         .init();
 
     iced::application(FileScout::new, FileScout::update, FileScout::view)
-        .title("FileScout")
+        .title(FileScout::title)
         .theme(FileScout::theme)
         .subscription(FileScout::subscription)
         .window(iced::window::Settings {
@@ -2190,6 +2190,13 @@ impl FileScout {
         } else {
             main
         }
+    }
+
+    fn title(&self) -> String {
+        let pane = &self.panes[self.active.index()];
+        let tab = &pane.tabs[pane.active_tab];
+        let path = tab.current_path.display();
+        format!("{path} — FileScout")
     }
 
     fn theme(&self) -> Theme {
