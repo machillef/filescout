@@ -2557,11 +2557,8 @@ fn load_preview_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message
     )
 }
 
-fn pane_divider_style(_theme: &Theme) -> container::Style {
-    container::Style {
-        background: Some(Background::Color(Color::from_rgba(0.5, 0.5, 0.5, 0.6))),
-        ..Default::default()
-    }
+fn pane_divider_style(theme: &Theme) -> container::Style {
+    filescout_ui::theme::divider_style(theme)
 }
 
 fn copy_move_backdrop_style(_theme: &Theme) -> container::Style {

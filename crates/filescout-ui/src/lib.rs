@@ -5,6 +5,7 @@ pub mod file_list;
 pub mod icons;
 pub mod preview_panel;
 pub mod tab_bar;
+pub mod theme;
 
 pub use address_bar::AddressBarMessage;
 pub use file_list::FileListMessage;

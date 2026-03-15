@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use filescout_core::bookmarks::Bookmarks;
+use filescout_ui::theme;
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Element, Length};
 
@@ -130,6 +131,7 @@ pub fn sidebar_view(
     )
     .width(220)
     .height(Length::Fill)
+    .style(theme::sidebar_style)
     .into()
 }
 
