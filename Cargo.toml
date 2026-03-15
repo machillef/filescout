@@ -57,6 +57,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Clipboard
 arboard = "3"
 
+# Windows shell integration (icons, context menus)
+windows = { version = "0.61", features = [
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+] }
+
 # Internal crates
 filescout-core = { path = "crates/filescout-core" }
 filescout-ui = { path = "crates/filescout-ui" }

@@ -11,6 +11,7 @@ pub mod ops;
 pub mod preview;
 pub mod properties;
 pub mod search;
+pub mod win32_icons;
 
 pub use bookmarks::{Bookmark, Bookmarks};
 pub use models::{FileEntry, SortColumn, SortDirection, ViewMode};

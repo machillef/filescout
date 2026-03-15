@@ -1,15 +1,16 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use filescout_core::{FileEntry, SortColumn, SortDirection, ViewMode};
 use iced::widget::scrollable::Viewport;
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
+use iced::widget::{button, column, container, image, row, scrollable, text, text_input, Space};
 use iced::{Element, Length};
 use iced::widget::Id;
 
 use crate::theme;
 
 use crate::icons::file_icon_text;
+use filescout_core::win32_icons::DIR_ICON_KEY;
 
 /// Unique ID for the inline rename text input (used for programmatic focus).
 pub const RENAME_INPUT_ID: &str = "rename_input";
@@ -62,6 +63,7 @@ pub fn file_list_view<'a>(
     pane_id: &'static str,
     scroll_offset: f32,
     viewport_height: f32,
+    icon_cache: &'a HashMap<String, image::Handle>,
 ) -> Element<'a, FileListMessage> {
     let is_details = *view_mode == ViewMode::Details;
 
@@ -105,7 +107,7 @@ pub fn file_list_view<'a>(
                     let (_, rename_text) = renaming.unwrap();
                     rows.push(build_rename_row(entry, rename_text, is_details));
                 } else {
-                    rows.push(build_entry_row(entry, is_selected, is_details, idx));
+                    rows.push(build_entry_row(entry, is_selected, is_details, idx, icon_cache));
                 }
             }
         }
@@ -236,18 +238,39 @@ fn build_entry_row<'a>(
     is_selected: bool,
     is_details: bool,
     row_idx: usize,
+    icon_cache: &'a HashMap<String, image::Handle>,
 ) -> Element<'a, FileListMessage> {
-    let icon = file_icon_text(entry);
     let size_text = format_size_for(entry);
     let modified_text = format_modified(entry);
     let ext_text = if is_details { extract_extension(&entry.name) } else { String::new() };
     let type_text = if is_details { file_type_description(entry) } else { String::new() };
 
-    let mut row_items: Vec<Element<'a, FileListMessage>> = vec![
+    // Look up native icon: directories use DIR_ICON_KEY, files use their extension
+    let icon_key = if entry.is_dir {
+        DIR_ICON_KEY.to_string()
+    } else {
+        extract_extension(&entry.name)
+    };
+
+    let name_cell: Element<'a, FileListMessage> = if let Some(handle) = icon_cache.get(&icon_key) {
+        row![
+            image(handle.clone())
+                .width(Length::Fixed(16.0))
+                .height(Length::Fixed(16.0)),
+            text(&entry.name),
+        ]
+        .spacing(4)
+        .align_y(iced::Alignment::Center)
+        .width(Length::FillPortion(NAME_PORTION))
+        .into()
+    } else {
+        let icon = file_icon_text(entry);
         text(format!("{icon} {}", entry.name))
             .width(Length::FillPortion(NAME_PORTION))
-            .into(),
-    ];
+            .into()
+    };
+
+    let mut row_items: Vec<Element<'a, FileListMessage>> = vec![name_cell];
     if is_details {
         row_items.push(text(ext_text).width(Length::FillPortion(EXT_PORTION)).into());
         row_items.push(text(type_text).width(Length::FillPortion(TYPE_PORTION)).into());

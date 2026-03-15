@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -113,6 +114,8 @@ struct FileScout {
     show_shortcuts_help: bool,
     /// Sidebar navigation state.
     sidebar: SidebarState,
+    /// Cache of native file type icons keyed by extension (or "__dir__" for folders).
+    icon_cache: HashMap<String, iced::widget::image::Handle>,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -219,6 +222,8 @@ enum Message {
     ShortcutsHelp(ShortcutsHelpMessage),
     /// A message from the sidebar.
     Sidebar(SidebarMessage),
+    /// Native file type icons loaded in background.
+    IconsLoaded(Vec<(String, filescout_core::win32_icons::IconData)>),
 }
 
 impl FileScout {
@@ -249,6 +254,7 @@ impl FileScout {
             dual_pane: false,
             show_shortcuts_help: false,
             sidebar: SidebarState::default(),
+            icon_cache: HashMap::new(),
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd, 0);
@@ -580,6 +586,17 @@ impl FileScout {
                 Task::none()
             }
             Message::Sidebar(msg) => self.handle_sidebar(msg),
+            Message::IconsLoaded(icons) => {
+                for (key, data) in icons {
+                    let handle = iced::widget::image::Handle::from_rgba(
+                        data.width,
+                        data.height,
+                        data.rgba,
+                    );
+                    self.icon_cache.insert(key, handle);
+                }
+                Task::none()
+            }
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
             Message::ModifiersChanged(mods) => {
                 self.current_modifiers = mods;
@@ -2001,6 +2018,29 @@ impl FileScout {
                     entries.retain(|e| !e.is_hidden);
                 }
                 sort_entries(&mut entries, &tab.sort_col, &tab.sort_dir);
+
+                // Collect extensions not yet in the icon cache
+                let has_dirs = entries.iter().any(|e| e.is_dir);
+                let need_folder = has_dirs
+                    && !self
+                        .icon_cache
+                        .contains_key(filescout_core::win32_icons::DIR_ICON_KEY);
+                let mut missing_exts: Vec<String> = Vec::new();
+                for entry in &entries {
+                    if !entry.is_dir {
+                        let ext = entry
+                            .name
+                            .rsplit('.')
+                            .next()
+                            .filter(|e| entry.name.contains('.') && !e.is_empty())
+                            .map(|e| e.to_lowercase())
+                            .unwrap_or_default();
+                        if !self.icon_cache.contains_key(&ext) && !missing_exts.contains(&ext) {
+                            missing_exts.push(ext);
+                        }
+                    }
+                }
+
                 tab.entries = entries;
                 tab.current_path = path.clone();
                 tab.address_text = path.display().to_string();
@@ -2011,10 +2051,30 @@ impl FileScout {
                     PaneId::Left => "left",
                     PaneId::Right => "right",
                 };
-                iced::widget::operation::snap_to(
+                let snap = iced::widget::operation::snap_to(
                     iced::widget::Id::new(pane_label),
                     iced::widget::scrollable::RelativeOffset::START,
-                )
+                );
+
+                // Spawn background icon loading if there are missing icons
+                if !missing_exts.is_empty() || need_folder {
+                    let icon_task = Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                filescout_core::win32_icons::load_icons_batch(
+                                    missing_exts,
+                                    need_folder,
+                                )
+                            })
+                            .await
+                            .unwrap_or_default()
+                        },
+                        Message::IconsLoaded,
+                    );
+                    Task::batch([snap, icon_task])
+                } else {
+                    snap
+                }
             }
 
             PaneMessage::DirectoryLoaded(tab_idx, _, generation, Err(e)) => {
@@ -2311,7 +2371,7 @@ impl FileScout {
 
     fn view(&self) -> Element<'_, Message> {
         let left_pane = container(
-            pane_view(PaneId::Left, &self.panes[0], self.active == PaneId::Left),
+            pane_view(PaneId::Left, &self.panes[0], self.active == PaneId::Left, &self.icon_cache),
         )
         .height(Length::Fill);
 
@@ -2327,7 +2387,7 @@ impl FileScout {
                 .style(pane_divider_style);
 
             let right = container(
-                pane_view(PaneId::Right, &self.panes[1], self.active == PaneId::Right),
+                pane_view(PaneId::Right, &self.panes[1], self.active == PaneId::Right, &self.icon_cache),
             )
             .width(Length::FillPortion(right_portion))
             .height(Length::Fill);
@@ -2422,6 +2482,7 @@ fn pane_view<'a>(
     id: PaneId,
     pane: &'a PaneState,
     is_active: bool,
+    icon_cache: &'a HashMap<String, iced::widget::image::Handle>,
 ) -> Element<'a, Message> {
     let tab_titles: Vec<String> = pane.tabs.iter().map(|t| t.title()).collect();
     let tabs = tab_bar_view(tab_titles, pane.active_tab)
@@ -2465,6 +2526,7 @@ fn pane_view<'a>(
             pane_label,
             active_tab.scroll_offset,
             active_tab.viewport_height,
+            icon_cache,
         )
         .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
     };
