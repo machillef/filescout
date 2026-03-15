@@ -244,7 +244,7 @@ impl FileScout {
             show_shortcuts_help: false,
         };
 
-        let load_left = load_directory_for(PaneId::Left, 0, cwd);
+        let load_left = load_directory_for(PaneId::Left, 0, cwd, 0);
         let load_drvs = Task::perform(
             async { tokio::task::spawn_blocking(list_drives).await.unwrap_or_default() },
             Message::DrivesLoaded,
@@ -359,7 +359,8 @@ impl FileScout {
                     .map(|pid| {
                         let tab_idx = self.panes[pid.index()].active_tab;
                         let path = self.panes[pid.index()].active().current_path.clone();
-                        load_directory_for(pid, tab_idx, path)
+                        let generation = self.panes[pid.index()].tabs[tab_idx].load_generation;
+                        load_directory_for(pid, tab_idx, path, generation)
                     })
                     .collect();
                 Task::batch(std::iter::once(save_task).chain(refresh_tasks))
@@ -501,7 +502,7 @@ impl FileScout {
                 // When switching to dual-pane, reload the right pane if it has no entries.
                 let task = if self.dual_pane && self.panes[1].active().entries.is_empty() {
                     let path = self.panes[1].active().current_path.clone();
-                    load_directory_for(PaneId::Right, 0, path)
+                    load_directory_for(PaneId::Right, 0, path, 0)
                 } else {
                     Task::none()
                 };
@@ -551,14 +552,16 @@ impl FileScout {
                         tab.selection.single_select(new_path.clone());
                         tab.renaming = Some((new_path, name));
                     }
-                    load_directory_for(pane_id, tab_idx, dir)
+                    let generation = self.panes[pane_id.index()].tabs[tab_idx].load_generation;
+                    load_directory_for(pane_id, tab_idx, dir, generation)
                 }
             },
             Message::RefreshActivePane => {
                 let id = self.active;
                 let tab_idx = self.panes[id.index()].active_tab;
                 let path = self.panes[id.index()].active().current_path.clone();
-                load_directory_for(id, tab_idx, path)
+                let generation = self.panes[id.index()].tabs[tab_idx].load_generation;
+                load_directory_for(id, tab_idx, path, generation)
             }
             Message::ToggleShortcutsHelp => {
                 self.show_shortcuts_help = !self.show_shortcuts_help;
@@ -617,7 +620,7 @@ impl FileScout {
                             .enumerate()
                             .filter(|(_, tab)| tab.current_path == path && tab.renaming.is_none() && tab.archive_context.is_none())
                             .map(move |(tab_idx, tab)| {
-                                load_directory_for(pane_id, tab_idx, tab.current_path.clone())
+                                load_directory_for(pane_id, tab_idx, tab.current_path.clone(), tab.load_generation)
                             })
                             .collect::<Vec<_>>()
                     })
@@ -639,12 +642,22 @@ impl FileScout {
                         Task::none()
                     }
                     Ok(()) => {
-                        let dest_task = load_directory_for(dest_pane, dest_tab, dest_dir);
+                        let dest_gen = if dest_tab < self.panes[dest_pane.index()].tabs.len() {
+                            self.panes[dest_pane.index()].tabs[dest_tab].load_generation
+                        } else {
+                            0
+                        };
+                        let dest_task = load_directory_for(dest_pane, dest_tab, dest_dir, dest_gen);
                         if let Some((src_pane, src_tab, src_dir)) = src_refresh {
+                            let src_gen = if src_tab < self.panes[src_pane.index()].tabs.len() {
+                                self.panes[src_pane.index()].tabs[src_tab].load_generation
+                            } else {
+                                0
+                            };
                             if src_tab < self.panes[src_pane.index()].tabs.len() {
                                 self.panes[src_pane.index()].tabs[src_tab].selection.clear();
                             }
-                            Task::batch([dest_task, load_directory_for(src_pane, src_tab, src_dir)])
+                            Task::batch([dest_task, load_directory_for(src_pane, src_tab, src_dir, src_gen)])
                         } else {
                             dest_task
                         }
@@ -701,7 +714,10 @@ impl FileScout {
                 let dest_tab = self.panes[dest_pane.index()].active_tab;
                 let dest_dir = self.panes[dest_pane.index()].active().current_path.clone();
                 match result {
-                    Ok(()) => load_directory_for(dest_pane, dest_tab, dest_dir),
+                    Ok(()) => {
+                        let generation = self.panes[dest_pane.index()].tabs[dest_tab].load_generation;
+                        load_directory_for(dest_pane, dest_tab, dest_dir, generation)
+                    }
                     Err(e) => {
                         self.panes[self.active.index()].active_mut().error = Some(e);
                         Task::none()
@@ -1546,7 +1562,7 @@ impl FileScout {
                     }
                 };
                 let tab_idx = pane.new_tab(path.clone());
-                load_directory_for(id, tab_idx, path)
+                load_directory_for(id, tab_idx, path, 0)
             }
 
             // --- Navigation ---
@@ -1583,14 +1599,15 @@ impl FileScout {
                         return load_archive_for(id, tab_idx, zip_path, new_inner);
                     } else {
                         // Exiting the archive (navigating to real parent dir via `..`).
-                        {
+                        let generation = {
                             let tab = &mut pane.tabs[tab_idx];
                             tab.archive_context = None;
                             tab.history.navigate(path.clone());
                             tab.address_text = path.display().to_string();
                             tab.selection.clear();
-                        }
-                        return load_directory_for(id, tab_idx, path);
+                            tab.next_generation()
+                        };
+                        return load_directory_for(id, tab_idx, path, generation);
                     }
                 }
 
@@ -1601,7 +1618,8 @@ impl FileScout {
                 tab.selection.clear();
                 tab.scroll_offset = 0.0;
                 tab.loading = true;
-                load_directory_for(id, tab_idx, path)
+                let generation = tab.next_generation();
+                load_directory_for(id, tab_idx, path, generation)
             }
 
             PaneMessage::FileList(FileListMessage::Select(path)) => {
@@ -1687,7 +1705,8 @@ impl FileScout {
                     tab.history.navigate(focus.clone());
                     tab.address_text = focus.display().to_string();
                     tab.selection.clear();
-                    return load_directory_for(id, tab_idx, focus);
+                    let generation = tab.next_generation();
+                    return load_directory_for(id, tab_idx, focus, generation);
                 } else if is_zip(&focus) {
                     // Enter the archive.
                     {
@@ -1753,7 +1772,8 @@ impl FileScout {
                 tab.history.navigate(parent.clone());
                 tab.address_text = parent.display().to_string();
                 tab.selection.single_select(path);
-                load_directory_for(id, tab_idx, parent)
+                let generation = tab.next_generation();
+                load_directory_for(id, tab_idx, parent, generation)
             }
 
             // --- Preview ---
@@ -1814,7 +1834,8 @@ impl FileScout {
                     tab.archive_context = None;
                     tab.address_text = path.display().to_string();
                     tab.selection.clear();
-                    load_directory_for(id, tab_idx, path)
+                    let generation = tab.next_generation();
+                    load_directory_for(id, tab_idx, path, generation)
                 } else {
                     Task::none()
                 }
@@ -1827,7 +1848,8 @@ impl FileScout {
                     tab.archive_context = None;
                     tab.address_text = path.display().to_string();
                     tab.selection.clear();
-                    load_directory_for(id, tab_idx, path)
+                    let generation = tab.next_generation();
+                    load_directory_for(id, tab_idx, path, generation)
                 } else {
                     Task::none()
                 }
@@ -1875,7 +1897,8 @@ impl FileScout {
                     tab.address_text = path_str;
                     tab.selection.clear();
                     tab.suggestions.clear();
-                    load_directory_for(id, tab_idx, path)
+                    let generation = tab.next_generation();
+                    load_directory_for(id, tab_idx, path, generation)
                 } else {
                     // If not a directory, just fill the text box.
                     let tab = pane.active_mut();
@@ -1893,7 +1916,8 @@ impl FileScout {
                 tab.history.navigate(path.clone());
                 tab.selection.clear();
                 tab.suggestions.clear();
-                load_directory_for(id, tab_idx, path)
+                let generation = tab.next_generation();
+                load_directory_for(id, tab_idx, path, generation)
             }
 
             PaneMessage::AddressBar(AddressBarMessage::BreadcrumbNavigate(path)) => {
@@ -1904,7 +1928,8 @@ impl FileScout {
                 tab.address_text = path.display().to_string();
                 tab.selection.clear();
                 tab.suggestions.clear();
-                load_directory_for(id, tab_idx, path)
+                let generation = tab.next_generation();
+                load_directory_for(id, tab_idx, path, generation)
             }
 
             PaneMessage::AddressBar(AddressBarMessage::DriveSelected(path))
@@ -1916,15 +1941,20 @@ impl FileScout {
                 tab.address_text = path.display().to_string();
                 tab.selection.clear();
                 tab.suggestions.clear();
-                load_directory_for(id, tab_idx, path)
+                let generation = tab.next_generation();
+                load_directory_for(id, tab_idx, path, generation)
             }
 
             // --- Directory load result ---
-            PaneMessage::DirectoryLoaded(tab_idx, path, Ok(mut entries)) => {
+            PaneMessage::DirectoryLoaded(tab_idx, path, generation, Ok(mut entries)) => {
+                let tab = &mut pane.tabs[tab_idx];
+                // Discard stale load results from prior navigations.
+                if generation != tab.load_generation {
+                    return Task::none();
+                }
                 if !show_hidden {
                     entries.retain(|e| !e.is_hidden);
                 }
-                let tab = &mut pane.tabs[tab_idx];
                 sort_entries(&mut entries, &tab.sort_col, &tab.sort_dir);
                 tab.entries = entries;
                 tab.current_path = path.clone();
@@ -1942,9 +1972,13 @@ impl FileScout {
                 )
             }
 
-            PaneMessage::DirectoryLoaded(tab_idx, _, Err(e)) => {
-                pane.tabs[tab_idx].error = Some(e);
-                pane.tabs[tab_idx].loading = false;
+            PaneMessage::DirectoryLoaded(tab_idx, _, generation, Err(e)) => {
+                let tab = &mut pane.tabs[tab_idx];
+                if generation != tab.load_generation {
+                    return Task::none();
+                }
+                tab.error = Some(e);
+                tab.loading = false;
                 Task::none()
             }
 
@@ -2183,7 +2217,8 @@ impl FileScout {
                         tab.undo_stack
                             .push(UndoAction::Rename { from: old_path, to: new_path.clone() });
                         tab.selection.single_select(new_path);
-                        load_directory_for(id, tab_idx, refresh_path)
+                        let generation = tab.load_generation;
+                        load_directory_for(id, tab_idx, refresh_path, generation)
                     }
                     Err(e) => {
                         tab.error = Some(e);
@@ -2197,7 +2232,8 @@ impl FileScout {
                 match result {
                     Ok(()) => {
                         tab.error = None;
-                        load_directory_for(id, tab_idx, refresh_path)
+                        let generation = tab.load_generation;
+                        load_directory_for(id, tab_idx, refresh_path, generation)
                     }
                     Err(e) => {
                         tab.error = Some(e);
@@ -2222,7 +2258,8 @@ impl FileScout {
                 } else {
                     Some(format!("{} rename(s) failed: {}", errors.len(), errors.join("; ")))
                 };
-                load_directory_for(id, tab_idx, refresh_path)
+                let generation = tab.load_generation;
+                load_directory_for(id, tab_idx, refresh_path, generation)
             }
         }
     }
@@ -2555,7 +2592,7 @@ fn scroll_to_row(
     }
 }
 
-fn load_directory_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message> {
+fn load_directory_for(pane: PaneId, tab_idx: usize, path: PathBuf, generation: u64) -> Task<Message> {
     let path_for_msg = path.clone();
     Task::perform(
         async move {
@@ -2566,7 +2603,7 @@ fn load_directory_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Messa
         move |result| {
             Message::Pane(
                 pane,
-                PaneMessage::DirectoryLoaded(tab_idx, path_for_msg, result.map_err(|e| e.to_string())),
+                PaneMessage::DirectoryLoaded(tab_idx, path_for_msg, generation, result.map_err(|e| e.to_string())),
             )
         },
     )

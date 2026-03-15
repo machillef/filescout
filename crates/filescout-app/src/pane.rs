@@ -166,6 +166,8 @@ pub struct TabState {
     pub scroll_offset: f32,
     /// Current viewport height in pixels (from `on_scroll` callback).
     pub viewport_height: f32,
+    /// Monotonic counter incremented on each navigation to discard stale loads.
+    pub load_generation: u64,
 }
 
 impl TabState {
@@ -189,7 +191,14 @@ impl TabState {
             loading: true, // starts loading on creation
             scroll_offset: 0.0,
             viewport_height: 600.0, // reasonable default until first on_scroll
+            load_generation: 0,
         }
+    }
+
+    /// Increment and return the load generation, used to discard stale directory loads.
+    pub fn next_generation(&mut self) -> u64 {
+        self.load_generation += 1;
+        self.load_generation
     }
 
     /// Short display title for the tab (last path component, or full path at root).
@@ -233,8 +242,8 @@ pub enum PaneMessage {
     FileList(FileListMessage),
     AddressBar(AddressBarMessage),
     TabBar(TabBarMessage),
-    /// Async directory load result. Carries the tab index it was requested for.
-    DirectoryLoaded(usize, PathBuf, Result<Vec<FileEntry>, String>),
+    /// Async directory load result. Carries (tab_idx, path, generation, result).
+    DirectoryLoaded(usize, PathBuf, u64, Result<Vec<FileEntry>, String>),
     /// Toggle the preview panel on/off for this pane.
     TogglePreview,
     /// Async preview load result. Carries the tab index it was loaded for.
