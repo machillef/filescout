@@ -162,6 +162,10 @@ pub struct TabState {
     pub suggestions: Vec<String>,
     /// Whether a directory listing is currently loading.
     pub loading: bool,
+    /// Current vertical scroll offset in pixels (from `on_scroll` callback).
+    pub scroll_offset: f32,
+    /// Current viewport height in pixels (from `on_scroll` callback).
+    pub viewport_height: f32,
 }
 
 impl TabState {
@@ -183,6 +187,8 @@ impl TabState {
             last_click: None,
             suggestions: Vec::new(),
             loading: true, // starts loading on creation
+            scroll_offset: 0.0,
+            viewport_height: 600.0, // reasonable default until first on_scroll
         }
     }
 

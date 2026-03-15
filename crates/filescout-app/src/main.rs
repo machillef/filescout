@@ -15,7 +15,7 @@ use filescout_core::properties::{compute_dir_size, load_file_properties, FilePro
 use filescout_core::search::search_files;
 use filescout_core::{SortDirection, ViewMode};
 use filescout_ui::address_bar::{address_bar_view, AddressBarMessage, ADDRESS_INPUT_ID};
-use filescout_ui::file_list::{file_list_view, FileListMessage};
+use filescout_ui::file_list::{file_list_view, FileListMessage, ROW_HEIGHT};
 use filescout_ui::preview_panel::preview_panel_view;
 use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
 use iced::widget::{column, container, progress_bar, row, stack, text};
@@ -1599,6 +1599,7 @@ impl FileScout {
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
                 tab.selection.clear();
+                tab.scroll_offset = 0.0;
                 tab.loading = true;
                 load_directory_for(id, tab_idx, path)
             }
@@ -1794,6 +1795,14 @@ impl FileScout {
                     tab.sort_dir = SortDirection::Asc;
                 }
                 sort_entries(&mut tab.entries, &tab.sort_col, &tab.sort_dir);
+                tab.scroll_offset = 0.0;
+                Task::none()
+            }
+
+            PaneMessage::FileList(FileListMessage::ScrollChanged(viewport)) => {
+                let tab = pane.active_mut();
+                tab.scroll_offset = viewport.absolute_offset().y;
+                tab.viewport_height = viewport.bounds().height;
                 Task::none()
             }
 
@@ -1922,7 +1931,15 @@ impl FileScout {
                 tab.address_text = path.display().to_string();
                 tab.error = None;
                 tab.loading = false;
-                Task::none()
+                tab.scroll_offset = 0.0;
+                let pane_label = match id {
+                    PaneId::Left => "left",
+                    PaneId::Right => "right",
+                };
+                iced::widget::operation::snap_to(
+                    iced::widget::Id::new(pane_label),
+                    iced::widget::scrollable::RelativeOffset::START,
+                )
             }
 
             PaneMessage::DirectoryLoaded(tab_idx, _, Err(e)) => {
@@ -2084,7 +2101,13 @@ impl FileScout {
                     _ => return Task::none(),
                 };
                 tab.selection.single_select(tab.entries[next_idx].path.clone());
-                Task::none()
+                let has_parent = tab.current_path.parent().is_some();
+                let parent_offset: usize = if has_parent { 1 } else { 0 };
+                let pane_label = match id {
+                    PaneId::Left => "left",
+                    PaneId::Right => "right",
+                };
+                scroll_to_row(pane_label, next_idx + parent_offset, tab.scroll_offset, tab.viewport_height)
             }
 
             PaneMessage::MoveUp => {
@@ -2099,7 +2122,13 @@ impl FileScout {
                     _ => return Task::none(),
                 };
                 tab.selection.single_select(tab.entries[prev_idx].path.clone());
-                Task::none()
+                let has_parent = tab.current_path.parent().is_some();
+                let parent_offset: usize = if has_parent { 1 } else { 0 };
+                let pane_label = match id {
+                    PaneId::Left => "left",
+                    PaneId::Right => "right",
+                };
+                scroll_to_row(pane_label, prev_idx + parent_offset, tab.scroll_offset, tab.viewport_height)
             }
 
             PaneMessage::JumpToLetter(ref c) => {
@@ -2334,6 +2363,8 @@ fn pane_view<'a>(
             renaming_ref,
             &pane.view_mode,
             pane_label,
+            active_tab.scroll_offset,
+            active_tab.viewport_height,
         )
         .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
     };
@@ -2490,6 +2521,38 @@ fn palette_scroll_to(selected: usize) -> Task<Message> {
         PALETTE_LIST_ID,
         iced::widget::scrollable::AbsoluteOffset { x: None, y: Some(y) },
     )
+}
+
+/// Scroll the file list so that the row at `row_idx` is visible.
+/// Returns `Task::none()` if already visible; otherwise scrolls to bring the row into view.
+fn scroll_to_row(
+    pane_label: &'static str,
+    row_idx: usize,
+    scroll_offset: f32,
+    viewport_height: f32,
+) -> Task<Message> {
+    use iced::widget::scrollable::AbsoluteOffset;
+
+    let row_with_spacing = ROW_HEIGHT + 1.0;
+    let row_top = row_idx as f32 * row_with_spacing;
+    let row_bottom = row_top + ROW_HEIGHT;
+
+    if row_top < scroll_offset {
+        // Row is above viewport — scroll up
+        iced::widget::operation::scroll_to(
+            iced::widget::Id::new(pane_label),
+            AbsoluteOffset { x: 0.0, y: row_top },
+        )
+    } else if row_bottom > scroll_offset + viewport_height {
+        // Row is below viewport — scroll down
+        let target = row_bottom - viewport_height;
+        iced::widget::operation::scroll_to(
+            iced::widget::Id::new(pane_label),
+            AbsoluteOffset { x: 0.0, y: target },
+        )
+    } else {
+        Task::none()
+    }
 }
 
 fn load_directory_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message> {

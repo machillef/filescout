@@ -1,78 +1,49 @@
-# FileScout Production-Ready — Implementation Plan
+# FileScout UI/UX Modernization Plan
 
-## Phase 1 (No deps, parallel)
-- [x] Slice 18: Open / Shell Execute
-- [x] Slice 19: Confirmation Dialogs
-- [x] Slice 20: Hidden Files Toggle
-
-## Phase 2 (Depends on 19)
-- [x] Slice 21: Clipboard Copy/Cut/Paste
-
-## Phase 3 (No deps, parallel)
-- [x] Slice 22: File/Folder Icons
-- [x] Slice 23: Copy/Move Progress Bar
-- [x] Slice 25: Resizable Pane Split
-
-## Phase 4 (Depends on 18+19+21)
-- [x] Slice 24: Right-Click Context Menu
-
-## Phase 5 (Depends on 20)
-- [x] Slice 26: View Modes — Details View
-
-## Phase 6 (Optional)
-- [x] Slice 27: Drag-and-Drop (foundation module only — not wired into UI)
+## Previous Work (Complete)
+All 10 feature slices (18-27), UX bug fixes, and polish phase items are done.
 
 ---
 
-## UX Bug Fixes (from manual testing)
+## Modernization — Execution Order
 
-### Fixed
-- [x] Bug 1: Double-click to open folders/files
-- [x] Bug 3: Arrow key navigation (Up/Down)
-- [x] Bug 4: App starts maximized
-- [x] Bug 5: Single-pane default (F9 toggles dual-pane)
-- [x] Bug 6: Starts in home directory
-- [x] Bug 11: Details view is default
-- [x] Bug 12: Type-ahead letter jump
-- [x] Bug 14: Ctrl+T opens new tab (theme moved to Ctrl+Shift+T)
-- [x] Bug 15: Scroll stability (stable scrollable IDs)
-- [x] Bug 17: Delete key works
-- [x] Bug 24-fix: Rename auto-focuses input
+### Phase 1: Performance
+- [ ] **P2** — Virtual scrolling for file list (highest impact)
+- [ ] **P1** — Throttle CursorMoved and reduce event noise
+- [ ] **P3** — Navigation load debounce
 
-### Fixed (Round 2)
-- [x] Bug 2: Right-click on empty space (Refresh, New Folder)
-- [x] Bug 16: Multi-select properties with total size
-- [x] Slice 23 fix: Progress bar animation (stream-based per-file updates)
-- [x] Slice 25 fix: Visible pane divider
+### Phase 2: Sidebar
+- [ ] **S1** — Sidebar module and data model
+- [ ] **S2** — Integrate sidebar into main layout
+- [ ] **S3** — Sidebar visual polish
 
-### Fixed (Round 3)
-- [x] Bug 8: Address bar Tab completion (auto-complete partial paths)
-- [x] Bug 9: Quick-access bar (Home, Desktop, Documents, Downloads)
-- [x] Bug 10: "This PC" and navigation shortcuts in command palette
+### Phase 3: Visual Polish
+- [ ] **V1** — Custom theme system
+- [ ] **V2** — File list row polish
+- [ ] **V3** — Address bar and tab bar polish
 
-### Fixed (Round 4)
-- [x] Bug 13: Improved file icons (19 distinct categories vs. original 9)
-
-### Fixed (Round 5)
-- [x] Bug 7: App icon (Fluent UI folder icon, embedded via winres)
-
-### Remaining
-None — all UX bugs resolved.
+### Phase 4: Native Shell Integration
+- [ ] **N1** — Native file type icons (SHGetFileInfo)
+- [ ] **N2** — Icon cache async pipeline
+- [ ] **N3** — Native Windows context menu (IContextMenu COM)
+- [ ] **N4** — Hybrid context menu fallback
 
 ---
 
-## Polish Phase
+## Slice Details
 
-### [x] P1: Window title shows current directory path
-### [x] P2: Keyboard shortcut help overlay (F1)
-### [x] P3: Address bar dropdown autocomplete
-### [x] P4: Draggable pane divider (already done in Slice 25)
+### P2: Virtual Scrolling
+- Add `scroll_offset: f32` to `TabState`
+- Add `ScrollChanged(f32)` to `FileListMessage`
+- Rewrite `file_list_view()`: spacer-based, only visible rows
+- Fixed 28px row height, calculate visible range
+- Reset scroll on navigation/sort
+- Arrow key nav scrolls into view
 
-### UX Bugs Fixed (Round 3)
-- [x] Ext/Type columns overlap → dynamic FillPortion widths
-- [x] Folder size blank → shows `<DIR>`
-- [x] Large directory loading delay → loading indicator
-- [x] Ctrl+L focuses address bar with text selected
-- [x] Command palette arrows don't scroll → auto-scroll to selection
-- [x] Context menu highlight doesn't follow mouse → hover styles
-- [x] F1 shortcuts help confirmed working
+### P1: Throttle CursorMoved
+- Remove `CursorMoved` from subscription
+- Capture cursor position from right-click event directly
+
+### P3: Navigation Load Debounce
+- Add `load_generation: u64` to `TabState`
+- Increment on nav, carry through load task, discard stale results

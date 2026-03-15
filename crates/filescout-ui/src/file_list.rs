@@ -2,7 +2,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use filescout_core::{FileEntry, SortColumn, SortDirection, ViewMode};
-use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::widget::scrollable::Viewport;
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
 use iced::{Element, Length};
 use iced::widget::Id;
 
@@ -10,6 +11,9 @@ use crate::icons::file_icon_text;
 
 /// Unique ID for the inline rename text input (used for programmatic focus).
 pub const RENAME_INPUT_ID: &str = "rename_input";
+
+/// Fixed row height in pixels for virtual scrolling calculations.
+pub const ROW_HEIGHT: f32 = 28.0;
 
 /// Messages emitted by the file list component.
 #[derive(Debug, Clone)]
@@ -22,6 +26,8 @@ pub enum FileListMessage {
     Select(PathBuf),
     /// The inline rename text input changed.
     RenameEdit(String),
+    /// The scrollable viewport changed (scroll or resize).
+    ScrollChanged(Viewport),
 }
 
 // Column width proportions (FillPortion values).
@@ -31,12 +37,17 @@ const TYPE_PORTION: u16 = 2;
 const SIZE_PORTION: u16 = 2;
 const MODIFIED_PORTION: u16 = 3;
 
-/// Render a sortable, scrollable list of file entries.
+/// Render a sortable, scrollable list of file entries with virtual scrolling.
 ///
-/// - `parent_path` — if `Some`, a `..` row is shown at the top.
+/// Only renders rows visible in the viewport, using spacers above and below
+/// to maintain correct scroll height and position.
+///
+/// - `parent_path` — if `Some`, a `..` row is shown at the top (index 0).
 /// - `sort_col` / `sort_dir` — current sort state for column indicators.
 /// - `selection` — set of selected paths (for multi-row highlight).
 /// - `renaming` — if `Some((path, text))`, that row shows an inline text input.
+/// - `scroll_offset` — current vertical scroll offset in pixels.
+/// - `viewport_height` — current viewport height in pixels.
 #[allow(clippy::too_many_arguments)]
 pub fn file_list_view<'a>(
     entries: &'a [FileEntry],
@@ -47,9 +58,87 @@ pub fn file_list_view<'a>(
     renaming: Option<(&'a Path, &'a str)>,
     view_mode: &'a ViewMode,
     pane_id: &'static str,
+    scroll_offset: f32,
+    viewport_height: f32,
 ) -> Element<'a, FileListMessage> {
     let is_details = *view_mode == ViewMode::Details;
 
+    // --- Header row (fixed, outside scrollable) ---
+    let header = build_header(sort_col, sort_dir, is_details);
+
+    // --- Virtual scrolling calculation ---
+    let has_parent = parent_path.is_some();
+    let parent_count: usize = if has_parent { 1 } else { 0 };
+    let total_rows = parent_count + entries.len();
+
+    // Row spacing is 1px between rows
+    let row_with_spacing = ROW_HEIGHT + 1.0;
+    // Calculate visible range with 2-row buffer on each side
+    let first_visible = ((scroll_offset / row_with_spacing).floor() as usize).saturating_sub(2);
+    let visible_count = (viewport_height / row_with_spacing).ceil() as usize + 5;
+    let last_visible = (first_visible + visible_count).min(total_rows);
+
+    // --- Build only visible rows ---
+    let mut rows: Vec<Element<'a, FileListMessage>> = Vec::with_capacity(visible_count + 2);
+
+    // Top spacer
+    let top_spacer_height = first_visible as f32 * row_with_spacing;
+    if top_spacer_height > 0.0 {
+        rows.push(Space::new().width(Length::Fill).height(top_spacer_height).into());
+    }
+
+    for idx in first_visible..last_visible {
+        if idx < parent_count {
+            // ".." parent row
+            if let Some(ref parent) = parent_path {
+                rows.push(build_parent_row(parent.clone(), is_details));
+            }
+        } else {
+            let entry_idx = idx - parent_count;
+            if let Some(entry) = entries.get(entry_idx) {
+                let is_selected = selection.contains(&entry.path);
+                let is_renaming = renaming.is_some_and(|(rp, _)| rp == entry.path);
+
+                if is_renaming {
+                    let (_, rename_text) = renaming.unwrap();
+                    rows.push(build_rename_row(entry, rename_text, is_details));
+                } else {
+                    rows.push(build_entry_row(entry, is_selected, is_details));
+                }
+            }
+        }
+    }
+
+    // Bottom spacer
+    let bottom_spacer_height = (total_rows.saturating_sub(last_visible)) as f32 * row_with_spacing;
+    if bottom_spacer_height > 0.0 {
+        rows.push(Space::new().width(Length::Fill).height(bottom_spacer_height).into());
+    }
+
+    let list = column(rows).spacing(1);
+
+    let scrollable_list = scrollable(list)
+        .id(Id::new(pane_id))
+        .on_scroll(FileListMessage::ScrollChanged);
+
+    column![header, scrollable_list]
+        .spacing(5)
+        .into()
+}
+
+/// Calculate the total number of logical rows (parent + entries).
+pub fn total_row_count(entries_len: usize, has_parent: bool) -> usize {
+    let parent_count: usize = if has_parent { 1 } else { 0 };
+    parent_count + entries_len
+}
+
+// --- Private helpers ---
+
+fn build_header<'a>(
+    sort_col: &'a SortColumn,
+    sort_dir: &'a SortDirection,
+    is_details: bool,
+) -> Element<'a, FileListMessage> {
     let mut header_items: Vec<Element<'a, FileListMessage>> = vec![
         button(text(format!("Name{}", sort_indicator(sort_col, sort_dir, &SortColumn::Name))))
             .on_press(FileListMessage::Sort(SortColumn::Name))
@@ -84,143 +173,106 @@ pub fn file_list_view<'a>(
             .into(),
     );
 
-    let header = row(header_items).spacing(10).padding(5);
+    row(header_items).spacing(10).padding(5).into()
+}
 
-    let mut rows: Vec<Element<'a, FileListMessage>> = Vec::new();
-
-    // ".." parent row — always navigates, never selectable
-    if let Some(parent) = parent_path {
-        let mut up_items: Vec<Element<'a, FileListMessage>> = vec![
-            text("\u{1F4C1} ..")
-                .width(Length::FillPortion(NAME_PORTION))
-                .into(),
-        ];
-        if is_details {
-            up_items.push(text("").width(Length::FillPortion(EXT_PORTION)).into());
-            up_items.push(text("").width(Length::FillPortion(TYPE_PORTION)).into());
-        }
-        up_items.push(text("").width(Length::FillPortion(SIZE_PORTION)).into());
-        up_items.push(text("").width(Length::FillPortion(MODIFIED_PORTION)).into());
-
-        let up_row = button(row(up_items).spacing(10).padding(2))
-            .on_press(FileListMessage::Navigate(parent))
-            .style(button::text)
-            .width(Length::Fill);
-
-        rows.push(up_row.into());
+fn build_parent_row(parent: PathBuf, is_details: bool) -> Element<'static, FileListMessage> {
+    let mut up_items: Vec<Element<'static, FileListMessage>> = vec![
+        text("\u{1F4C1} ..")
+            .width(Length::FillPortion(NAME_PORTION))
+            .into(),
+    ];
+    if is_details {
+        up_items.push(text("").width(Length::FillPortion(EXT_PORTION)).into());
+        up_items.push(text("").width(Length::FillPortion(TYPE_PORTION)).into());
     }
+    up_items.push(text("").width(Length::FillPortion(SIZE_PORTION)).into());
+    up_items.push(text("").width(Length::FillPortion(MODIFIED_PORTION)).into());
 
-    for entry in entries {
-        let path = &entry.path;
-        let is_selected = selection.contains(path);
-        let is_renaming = renaming.is_some_and(|(rp, _)| rp == path);
-
-        let size_text = if entry.is_dir {
-            "<DIR>".to_string()
-        } else {
-            format_size(entry.size)
-        };
-        let modified_text = entry
-            .modified
-            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-            .unwrap_or_default();
-
-        let icon = file_icon_text(entry);
-        let ext_text = if is_details {
-            extract_extension(&entry.name)
-        } else {
-            String::new()
-        };
-        let type_text = if is_details {
-            file_type_description(entry)
-        } else {
-            String::new()
-        };
-
-        if is_renaming {
-            let (_, rename_text) = renaming.unwrap();
-            let mut rename_items: Vec<Element<'a, FileListMessage>> = vec![
-                text_input("New name…", rename_text)
-                    .id(Id::new(RENAME_INPUT_ID))
-                    .on_input(FileListMessage::RenameEdit)
-                    .width(Length::FillPortion(NAME_PORTION))
-                    .into(),
-            ];
-            if is_details {
-                rename_items.push(
-                    text(ext_text)
-                        .width(Length::FillPortion(EXT_PORTION))
-                        .into(),
-                );
-                rename_items.push(
-                    text(type_text)
-                        .width(Length::FillPortion(TYPE_PORTION))
-                        .into(),
-                );
-            }
-            rename_items.push(
-                text(size_text)
-                    .width(Length::FillPortion(SIZE_PORTION))
-                    .into(),
-            );
-            rename_items.push(
-                text(modified_text)
-                    .width(Length::FillPortion(MODIFIED_PORTION))
-                    .into(),
-            );
-
-            let rename_row = container(row(rename_items).spacing(10).padding(2))
-                .style(container::bordered_box)
-                .width(Length::Fill);
-
-            rows.push(rename_row.into());
-        } else {
-            let mut row_items: Vec<Element<'a, FileListMessage>> = vec![
-                text(format!("{icon} {}", entry.name))
-                    .width(Length::FillPortion(NAME_PORTION))
-                    .into(),
-            ];
-            if is_details {
-                row_items.push(
-                    text(ext_text)
-                        .width(Length::FillPortion(EXT_PORTION))
-                        .into(),
-                );
-                row_items.push(
-                    text(type_text)
-                        .width(Length::FillPortion(TYPE_PORTION))
-                        .into(),
-                );
-            }
-            row_items.push(
-                text(size_text)
-                    .width(Length::FillPortion(SIZE_PORTION))
-                    .into(),
-            );
-            row_items.push(
-                text(modified_text)
-                    .width(Length::FillPortion(MODIFIED_PORTION))
-                    .into(),
-            );
-
-            let row_content = row(row_items).spacing(10).padding(2);
-            let path_clone = path.clone();
-            let style = if is_selected { button::primary } else { button::text };
-
-            let row_btn = button(row_content)
-                .on_press(FileListMessage::Select(path_clone))
-                .style(style)
-                .width(Length::Fill);
-
-            rows.push(row_btn.into());
-        }
-    }
-
-    let list = column(rows).spacing(1);
-
-    scrollable(column![header, list].spacing(5))
-        .id(Id::new(pane_id))
+    button(row(up_items).spacing(10).padding(2))
+        .on_press(FileListMessage::Navigate(parent))
+        .style(button::text)
+        .width(Length::Fill)
         .into()
+}
+
+fn build_rename_row<'a>(
+    entry: &'a FileEntry,
+    rename_text: &'a str,
+    is_details: bool,
+) -> Element<'a, FileListMessage> {
+    let size_text = format_size_for(entry);
+    let modified_text = format_modified(entry);
+    let ext_text = if is_details { extract_extension(&entry.name) } else { String::new() };
+    let type_text = if is_details { file_type_description(entry) } else { String::new() };
+
+    let mut rename_items: Vec<Element<'a, FileListMessage>> = vec![
+        text_input("New name…", rename_text)
+            .id(Id::new(RENAME_INPUT_ID))
+            .on_input(FileListMessage::RenameEdit)
+            .width(Length::FillPortion(NAME_PORTION))
+            .into(),
+    ];
+    if is_details {
+        rename_items.push(text(ext_text).width(Length::FillPortion(EXT_PORTION)).into());
+        rename_items.push(text(type_text).width(Length::FillPortion(TYPE_PORTION)).into());
+    }
+    rename_items.push(text(size_text).width(Length::FillPortion(SIZE_PORTION)).into());
+    rename_items.push(text(modified_text).width(Length::FillPortion(MODIFIED_PORTION)).into());
+
+    container(row(rename_items).spacing(10).padding(2))
+        .style(container::bordered_box)
+        .width(Length::Fill)
+        .into()
+}
+
+fn build_entry_row<'a>(
+    entry: &'a FileEntry,
+    is_selected: bool,
+    is_details: bool,
+) -> Element<'a, FileListMessage> {
+    let icon = file_icon_text(entry);
+    let size_text = format_size_for(entry);
+    let modified_text = format_modified(entry);
+    let ext_text = if is_details { extract_extension(&entry.name) } else { String::new() };
+    let type_text = if is_details { file_type_description(entry) } else { String::new() };
+
+    let mut row_items: Vec<Element<'a, FileListMessage>> = vec![
+        text(format!("{icon} {}", entry.name))
+            .width(Length::FillPortion(NAME_PORTION))
+            .into(),
+    ];
+    if is_details {
+        row_items.push(text(ext_text).width(Length::FillPortion(EXT_PORTION)).into());
+        row_items.push(text(type_text).width(Length::FillPortion(TYPE_PORTION)).into());
+    }
+    row_items.push(text(size_text).width(Length::FillPortion(SIZE_PORTION)).into());
+    row_items.push(text(modified_text).width(Length::FillPortion(MODIFIED_PORTION)).into());
+
+    let row_content = row(row_items).spacing(10).padding(2);
+    let path_clone = entry.path.clone();
+    let style = if is_selected { button::primary } else { button::text };
+
+    button(row_content)
+        .on_press(FileListMessage::Select(path_clone))
+        .style(style)
+        .width(Length::Fill)
+        .into()
+}
+
+fn format_size_for(entry: &FileEntry) -> String {
+    if entry.is_dir {
+        "<DIR>".to_string()
+    } else {
+        format_size(entry.size)
+    }
+}
+
+fn format_modified(entry: &FileEntry) -> String {
+    entry
+        .modified
+        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_default()
 }
 
 fn sort_indicator<'a>(current: &SortColumn, dir: &SortDirection, col: &SortColumn) -> &'a str {
@@ -287,5 +339,105 @@ fn format_size(bytes: u64) -> String {
         format!("{:.1} KB", bytes as f64 / KB as f64)
     } else {
         format!("{bytes} B")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_height_is_positive() {
+        assert!(ROW_HEIGHT > 0.0);
+    }
+
+    #[test]
+    fn total_row_count_without_parent() {
+        assert_eq!(total_row_count(10, false), 10);
+    }
+
+    #[test]
+    fn total_row_count_with_parent() {
+        assert_eq!(total_row_count(10, true), 11);
+    }
+
+    #[test]
+    fn total_row_count_empty() {
+        assert_eq!(total_row_count(0, false), 0);
+        assert_eq!(total_row_count(0, true), 1);
+    }
+
+    #[test]
+    fn format_size_bytes() {
+        assert_eq!(format_size(500), "500 B");
+    }
+
+    #[test]
+    fn format_size_kilobytes() {
+        assert_eq!(format_size(2048), "2.0 KB");
+    }
+
+    #[test]
+    fn format_size_megabytes() {
+        assert_eq!(format_size(5 * 1024 * 1024), "5.0 MB");
+    }
+
+    #[test]
+    fn format_size_gigabytes() {
+        assert_eq!(format_size(3 * 1024 * 1024 * 1024), "3.0 GB");
+    }
+
+    #[test]
+    fn extract_extension_normal() {
+        assert_eq!(extract_extension("test.rs"), "rs");
+    }
+
+    #[test]
+    fn extract_extension_no_dot() {
+        assert_eq!(extract_extension("makefile"), "");
+    }
+
+    #[test]
+    fn extract_extension_uppercase() {
+        assert_eq!(extract_extension("IMAGE.PNG"), "png");
+    }
+
+    #[test]
+    fn file_type_folder() {
+        let entry = FileEntry {
+            name: "src".to_string(),
+            path: PathBuf::from("src"),
+            is_dir: true,
+            size: 0,
+            modified: None,
+            is_hidden: false,
+        };
+        assert_eq!(file_type_description(&entry), "Folder");
+    }
+
+    #[test]
+    fn file_type_rust() {
+        let entry = FileEntry {
+            name: "main.rs".to_string(),
+            path: PathBuf::from("main.rs"),
+            is_dir: false,
+            size: 100,
+            modified: None,
+            is_hidden: false,
+        };
+        assert_eq!(file_type_description(&entry), "Rust Source");
+    }
+
+    #[test]
+    fn file_type_unknown_extension() {
+        let entry = FileEntry {
+            name: "data.xyz".to_string(),
+            path: PathBuf::from("data.xyz"),
+            is_dir: false,
+            size: 100,
+            modified: None,
+            is_hidden: false,
+        };
+        assert_eq!(file_type_description(&entry), "XYZ File");
     }
 }
