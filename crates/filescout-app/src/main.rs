@@ -24,6 +24,7 @@ use tracing_subscriber::EnvFilter;
 mod batch_rename;
 mod bookmarks;
 mod command_palette;
+mod confirm;
 mod pane;
 mod properties;
 mod search;
@@ -32,6 +33,7 @@ mod watcher;
 use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
 use bookmarks::{bookmarks_view, BookmarkMessage};
 use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
+use confirm::{confirm_view, ConfirmAction, ConfirmMessage, ConfirmState};
 use pane::{ArchiveContext, PaneId, PaneMessage, PaneState};
 use properties::{properties_view, PropertiesMessage, PropertiesState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
@@ -67,6 +69,8 @@ struct FileScout {
     current_modifiers: keyboard::Modifiers,
     /// Properties overlay state; `Some` while the overlay is visible.
     properties: Option<PropertiesState>,
+    /// Confirmation dialog state; `Some` while a confirm dialog is visible.
+    confirm: Option<ConfirmState>,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -125,6 +129,8 @@ enum Message {
     Properties(PropertiesMessage),
     /// Extract current archive contents to the other pane's directory (F7).
     ExtractArchive,
+    /// A message from the confirmation dialog.
+    Confirm(ConfirmMessage),
     /// Result of an async archive extraction.
     ExtractArchiveDone(Result<(), String>),
     /// Result of an async copy or move operation.
@@ -155,6 +161,7 @@ impl FileScout {
             copy_move_label: None,
             current_modifiers: keyboard::Modifiers::default(),
             properties: None,
+            confirm: None,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -247,6 +254,7 @@ impl FileScout {
                 self.current_modifiers = mods;
                 Task::none()
             }
+            Message::Confirm(msg) => self.handle_confirm(msg),
             Message::CopyToOtherPane => self.start_copy(),
             Message::MoveToOtherPane => self.start_move(),
             Message::OpenBookmarks => {
@@ -532,6 +540,19 @@ impl FileScout {
 
     fn route_key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
         use keyboard::key::Named;
+
+        // Confirmation dialog — intercepts Enter/Escape only.
+        if self.confirm.is_some() {
+            return match key.as_ref() {
+                keyboard::Key::Named(Named::Enter) => {
+                    self.update(Message::Confirm(ConfirmMessage::Confirm))
+                }
+                keyboard::Key::Named(Named::Escape) => {
+                    self.update(Message::Confirm(ConfirmMessage::Cancel))
+                }
+                _ => Task::none(),
+            };
+        }
 
         // Properties overlay.
         if self.properties.is_some() {
@@ -833,6 +854,59 @@ impl FileScout {
             BookmarkMessage::Close => {
                 self.show_bookmarks = false;
                 Task::none()
+            }
+        }
+    }
+
+    fn handle_confirm(&mut self, msg: ConfirmMessage) -> Task<Message> {
+        match msg {
+            ConfirmMessage::Cancel => {
+                self.confirm = None;
+                Task::none()
+            }
+            ConfirmMessage::Confirm => {
+                let Some(state) = self.confirm.take() else {
+                    return Task::none();
+                };
+                match state.action {
+                    ConfirmAction::DeletePaths(paths) => {
+                        let id = self.active;
+                        let tab_idx = self.panes[id.index()].active_tab;
+                        let tab = &mut self.panes[id.index()].tabs[tab_idx];
+                        tab.selection.clear();
+                        let refresh_path = tab.current_path.clone();
+                        tab.error = None;
+                        Task::perform(
+                            async move {
+                                tokio::task::spawn_blocking(move || {
+                                    let errors: Vec<String> = paths
+                                        .into_iter()
+                                        .filter_map(|p| {
+                                            delete_to_trash(p).err().map(|e| e.to_string())
+                                        })
+                                        .collect();
+                                    if errors.is_empty() {
+                                        Ok(())
+                                    } else {
+                                        Err(format!(
+                                            "{} delete(s) failed: {}",
+                                            errors.len(),
+                                            errors.join("; ")
+                                        ))
+                                    }
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(e.to_string()))
+                            },
+                            move |result| {
+                                Message::Pane(
+                                    id,
+                                    PaneMessage::OperationDone(tab_idx, refresh_path, result),
+                                )
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -1315,41 +1389,13 @@ impl FileScout {
                     return Task::none();
                 }
                 let tab = &mut pane.tabs[tab_idx];
-                // Don't delete while rename is in progress or nothing is selected
                 if tab.renaming.is_some() || tab.selection.is_empty() {
                     return Task::none();
                 }
                 let paths: Vec<PathBuf> = tab.selection.items().iter().cloned().collect();
-                tab.selection.clear();
-                let refresh_path = tab.current_path.clone();
-                tab.error = None;
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let errors: Vec<String> = paths
-                                .into_iter()
-                                .filter_map(|p| delete_to_trash(p).err().map(|e| e.to_string()))
-                                .collect();
-                            if errors.is_empty() {
-                                Ok(())
-                            } else {
-                                Err(format!("{} delete(s) failed: {}", errors.len(), errors.join("; ")))
-                            }
-                        })
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
-                    },
-                    move |result| {
-                        Message::Pane(
-                            id,
-                            PaneMessage::OperationDone(
-                                tab_idx,
-                                refresh_path,
-                                result,
-                            ),
-                        )
-                    },
-                )
+                // Show confirmation dialog instead of deleting immediately.
+                self.confirm = Some(ConfirmState::for_delete(paths));
+                Task::none()
             }
 
             PaneMessage::SelectAll => {
@@ -1489,7 +1535,10 @@ impl FileScout {
         .height(Length::Fill)
         .into();
 
-        if let Some(ref pal) = self.palette {
+        if let Some(ref confirm_state) = self.confirm {
+            let overlay = confirm_view(confirm_state).map(Message::Confirm);
+            stack([main, overlay]).into()
+        } else if let Some(ref pal) = self.palette {
             let overlay = command_palette_view(pal).map(Message::Palette);
             stack([main, overlay]).into()
         } else if let Some(ref search_state) = self.search {
