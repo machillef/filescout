@@ -7,12 +7,22 @@ use filescout_core::FileEntry;
 pub enum IconCategory {
     Folder,
     Code,
+    Markup,
+    Config,
+    Script,
     Image,
     Archive,
     Executable,
+    Library,
     Audio,
     Video,
-    Document,
+    Pdf,
+    Spreadsheet,
+    Presentation,
+    WordDoc,
+    TextLog,
+    Database,
+    Font,
     Generic,
 }
 
@@ -28,29 +38,53 @@ pub fn icon_category(entry: &FileEntry) -> IconCategory {
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
     match ext.as_str() {
-        // Code
+        // Code (programming languages)
         "rs" | "py" | "js" | "ts" | "tsx" | "jsx" | "c" | "cpp" | "h" | "hpp" | "cs" | "java"
-        | "go" | "rb" | "php" | "swift" | "kt" | "scala" | "lua" | "sh" | "ps1" | "psm1"
-        | "bat" | "cmd" | "html" | "htm" | "css" | "scss" | "sass" | "json" | "xml" | "yaml"
-        | "yml" | "toml" | "md" | "sql" | "r" | "pl" | "zig" | "v" | "sv" | "vhd" | "asm"
-        | "wasm" => IconCategory::Code,
+        | "go" | "rb" | "php" | "swift" | "kt" | "scala" | "lua" | "r" | "pl" | "zig" | "v"
+        | "sv" | "vhd" | "asm" | "wasm" => IconCategory::Code,
+        // Markup & templates
+        "html" | "htm" | "css" | "scss" | "sass" | "xml" | "svg" | "xsl" | "xslt" => {
+            IconCategory::Markup
+        }
+        // Config & data files
+        "json" | "yaml" | "yml" | "toml" | "ini" | "cfg" | "conf" | "env" | "properties"
+        | "lock" => IconCategory::Config,
+        // Scripts & shell
+        "sh" | "ps1" | "psm1" | "bat" | "cmd" | "zsh" | "fish" | "bash" => IconCategory::Script,
+        // Markdown & documentation
+        "md" | "rst" | "tex" | "adoc" => IconCategory::Markup,
+        // SQL / database
+        "sql" | "db" | "sqlite" | "sqlite3" | "mdb" => IconCategory::Database,
         // Image
-        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "svg" | "ico" | "webp" | "tiff" | "tif"
-        | "psd" | "raw" | "heic" | "avif" => IconCategory::Image,
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "webp" | "tiff" | "tif" | "psd"
+        | "raw" | "heic" | "avif" => IconCategory::Image,
         // Archive
         "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" | "zst" | "lz4" | "cab" | "iso"
         | "dmg" => IconCategory::Archive,
         // Executable
-        "exe" | "msi" | "dll" | "sys" | "com" | "scr" => IconCategory::Executable,
+        "exe" | "msi" | "com" | "scr" | "appimage" => IconCategory::Executable,
+        // Libraries / system
+        "dll" | "sys" | "so" | "dylib" | "lib" | "a" | "o" => IconCategory::Library,
         // Audio
-        "mp3" | "wav" | "flac" | "aac" | "ogg" | "wma" | "m4a" | "opus" => IconCategory::Audio,
+        "mp3" | "wav" | "flac" | "aac" | "ogg" | "wma" | "m4a" | "opus" | "mid" | "midi" => {
+            IconCategory::Audio
+        }
         // Video
         "mp4" | "avi" | "mkv" | "mov" | "wmv" | "flv" | "webm" | "m4v" | "mpg" | "mpeg" => {
             IconCategory::Video
         }
-        // Document
-        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods" | "odp"
-        | "txt" | "rtf" | "csv" | "log" => IconCategory::Document,
+        // PDF
+        "pdf" => IconCategory::Pdf,
+        // Spreadsheets
+        "xls" | "xlsx" | "ods" | "csv" => IconCategory::Spreadsheet,
+        // Presentations
+        "ppt" | "pptx" | "odp" => IconCategory::Presentation,
+        // Word documents
+        "doc" | "docx" | "odt" | "rtf" => IconCategory::WordDoc,
+        // Text & logs
+        "txt" | "log" | "out" | "err" => IconCategory::TextLog,
+        // Fonts
+        "ttf" | "otf" | "woff" | "woff2" | "eot" => IconCategory::Font,
         _ => IconCategory::Generic,
     }
 }
@@ -58,15 +92,25 @@ pub fn icon_category(entry: &FileEntry) -> IconCategory {
 /// Return a text icon string for the given entry.
 pub fn file_icon_text(entry: &FileEntry) -> &'static str {
     match icon_category(entry) {
-        IconCategory::Folder => "\u{1F4C1}",     // 📁
-        IconCategory::Code => "\u{1F4DD}",        // 📝
-        IconCategory::Image => "\u{1F5BC}",       // 🖼
-        IconCategory::Archive => "\u{1F4E6}",     // 📦
-        IconCategory::Executable => "\u{2699}",   // ⚙
-        IconCategory::Audio => "\u{1F3B5}",       // 🎵
-        IconCategory::Video => "\u{1F3AC}",       // 🎬
-        IconCategory::Document => "\u{1F4C4}",    // 📄
-        IconCategory::Generic => "\u{1F4CB}",     // 📋
+        IconCategory::Folder => "\u{1F4C1}",        // 📁
+        IconCategory::Code => "\u{1F4BB}",           // 💻
+        IconCategory::Markup => "\u{1F310}",         // 🌐
+        IconCategory::Config => "\u{2699}\u{FE0F}",  // ⚙️
+        IconCategory::Script => "\u{1F4DC}",         // 📜
+        IconCategory::Image => "\u{1F5BC}\u{FE0F}",  // 🖼️
+        IconCategory::Archive => "\u{1F4E6}",        // 📦
+        IconCategory::Executable => "\u{25B6}\u{FE0F}", // ▶️
+        IconCategory::Library => "\u{1F9E9}",        // 🧩
+        IconCategory::Audio => "\u{1F3B5}",          // 🎵
+        IconCategory::Video => "\u{1F3AC}",          // 🎬
+        IconCategory::Pdf => "\u{1F4D5}",            // 📕
+        IconCategory::Spreadsheet => "\u{1F4CA}",    // 📊
+        IconCategory::Presentation => "\u{1F4FD}\u{FE0F}", // 📽️
+        IconCategory::WordDoc => "\u{1F4C3}",        // 📃
+        IconCategory::TextLog => "\u{1F4C4}",        // 📄
+        IconCategory::Database => "\u{1F5C3}\u{FE0F}", // 🗃️
+        IconCategory::Font => "\u{1F524}",           // 🔤
+        IconCategory::Generic => "\u{1F4CB}",        // 📋
     }
 }
 
@@ -122,8 +166,38 @@ mod tests {
     }
 
     #[test]
-    fn pdf_is_document() {
-        assert_eq!(icon_category(&make_entry("report.pdf", false)), IconCategory::Document);
+    fn pdf_is_distinct() {
+        assert_eq!(icon_category(&make_entry("report.pdf", false)), IconCategory::Pdf);
+    }
+
+    #[test]
+    fn log_is_text() {
+        assert_eq!(icon_category(&make_entry("debug.log", false)), IconCategory::TextLog);
+    }
+
+    #[test]
+    fn csv_is_spreadsheet() {
+        assert_eq!(icon_category(&make_entry("data.csv", false)), IconCategory::Spreadsheet);
+    }
+
+    #[test]
+    fn docx_is_word_doc() {
+        assert_eq!(icon_category(&make_entry("thesis.docx", false)), IconCategory::WordDoc);
+    }
+
+    #[test]
+    fn json_is_config() {
+        assert_eq!(icon_category(&make_entry("package.json", false)), IconCategory::Config);
+    }
+
+    #[test]
+    fn sh_is_script() {
+        assert_eq!(icon_category(&make_entry("deploy.sh", false)), IconCategory::Script);
+    }
+
+    #[test]
+    fn dll_is_library() {
+        assert_eq!(icon_category(&make_entry("kernel32.dll", false)), IconCategory::Library);
     }
 
     #[test]
@@ -139,5 +213,28 @@ mod tests {
     #[test]
     fn no_extension_is_generic() {
         assert_eq!(icon_category(&make_entry("Makefile", false)), IconCategory::Generic);
+    }
+
+    #[test]
+    fn sql_is_database() {
+        assert_eq!(icon_category(&make_entry("schema.sql", false)), IconCategory::Database);
+    }
+
+    #[test]
+    fn ttf_is_font() {
+        assert_eq!(icon_category(&make_entry("arial.ttf", false)), IconCategory::Font);
+    }
+
+    #[test]
+    fn html_is_markup() {
+        assert_eq!(icon_category(&make_entry("index.html", false)), IconCategory::Markup);
+    }
+
+    #[test]
+    fn pptx_is_presentation() {
+        assert_eq!(
+            icon_category(&make_entry("slides.pptx", false)),
+            IconCategory::Presentation
+        );
     }
 }
