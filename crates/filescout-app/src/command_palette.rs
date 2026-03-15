@@ -29,6 +29,8 @@ pub enum CommandId {
     ClipboardCopy,
     ClipboardCut,
     ClipboardPaste,
+    ViewList,
+    ViewDetails,
 }
 
 pub struct CommandDef {
@@ -147,6 +149,16 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::ClipboardPaste,
         label: "Paste",
         description: "Paste clipboard files into current directory (Ctrl+V)",
+    },
+    CommandDef {
+        id: CommandId::ViewList,
+        label: "List View",
+        description: "Show compact file list (Ctrl+1)",
+    },
+    CommandDef {
+        id: CommandId::ViewDetails,
+        label: "Details View",
+        description: "Show detailed file list with extension and type columns (Ctrl+2)",
     },
 ];
 

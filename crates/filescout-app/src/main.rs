@@ -12,7 +12,7 @@ use filescout_core::ops::{
 use filescout_core::preview::{load_preview, PreviewContent};
 use filescout_core::properties::{compute_dir_size, load_file_properties, FileProperties};
 use filescout_core::search::search_files;
-use filescout_core::SortDirection;
+use filescout_core::{SortDirection, ViewMode};
 use filescout_ui::address_bar::{address_bar_view, AddressBarMessage};
 use filescout_ui::file_list::{file_list_view, FileListMessage};
 use filescout_ui::preview_panel::preview_panel_view;
@@ -143,6 +143,8 @@ enum Message {
     OpenContextMenu,
     /// Mouse cursor moved — track position.
     CursorMoved(Point),
+    /// Set view mode for the active pane.
+    SetViewMode(ViewMode),
     /// No-op sink for fire-and-forget async tasks.
     Noop,
     /// Raw key press forwarded from the subscription for stateful routing.
@@ -453,6 +455,10 @@ impl FileScout {
             }
             Message::CursorMoved(pos) => {
                 self.cursor_position = pos;
+                Task::none()
+            }
+            Message::SetViewMode(mode) => {
+                self.panes[self.active.index()].view_mode = mode;
                 Task::none()
             }
             Message::Noop => Task::none(),
@@ -868,6 +874,12 @@ impl FileScout {
                 keyboard::Key::Character("v") if modifiers.control() => {
                     self.update(Message::ClipboardPaste)
                 }
+                keyboard::Key::Character("1") if modifiers.control() => {
+                    self.update(Message::SetViewMode(ViewMode::List))
+                }
+                keyboard::Key::Character("2") if modifiers.control() => {
+                    self.update(Message::SetViewMode(ViewMode::Details))
+                }
                 keyboard::Key::Character("b") if modifiers.control() => {
                     self.update(Message::OpenBookmarks)
                 }
@@ -1258,6 +1270,8 @@ impl FileScout {
             CommandId::ClipboardCopy => self.update(Message::ClipboardCopy),
             CommandId::ClipboardCut => self.update(Message::ClipboardCut),
             CommandId::ClipboardPaste => self.update(Message::ClipboardPaste),
+            CommandId::ViewList => self.update(Message::SetViewMode(ViewMode::List)),
+            CommandId::ViewDetails => self.update(Message::SetViewMode(ViewMode::Details)),
         }
     }
 
@@ -1927,6 +1941,7 @@ fn pane_view<'a>(
             &active_tab.sort_dir,
             selection_items,
             renaming_ref,
+            &pane.view_mode,
         )
         .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
     };

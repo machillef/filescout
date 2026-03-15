@@ -23,6 +23,16 @@ pub enum SortColumn {
     Modified,
 }
 
+/// How to display file entries in the list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewMode {
+    /// Compact list with Name, Size, Modified columns.
+    #[default]
+    List,
+    /// Detailed view with Extension and Type columns added.
+    Details,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum SortDirection {
     #[default]

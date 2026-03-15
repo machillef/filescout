@@ -13,7 +13,7 @@ pub mod properties;
 pub mod search;
 
 pub use bookmarks::{Bookmark, Bookmarks};
-pub use models::{FileEntry, SortColumn, SortDirection};
+pub use models::{FileEntry, SortColumn, SortDirection, ViewMode};
 pub use navigation::History;
 pub use ops::{copy_item, move_item, UndoAction, UndoStack};
 pub use search::SearchResult;

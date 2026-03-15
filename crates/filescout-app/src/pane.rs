@@ -14,7 +14,7 @@ pub struct ArchiveContext {
 }
 
 use filescout_core::preview::PreviewContent;
-use filescout_core::{FileEntry, History, SortColumn, SortDirection, UndoStack};
+use filescout_core::{FileEntry, History, SortColumn, SortDirection, UndoStack, ViewMode};
 use filescout_ui::address_bar::AddressBarMessage;
 use filescout_ui::file_list::FileListMessage;
 use filescout_ui::tab_bar::TabBarMessage;
@@ -264,6 +264,8 @@ pub struct PaneState {
     pub active_tab: usize,
     /// Whether the preview panel is visible for this pane.
     pub show_preview: bool,
+    /// Current view mode (List or Details).
+    pub view_mode: ViewMode,
 }
 
 impl PaneState {
@@ -272,6 +274,7 @@ impl PaneState {
             tabs: vec![TabState::new(path)],
             active_tab: 0,
             show_preview: false,
+            view_mode: ViewMode::default(),
         }
     }
 

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use filescout_core::{FileEntry, SortColumn, SortDirection};
+use filescout_core::{FileEntry, SortColumn, SortDirection, ViewMode};
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
 use iced::{Element, Length};
 use iced::widget::Id;
@@ -37,37 +37,52 @@ pub fn file_list_view<'a>(
     sort_dir: &'a SortDirection,
     selection: &'a HashSet<PathBuf>,
     renaming: Option<(&'a Path, &'a str)>,
+    view_mode: &'a ViewMode,
 ) -> Element<'a, FileListMessage> {
-    let header = row![
+    let is_details = *view_mode == ViewMode::Details;
+
+    let mut header_items: Vec<Element<'a, FileListMessage>> = vec![
         button(text(format!("Name{}", sort_indicator(sort_col, sort_dir, &SortColumn::Name))).width(300))
             .on_press(FileListMessage::Sort(SortColumn::Name))
-            .style(button::text),
+            .style(button::text)
+            .into(),
+    ];
+    if is_details {
+        header_items.push(text("Ext").width(60).into());
+        header_items.push(text("Type").width(100).into());
+    }
+    header_items.push(
         button(text(format!("Size{}", sort_indicator(sort_col, sort_dir, &SortColumn::Size))).width(100))
             .on_press(FileListMessage::Sort(SortColumn::Size))
-            .style(button::text),
+            .style(button::text)
+            .into(),
+    );
+    header_items.push(
         button(text(format!("Modified{}", sort_indicator(sort_col, sort_dir, &SortColumn::Modified))).width(200))
             .on_press(FileListMessage::Sort(SortColumn::Modified))
-            .style(button::text),
-    ]
-    .spacing(10)
-    .padding(5);
+            .style(button::text)
+            .into(),
+    );
+
+    let header = row(header_items).spacing(10).padding(5);
 
     let mut rows: Vec<Element<'a, FileListMessage>> = Vec::new();
 
     // ".." parent row — always navigates, never selectable
     if let Some(parent) = parent_path {
-        let up_row = button(
-            row![
-                text("📁 ..").width(300),
-                text("").width(100),
-                text("").width(200),
-            ]
-            .spacing(10)
-            .padding(2),
-        )
-        .on_press(FileListMessage::Navigate(parent))
-        .style(button::text)
-        .width(Length::Fill);
+        let mut up_items: Vec<Element<'a, FileListMessage>> =
+            vec![text("\u{1F4C1} ..").width(300).into()];
+        if is_details {
+            up_items.push(text("").width(60).into());
+            up_items.push(text("").width(100).into());
+        }
+        up_items.push(text("").width(100).into());
+        up_items.push(text("").width(200).into());
+
+        let up_row = button(row(up_items).spacing(10).padding(2))
+            .on_press(FileListMessage::Navigate(parent))
+            .style(button::text)
+            .width(Length::Fill);
 
         rows.push(up_row.into());
     }
@@ -88,51 +103,56 @@ pub fn file_list_view<'a>(
             .unwrap_or_default();
 
         let icon = file_icon_text(entry);
+        let ext_text = if is_details {
+            extract_extension(&entry.name)
+        } else {
+            String::new()
+        };
+        let type_text = if is_details {
+            file_type_description(entry)
+        } else {
+            String::new()
+        };
 
         if is_renaming {
             let (_, rename_text) = renaming.unwrap();
-            // Inline rename row — plain container, no button wrapper
-            let rename_row = container(
-                row![
-                    text_input("New name…", rename_text)
-                        .id(Id::new(RENAME_INPUT_ID))
-                        .on_input(FileListMessage::RenameEdit)
-                        .width(300),
-                    text(size_text).width(100),
-                    text(modified_text).width(200),
-                ]
-                .spacing(10)
-                .padding(2),
-            )
-            .style(container::bordered_box)
-            .width(Length::Fill);
+            let mut rename_items: Vec<Element<'a, FileListMessage>> = vec![
+                text_input("New name…", rename_text)
+                    .id(Id::new(RENAME_INPUT_ID))
+                    .on_input(FileListMessage::RenameEdit)
+                    .width(300)
+                    .into(),
+            ];
+            if is_details {
+                rename_items.push(text(ext_text).width(60).into());
+                rename_items.push(text(type_text).width(100).into());
+            }
+            rename_items.push(text(size_text).width(100).into());
+            rename_items.push(text(modified_text).width(200).into());
+
+            let rename_row = container(row(rename_items).spacing(10).padding(2))
+                .style(container::bordered_box)
+                .width(Length::Fill);
 
             rows.push(rename_row.into());
         } else {
-            let row_content = row![
-                text(format!("{icon} {}", entry.name)).width(300),
-                text(size_text).width(100),
-                text(modified_text).width(200),
-            ]
-            .spacing(10)
-            .padding(2);
+            let mut row_items: Vec<Element<'a, FileListMessage>> =
+                vec![text(format!("{icon} {}", entry.name)).width(300).into()];
+            if is_details {
+                row_items.push(text(ext_text).width(60).into());
+                row_items.push(text(type_text).width(100).into());
+            }
+            row_items.push(text(size_text).width(100).into());
+            row_items.push(text(modified_text).width(200).into());
 
+            let row_content = row(row_items).spacing(10).padding(2);
             let path_clone = path.clone();
             let style = if is_selected { button::primary } else { button::text };
 
-            let row_btn = if entry.is_dir {
-                // Dirs: click → Select (navigate via Enter key)
-                button(row_content)
-                    .on_press(FileListMessage::Select(path_clone))
-                    .style(style)
-                    .width(Length::Fill)
-            } else {
-                // Files: click → Select
-                button(row_content)
-                    .on_press(FileListMessage::Select(path_clone))
-                    .style(style)
-                    .width(Length::Fill)
-            };
+            let row_btn = button(row_content)
+                .on_press(FileListMessage::Select(path_clone))
+                .style(style)
+                .width(Length::Fill);
 
             rows.push(row_btn.into());
         }
@@ -148,6 +168,49 @@ fn sort_indicator<'a>(current: &SortColumn, dir: &SortDirection, col: &SortColum
         if *dir == SortDirection::Asc { " ▲" } else { " ▼" }
     } else {
         ""
+    }
+}
+
+/// Extract the file extension (lowercase, without dot).
+fn extract_extension(name: &str) -> String {
+    name.rsplit('.')
+        .next()
+        .filter(|ext| name.contains('.') && !ext.is_empty())
+        .map(|ext| ext.to_lowercase())
+        .unwrap_or_default()
+}
+
+/// Return a human-readable type description for a file entry.
+fn file_type_description(entry: &FileEntry) -> String {
+    if entry.is_dir {
+        return "Folder".to_string();
+    }
+    let ext = extract_extension(&entry.name);
+    match ext.as_str() {
+        "txt" | "log" => "Text File".to_string(),
+        "rs" => "Rust Source".to_string(),
+        "py" => "Python Script".to_string(),
+        "js" | "jsx" => "JavaScript".to_string(),
+        "ts" | "tsx" => "TypeScript".to_string(),
+        "html" | "htm" => "HTML File".to_string(),
+        "css" | "scss" => "Stylesheet".to_string(),
+        "json" => "JSON File".to_string(),
+        "xml" => "XML File".to_string(),
+        "yaml" | "yml" => "YAML File".to_string(),
+        "toml" => "TOML File".to_string(),
+        "md" => "Markdown".to_string(),
+        "pdf" => "PDF Document".to_string(),
+        "doc" | "docx" => "Word Document".to_string(),
+        "xls" | "xlsx" => "Spreadsheet".to_string(),
+        "ppt" | "pptx" => "Presentation".to_string(),
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "svg" | "webp" => "Image".to_string(),
+        "mp3" | "wav" | "flac" | "aac" | "ogg" => "Audio".to_string(),
+        "mp4" | "avi" | "mkv" | "mov" | "webm" => "Video".to_string(),
+        "zip" | "tar" | "gz" | "7z" | "rar" => "Archive".to_string(),
+        "exe" | "msi" => "Executable".to_string(),
+        "dll" => "Library".to_string(),
+        "" => "File".to_string(),
+        other => format!("{} File", other.to_uppercase()),
     }
 }
 
