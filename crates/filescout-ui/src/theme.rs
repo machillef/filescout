@@ -42,7 +42,7 @@ pub mod light {
 }
 
 /// Returns whether the given theme is dark.
-fn is_dark(theme: &Theme) -> bool {
+pub fn is_dark_theme(theme: &Theme) -> bool {
     matches!(
         theme,
         Theme::Dark
@@ -67,7 +67,7 @@ fn is_dark(theme: &Theme) -> bool {
 
 /// Style for the thin divider between sidebar/panes.
 pub fn divider_style(theme: &Theme) -> container::Style {
-    let color = if is_dark(theme) { dark::DIVIDER } else { light::DIVIDER };
+    let color = if is_dark_theme(theme) { dark::DIVIDER } else { light::DIVIDER };
     container::Style {
         background: Some(Background::Color(color)),
         ..Default::default()
@@ -76,7 +76,7 @@ pub fn divider_style(theme: &Theme) -> container::Style {
 
 /// Style for a file list row (normal, not selected).
 pub fn file_row_style(theme: &Theme) -> button::Style {
-    let palette = if is_dark(theme) { dark::TEXT_PRIMARY } else { light::TEXT_PRIMARY };
+    let palette = if is_dark_theme(theme) { dark::TEXT_PRIMARY } else { light::TEXT_PRIMARY };
     button::Style {
         text_color: palette,
         ..Default::default()
@@ -85,7 +85,7 @@ pub fn file_row_style(theme: &Theme) -> button::Style {
 
 /// Style for a selected file list row.
 pub fn file_row_selected_style(theme: &Theme) -> button::Style {
-    let (accent, text) = if is_dark(theme) {
+    let (accent, text) = if is_dark_theme(theme) {
         (dark::SELECTION, dark::TEXT_PRIMARY)
     } else {
         (light::SELECTION, light::TEXT_PRIMARY)
@@ -103,7 +103,7 @@ pub fn file_row_selected_style(theme: &Theme) -> button::Style {
 
 /// Style for alternating row background (zebra striping).
 pub fn file_row_alt_style(theme: &Theme) -> container::Style {
-    let bg = if is_dark(theme) { dark::ROW_ALT } else { light::ROW_ALT };
+    let bg = if is_dark_theme(theme) { dark::ROW_ALT } else { light::ROW_ALT };
     container::Style {
         background: Some(Background::Color(bg)),
         ..Default::default()
@@ -112,7 +112,7 @@ pub fn file_row_alt_style(theme: &Theme) -> container::Style {
 
 /// Style for the file list header row.
 pub fn file_header_style(theme: &Theme) -> container::Style {
-    let (bg, border) = if is_dark(theme) {
+    let (bg, border) = if is_dark_theme(theme) {
         (dark::SURFACE_RAISED, dark::BORDER)
     } else {
         (light::SURFACE_RAISED, light::BORDER)
@@ -138,7 +138,7 @@ pub fn overlay_backdrop_style(_theme: &Theme) -> container::Style {
 
 /// Card/panel style for overlay content.
 pub fn overlay_card_style(theme: &Theme) -> container::Style {
-    let (bg, border) = if is_dark(theme) {
+    let (bg, border) = if is_dark_theme(theme) {
         (dark::SURFACE_RAISED, dark::BORDER)
     } else {
         (light::SURFACE_RAISED, light::BORDER)
@@ -156,7 +156,7 @@ pub fn overlay_card_style(theme: &Theme) -> container::Style {
 
 /// Sidebar container style.
 pub fn sidebar_style(theme: &Theme) -> container::Style {
-    let bg = if is_dark(theme) { dark::SURFACE } else { light::SURFACE };
+    let bg = if is_dark_theme(theme) { dark::SURFACE } else { light::SURFACE };
     container::Style {
         background: Some(Background::Color(bg)),
         ..Default::default()
@@ -165,7 +165,7 @@ pub fn sidebar_style(theme: &Theme) -> container::Style {
 
 /// Toolbar button style (subtle, no background until hover).
 pub fn toolbar_button_style(theme: &Theme, _status: button::Status) -> button::Style {
-    let text = if is_dark(theme) { dark::TEXT_PRIMARY } else { light::TEXT_PRIMARY };
+    let text = if is_dark_theme(theme) { dark::TEXT_PRIMARY } else { light::TEXT_PRIMARY };
     button::Style {
         text_color: text,
         ..Default::default()
@@ -178,12 +178,12 @@ mod tests {
 
     #[test]
     fn dark_theme_detected() {
-        assert!(is_dark(&Theme::Dark));
+        assert!(is_dark_theme(&Theme::Dark));
     }
 
     #[test]
     fn light_theme_detected() {
-        assert!(!is_dark(&Theme::Light));
+        assert!(!is_dark_theme(&Theme::Light));
     }
 
     #[test]

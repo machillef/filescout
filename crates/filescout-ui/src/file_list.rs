@@ -7,6 +7,8 @@ use iced::widget::{button, column, container, row, scrollable, text, text_input,
 use iced::{Element, Length};
 use iced::widget::Id;
 
+use crate::theme;
+
 use crate::icons::file_icon_text;
 
 /// Unique ID for the inline rename text input (used for programmatic focus).
@@ -103,7 +105,7 @@ pub fn file_list_view<'a>(
                     let (_, rename_text) = renaming.unwrap();
                     rows.push(build_rename_row(entry, rename_text, is_details));
                 } else {
-                    rows.push(build_entry_row(entry, is_selected, is_details));
+                    rows.push(build_entry_row(entry, is_selected, is_details, idx));
                 }
             }
         }
@@ -173,7 +175,10 @@ fn build_header<'a>(
             .into(),
     );
 
-    row(header_items).spacing(10).padding(5).into()
+    container(row(header_items).spacing(10).padding(5))
+        .width(Length::Fill)
+        .style(theme::file_header_style)
+        .into()
 }
 
 fn build_parent_row(parent: PathBuf, is_details: bool) -> Element<'static, FileListMessage> {
@@ -230,6 +235,7 @@ fn build_entry_row<'a>(
     entry: &'a FileEntry,
     is_selected: bool,
     is_details: bool,
+    row_idx: usize,
 ) -> Element<'a, FileListMessage> {
     let icon = file_icon_text(entry);
     let size_text = format_size_for(entry);
@@ -251,13 +257,41 @@ fn build_entry_row<'a>(
 
     let row_content = row(row_items).spacing(10).padding(2);
     let path_clone = entry.path.clone();
-    let style = if is_selected { button::primary } else { button::text };
 
-    button(row_content)
-        .on_press(FileListMessage::Select(path_clone))
-        .style(style)
+    if is_selected {
+        // Selected row: accent background via theme style
+        let btn: Element<'a, FileListMessage> = button(row_content)
+            .on_press(FileListMessage::Select(path_clone))
+            .style(|theme, status| {
+                let mut style = theme::file_row_selected_style(theme);
+                if matches!(status, button::Status::Hovered) {
+                    style.background = Some(iced::Background::Color(
+                        if theme::is_dark_theme(theme) { theme::dark::ACCENT_HOVER } else { theme::light::ACCENT_HOVER }
+                    ));
+                }
+                style
+            })
+            .width(Length::Fill)
+            .into();
+        btn
+    } else if row_idx % 2 == 1 {
+        // Alternating row: subtle zebra background
+        container(
+            button(row_content)
+                .on_press(FileListMessage::Select(path_clone))
+                .style(button::text)
+                .width(Length::Fill),
+        )
+        .style(theme::file_row_alt_style)
         .width(Length::Fill)
         .into()
+    } else {
+        button(row_content)
+            .on_press(FileListMessage::Select(path_clone))
+            .style(button::text)
+            .width(Length::Fill)
+            .into()
+    }
 }
 
 fn format_size_for(entry: &FileEntry) -> String {
