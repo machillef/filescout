@@ -23,6 +23,7 @@ use tracing_subscriber::EnvFilter;
 
 mod batch_rename;
 mod bookmarks;
+mod clipboard;
 mod command_palette;
 mod confirm;
 mod pane;
@@ -32,6 +33,7 @@ mod watcher;
 
 use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
 use bookmarks::{bookmarks_view, BookmarkMessage};
+use clipboard::{write_paths_to_system_clipboard, ClipOp, ClipboardState};
 use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
 use confirm::{confirm_view, ConfirmAction, ConfirmMessage, ConfirmState};
 use pane::{ArchiveContext, PaneId, PaneMessage, PaneState};
@@ -73,6 +75,8 @@ struct FileScout {
     confirm: Option<ConfirmState>,
     /// Whether hidden/system files are visible.
     show_hidden: bool,
+    /// Internal clipboard for copy/cut/paste.
+    clipboard: Option<ClipboardState>,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -107,6 +111,12 @@ enum Message {
     ToggleTheme,
     /// Toggle hidden files visibility (Ctrl+H).
     ToggleHidden,
+    /// Copy selected paths to internal clipboard (Ctrl+C).
+    ClipboardCopy,
+    /// Cut selected paths to internal clipboard (Ctrl+X).
+    ClipboardCut,
+    /// Paste clipboard contents into the active pane (Ctrl+V).
+    ClipboardPaste,
     /// No-op sink for fire-and-forget async tasks.
     Noop,
     /// Raw key press forwarded from the subscription for stateful routing.
@@ -167,6 +177,7 @@ impl FileScout {
             properties: None,
             confirm: None,
             show_hidden: false,
+            clipboard: None,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -282,6 +293,118 @@ impl FileScout {
                     })
                     .collect();
                 Task::batch(std::iter::once(save_task).chain(refresh_tasks))
+            }
+            Message::ClipboardCopy => {
+                let paths: Vec<PathBuf> = self.panes[self.active.index()]
+                    .active()
+                    .selection
+                    .items()
+                    .iter()
+                    .cloned()
+                    .collect();
+                if paths.is_empty() {
+                    return Task::none();
+                }
+                write_paths_to_system_clipboard(&paths);
+                self.clipboard = Some(ClipboardState::new(paths, ClipOp::Copy));
+                Task::none()
+            }
+            Message::ClipboardCut => {
+                let paths: Vec<PathBuf> = self.panes[self.active.index()]
+                    .active()
+                    .selection
+                    .items()
+                    .iter()
+                    .cloned()
+                    .collect();
+                if paths.is_empty() {
+                    return Task::none();
+                }
+                write_paths_to_system_clipboard(&paths);
+                self.clipboard = Some(ClipboardState::new(paths, ClipOp::Cut));
+                Task::none()
+            }
+            Message::ClipboardPaste => {
+                let Some(clip) = self.clipboard.take() else {
+                    return Task::none();
+                };
+                let dest_dir = self.panes[self.active.index()]
+                    .active()
+                    .current_path
+                    .clone();
+                let dest_pane = self.active;
+                let dest_tab = self.panes[dest_pane.index()].active_tab;
+                let is_cut = clip.operation == ClipOp::Cut;
+                let src_refresh = if is_cut {
+                    // For cut, we need to refresh the source pane too.
+                    // The source is whichever pane the paths came from.
+                    // Use the parent of the first path as a heuristic.
+                    clip.paths.first().and_then(|p| {
+                        p.parent().map(|parent| {
+                            let src_dir = parent.to_path_buf();
+                            // Find which pane shows this directory.
+                            for pid in [PaneId::Left, PaneId::Right] {
+                                let tab_idx = self.panes[pid.index()].active_tab;
+                                if self.panes[pid.index()].active().current_path == src_dir {
+                                    return Some((pid, tab_idx, src_dir));
+                                }
+                            }
+                            None
+                        })
+                    })
+                    .flatten()
+                } else {
+                    None
+                };
+                let paths = clip.paths;
+                let label = if paths.len() == 1 {
+                    format!(
+                        "{}ing '{}'  →  {}…",
+                        if is_cut { "Mov" } else { "Copy" },
+                        paths[0].file_name().unwrap_or_default().to_string_lossy(),
+                        dest_dir.display()
+                    )
+                } else {
+                    format!(
+                        "{}ing {} items  →  {}…",
+                        if is_cut { "Mov" } else { "Copy" },
+                        paths.len(),
+                        dest_dir.display()
+                    )
+                };
+                self.copy_move_label = Some(label);
+                let dest_dir2 = dest_dir.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let errors: Vec<String> = paths
+                                .into_iter()
+                                .filter_map(|p| {
+                                    let result = if is_cut {
+                                        move_item(p, dest_dir.clone())
+                                    } else {
+                                        copy_item(p, dest_dir.clone())
+                                    };
+                                    result.err().map(|e| e.to_string())
+                                })
+                                .collect();
+                            if errors.is_empty() {
+                                Ok(())
+                            } else {
+                                Err(errors.join("; "))
+                            }
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    move |result| Message::CopyMoveDone {
+                        dest_pane,
+                        dest_tab,
+                        dest_dir: dest_dir2,
+                        src_refresh,
+                        result,
+                    },
+                )
             }
             Message::Noop => Task::none(),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
@@ -667,6 +790,15 @@ impl FileScout {
                 keyboard::Key::Character("h") if modifiers.control() => {
                     self.update(Message::ToggleHidden)
                 }
+                keyboard::Key::Character("c") if modifiers.control() => {
+                    self.update(Message::ClipboardCopy)
+                }
+                keyboard::Key::Character("x") if modifiers.control() => {
+                    self.update(Message::ClipboardCut)
+                }
+                keyboard::Key::Character("v") if modifiers.control() => {
+                    self.update(Message::ClipboardPaste)
+                }
                 keyboard::Key::Character("b") if modifiers.control() => {
                     self.update(Message::OpenBookmarks)
                 }
@@ -997,6 +1129,9 @@ impl FileScout {
             CommandId::ExtractArchive => self.update(Message::ExtractArchive),
             CommandId::OpenFile => self.update_pane(id, PaneMessage::OpenFile),
             CommandId::ToggleHidden => self.update(Message::ToggleHidden),
+            CommandId::ClipboardCopy => self.update(Message::ClipboardCopy),
+            CommandId::ClipboardCut => self.update(Message::ClipboardCut),
+            CommandId::ClipboardPaste => self.update(Message::ClipboardPaste),
         }
     }
 

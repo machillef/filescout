@@ -26,6 +26,9 @@ pub enum CommandId {
     ExtractArchive,
     OpenFile,
     ToggleHidden,
+    ClipboardCopy,
+    ClipboardCut,
+    ClipboardPaste,
 }
 
 pub struct CommandDef {
@@ -129,6 +132,21 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::ToggleHidden,
         label: "Toggle Hidden Files",
         description: "Show or hide hidden and system files (Ctrl+H)",
+    },
+    CommandDef {
+        id: CommandId::ClipboardCopy,
+        label: "Copy",
+        description: "Copy selected files to clipboard (Ctrl+C)",
+    },
+    CommandDef {
+        id: CommandId::ClipboardCut,
+        label: "Cut",
+        description: "Cut selected files to clipboard (Ctrl+X)",
+    },
+    CommandDef {
+        id: CommandId::ClipboardPaste,
+        label: "Paste",
+        description: "Paste clipboard files into current directory (Ctrl+V)",
     },
 ];
 
