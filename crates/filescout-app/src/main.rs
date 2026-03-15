@@ -23,6 +23,7 @@ mod bookmarks;
 mod command_palette;
 mod pane;
 mod search;
+mod watcher;
 
 use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
 use bookmarks::{bookmarks_view, BookmarkMessage};
@@ -107,6 +108,8 @@ enum Message {
     AddBookmark,
     /// A message from the bookmarks overlay.
     Bookmark(BookmarkMessage),
+    /// A watched directory has changed on disk — refresh any tab showing it.
+    DirectoryChanged(PathBuf),
     /// Result of an async copy or move operation.
     CopyMoveDone {
         dest_pane: PaneId,
@@ -150,8 +153,8 @@ impl FileScout {
         (app, Task::batch([load_left, load_right, load_drvs, load_cfg]))
     }
 
-    fn subscription(_state: &Self) -> Subscription<Message> {
-        event::listen_with(|ev, _status, _window| match ev {
+    fn subscription(state: &Self) -> Subscription<Message> {
+        let keyboard_sub = event::listen_with(|ev, _status, _window| match ev {
             Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 Some(Message::KeyPressed(key, modifiers))
             }
@@ -159,7 +162,18 @@ impl FileScout {
                 Some(Message::ModifiersChanged(mods))
             }
             _ => None,
-        })
+        });
+
+        // Collect the current directory of every open tab across both panes.
+        let watched: Vec<PathBuf> = state
+            .panes
+            .iter()
+            .flat_map(|p| p.tabs.iter().map(|t| t.current_path.clone()))
+            .collect();
+
+        let watcher_sub = watcher::watch_directories(watched).map(Message::DirectoryChanged);
+
+        Subscription::batch([keyboard_sub, watcher_sub])
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -242,6 +256,30 @@ impl FileScout {
                 )
             }
             Message::Bookmark(msg) => self.handle_bookmark(msg),
+            Message::DirectoryChanged(path) => {
+                // Skip auto-refresh while a copy/move is in progress to avoid
+                // racing with the operation's own post-completion refresh.
+                if self.copy_move_label.is_some() {
+                    return Task::none();
+                }
+                // Refresh every tab (in either pane) whose current_path matches
+                // the changed directory.
+                let tasks: Vec<Task<Message>> = [PaneId::Left, PaneId::Right]
+                    .into_iter()
+                    .flat_map(|pane_id| {
+                        self.panes[pane_id.index()]
+                            .tabs
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, tab)| tab.current_path == path && tab.renaming.is_none())
+                            .map(move |(tab_idx, tab)| {
+                                load_directory_for(pane_id, tab_idx, tab.current_path.clone())
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                Task::batch(tasks)
+            }
             Message::CopyMoveDone { dest_pane, dest_tab, dest_dir, src_refresh, result } => {
                 self.copy_move_label = None;
                 match result {

@@ -1069,6 +1069,7 @@ dependencies = [
  "filescout-ui",
  "fuzzy-matcher",
  "iced",
+ "notify",
  "tokio",
  "tracing",
  "tracing-subscriber",

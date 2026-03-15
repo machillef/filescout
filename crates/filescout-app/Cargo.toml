@@ -10,8 +10,9 @@ name = "filescout"
 path = "src/main.rs"
 
 [dependencies]
-iced = { workspace = true }
+iced = { workspace = true, features = ["advanced"] }
 tokio = { workspace = true }
+notify = { workspace = true }
 filescout-core = { workspace = true }
 filescout-ui = { workspace = true }
 filescout-ai = { workspace = true }
