@@ -1,6 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
+use filescout_core::archive::{extract_archive, extract_entry, is_zip};
 use filescout_core::bookmarks::Bookmarks;
 use filescout_core::config::{load_config, save_config, AppConfig, ThemePreference};
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
@@ -30,7 +31,7 @@ mod watcher;
 use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
 use bookmarks::{bookmarks_view, BookmarkMessage};
 use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
-use pane::{PaneId, PaneMessage, PaneState};
+use pane::{ArchiveContext, PaneId, PaneMessage, PaneState};
 use properties::{properties_view, PropertiesMessage, PropertiesState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
 
@@ -121,6 +122,10 @@ enum Message {
     PropertiesLoaded(FileProperties),
     /// A message from the properties overlay.
     Properties(PropertiesMessage),
+    /// Extract current archive contents to the other pane's directory (F7).
+    ExtractArchive,
+    /// Result of an async archive extraction.
+    ExtractArchiveDone(Result<(), String>),
     /// Result of an async copy or move operation.
     CopyMoveDone {
         dest_pane: PaneId,
@@ -283,7 +288,7 @@ impl FileScout {
                             .tabs
                             .iter()
                             .enumerate()
-                            .filter(|(_, tab)| tab.current_path == path && tab.renaming.is_none())
+                            .filter(|(_, tab)| tab.current_path == path && tab.renaming.is_none() && tab.archive_context.is_none())
                             .map(move |(tab_idx, tab)| {
                                 load_directory_for(pane_id, tab_idx, tab.current_path.clone())
                             })
@@ -309,6 +314,63 @@ impl FileScout {
                         } else {
                             dest_task
                         }
+                    }
+                }
+            }
+            Message::ExtractArchive => {
+                let src_pane = self.active;
+                let dest_pane = src_pane.other();
+                let dest_dir = self.panes[dest_pane.index()].active().current_path.clone();
+
+                let (zip_path, selection) = {
+                    let tab = self.panes[src_pane.index()].active();
+                    if let Some(ref ctx) = tab.archive_context {
+                        let zip = ctx.zip_path.clone();
+                        let sel: Vec<PathBuf> = tab.selection.items().iter().cloned().collect();
+                        (zip, sel)
+                    } else {
+                        return Task::none();
+                    }
+                };
+
+                let extract_whole = selection.is_empty();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                            if extract_whole {
+                                extract_archive(&zip_path, &dest_dir)
+                            } else {
+                                for sel_path in &selection {
+                                    let inner_item = sel_path
+                                        .strip_prefix(&zip_path)
+                                        .ok()
+                                        .map(|p| {
+                                            let s = p.to_string_lossy().replace('\\', "/");
+                                            s.trim_end_matches('/').to_owned()
+                                        })
+                                        .unwrap_or_default();
+                                    if !inner_item.is_empty() {
+                                        extract_entry(&zip_path, &inner_item, &dest_dir)?;
+                                    }
+                                }
+                                Ok(())
+                            }
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                    },
+                    |result| Message::ExtractArchiveDone(result.map_err(|e| e.to_string())),
+                )
+            }
+            Message::ExtractArchiveDone(result) => {
+                let dest_pane = self.active.other();
+                let dest_tab = self.panes[dest_pane.index()].active_tab;
+                let dest_dir = self.panes[dest_pane.index()].active().current_path.clone();
+                match result {
+                    Ok(()) => load_directory_for(dest_pane, dest_tab, dest_dir),
+                    Err(e) => {
+                        self.panes[self.active.index()].active_mut().error = Some(e);
+                        Task::none()
                     }
                 }
             }
@@ -371,6 +433,9 @@ impl FileScout {
         if self.copy_move_label.is_some() {
             return Task::none();
         }
+        if self.panes[self.active.index()].active().archive_context.is_some() {
+            return Task::none();
+        }
         let src_pane = self.active;
         let dest_pane = src_pane.other();
         let paths: Vec<PathBuf> =
@@ -415,6 +480,9 @@ impl FileScout {
 
     fn start_move(&mut self) -> Task<Message> {
         if self.copy_move_label.is_some() {
+            return Task::none();
+        }
+        if self.panes[self.active.index()].active().archive_context.is_some() {
             return Task::none();
         }
         let src_pane = self.active;
@@ -547,6 +615,7 @@ impl FileScout {
                 }
                 keyboard::Key::Named(Named::F5) => self.update(Message::CopyToOtherPane),
                 keyboard::Key::Named(Named::F6) => self.update(Message::MoveToOtherPane),
+                keyboard::Key::Named(Named::F7) => self.update(Message::ExtractArchive),
                 keyboard::Key::Character("a") if modifiers.control() => {
                     self.update(Message::ActivePaneAction(ActiveAction::SelectAll))
                 }
@@ -812,6 +881,7 @@ impl FileScout {
             CommandId::OpenBookmarks => self.update(Message::OpenBookmarks),
             CommandId::AddBookmark => self.update(Message::AddBookmark),
             CommandId::FileProperties => self.update(Message::OpenProperties),
+            CommandId::ExtractArchive => self.update(Message::ExtractArchive),
         }
     }
 
@@ -832,7 +902,14 @@ impl FileScout {
             }
 
             PaneMessage::TabBar(TabBarMessage::New) => {
-                let path = pane.active().current_path.clone();
+                let path = {
+                    let tab = pane.active();
+                    if let Some(ref ctx) = tab.archive_context {
+                        ctx.zip_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| ctx.zip_path.clone())
+                    } else {
+                        tab.current_path.clone()
+                    }
+                };
                 let tab_idx = pane.new_tab(path.clone());
                 load_directory_for(id, tab_idx, path)
             }
@@ -840,6 +917,49 @@ impl FileScout {
             // --- Navigation ---
             PaneMessage::FileList(FileListMessage::Navigate(path)) => {
                 let tab_idx = pane.active_tab;
+                let archive_zip = pane.tabs[tab_idx]
+                    .archive_context
+                    .as_ref()
+                    .map(|ctx| ctx.zip_path.clone());
+
+                if let Some(zip_path) = archive_zip {
+                    if path == zip_path || path.starts_with(&zip_path) {
+                        // Navigate within the archive (going to archive root or a parent subdir).
+                        let new_inner = if path == zip_path {
+                            String::new()
+                        } else {
+                            path.strip_prefix(&zip_path)
+                                .ok()
+                                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                                .unwrap_or_default()
+                                .trim_end_matches('/')
+                                .to_owned()
+                        };
+                        {
+                            let tab = &mut pane.tabs[tab_idx];
+                            tab.archive_context = Some(ArchiveContext {
+                                zip_path: zip_path.clone(),
+                                inner_dir: new_inner.clone(),
+                            });
+                            tab.current_path = path.clone();
+                            tab.address_text = path.display().to_string();
+                            tab.selection.clear();
+                        }
+                        return load_archive_for(id, tab_idx, zip_path, new_inner);
+                    } else {
+                        // Exiting the archive (navigating to real parent dir via `..`).
+                        {
+                            let tab = &mut pane.tabs[tab_idx];
+                            tab.archive_context = None;
+                            tab.history.navigate(path.clone());
+                            tab.address_text = path.display().to_string();
+                            tab.selection.clear();
+                        }
+                        return load_directory_for(id, tab_idx, path);
+                    }
+                }
+
+                // Normal (non-archive) navigation.
                 let tab = &mut pane.tabs[tab_idx];
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
@@ -869,18 +989,64 @@ impl FileScout {
 
             PaneMessage::NavigateSelected => {
                 let tab_idx = pane.active_tab;
-                let tab = &mut pane.tabs[tab_idx];
-                // Ignore if rename is active — Enter commits the rename instead
-                if tab.renaming.is_some() {
+                if pane.tabs[tab_idx].renaming.is_some() {
                     return Task::none();
                 }
-                if let Some(focus) = tab.selection.focus().map(|p| p.to_path_buf())
-                    && focus.is_dir()
-                {
+                let focus = pane.tabs[tab_idx].selection.focus().map(|p| p.to_path_buf());
+                let Some(focus) = focus else { return Task::none() };
+
+                // Pre-compute archive info before any mutable borrow.
+                let archive_zip = pane.tabs[tab_idx]
+                    .archive_context
+                    .as_ref()
+                    .map(|ctx| ctx.zip_path.clone());
+
+                if let Some(zip_path) = archive_zip {
+                    // Inside an archive: check if the focused entry is a virtual directory.
+                    let is_archive_dir = pane.tabs[tab_idx]
+                        .entries
+                        .iter()
+                        .any(|e| e.path == focus && e.is_dir);
+                    if is_archive_dir {
+                        let new_inner = focus
+                            .strip_prefix(&zip_path)
+                            .ok()
+                            .map(|p| p.to_string_lossy().replace('\\', "/"))
+                            .unwrap_or_default()
+                            .trim_end_matches('/')
+                            .to_owned();
+                        let virtual_path = zip_path.join(new_inner.replace('/', std::path::MAIN_SEPARATOR_STR));
+                        {
+                            let tab = &mut pane.tabs[tab_idx];
+                            tab.archive_context = Some(ArchiveContext {
+                                zip_path: zip_path.clone(),
+                                inner_dir: new_inner.clone(),
+                            });
+                            tab.current_path = virtual_path;
+                            tab.address_text = tab.current_path.display().to_string();
+                            tab.selection.clear();
+                        }
+                        return load_archive_for(id, tab_idx, zip_path, new_inner);
+                    }
+                } else if focus.is_dir() {
+                    let tab = &mut pane.tabs[tab_idx];
                     tab.history.navigate(focus.clone());
                     tab.address_text = focus.display().to_string();
                     tab.selection.clear();
                     return load_directory_for(id, tab_idx, focus);
+                } else if is_zip(&focus) {
+                    // Enter the archive.
+                    {
+                        let tab = &mut pane.tabs[tab_idx];
+                        tab.archive_context = Some(ArchiveContext {
+                            zip_path: focus.clone(),
+                            inner_dir: String::new(),
+                        });
+                        tab.current_path = focus.clone();
+                        tab.address_text = focus.display().to_string();
+                        tab.selection.clear();
+                    }
+                    return load_archive_for(id, tab_idx, focus, String::new());
                 }
                 Task::none()
             }
@@ -890,6 +1056,7 @@ impl FileScout {
                 let tab = &mut pane.tabs[tab_idx];
                 // Navigate to the parent directory; keep `path` as the pending selection.
                 let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.clone());
+                tab.archive_context = None;
                 tab.history.navigate(parent.clone());
                 tab.address_text = parent.display().to_string();
                 tab.selection.single_select(path);
@@ -943,6 +1110,7 @@ impl FileScout {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
                 if let Some(path) = tab.history.back().cloned() {
+                    tab.archive_context = None;
                     tab.address_text = path.display().to_string();
                     tab.selection.clear();
                     load_directory_for(id, tab_idx, path)
@@ -955,6 +1123,7 @@ impl FileScout {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
                 if let Some(path) = tab.history.forward().cloned() {
+                    tab.archive_context = None;
                     tab.address_text = path.display().to_string();
                     tab.selection.clear();
                     load_directory_for(id, tab_idx, path)
@@ -972,6 +1141,7 @@ impl FileScout {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
                 let path = PathBuf::from(&tab.address_text);
+                tab.archive_context = None;
                 tab.history.navigate(path.clone());
                 tab.selection.clear();
                 load_directory_for(id, tab_idx, path)
@@ -980,6 +1150,7 @@ impl FileScout {
             PaneMessage::AddressBar(AddressBarMessage::BreadcrumbNavigate(path)) => {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
+                tab.archive_context = None;
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
                 tab.selection.clear();
@@ -989,6 +1160,7 @@ impl FileScout {
             PaneMessage::AddressBar(AddressBarMessage::DriveSelected(path)) => {
                 let tab_idx = pane.active_tab;
                 let tab = &mut pane.tabs[tab_idx];
+                tab.archive_context = None;
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
                 tab.selection.clear();
@@ -1011,8 +1183,27 @@ impl FileScout {
                 Task::none()
             }
 
+            // --- Archive load result ---
+            PaneMessage::ArchiveDirLoaded(tab_idx, result) => {
+                match result {
+                    Ok(mut entries) => {
+                        let tab = &mut pane.tabs[tab_idx];
+                        sort_entries(&mut entries, &tab.sort_col, &tab.sort_dir);
+                        tab.entries = entries;
+                        tab.error = None;
+                    }
+                    Err(e) => {
+                        pane.tabs[tab_idx].error = Some(e);
+                    }
+                }
+                Task::none()
+            }
+
             // --- File operations ---
             PaneMessage::StartRename => {
+                if pane.active().archive_context.is_some() {
+                    return Task::none();
+                }
                 let tab = pane.active_mut();
                 if let Some(focus) = tab.selection.focus().map(|p| p.to_path_buf()) {
                     let name = focus
@@ -1079,6 +1270,9 @@ impl FileScout {
 
             PaneMessage::DeleteSelected => {
                 let tab_idx = pane.active_tab;
+                if pane.tabs[tab_idx].archive_context.is_some() {
+                    return Task::none();
+                }
                 let tab = &mut pane.tabs[tab_idx];
                 // Don't delete while rename is in progress or nothing is selected
                 if tab.renaming.is_some() || tab.selection.is_empty() {
@@ -1343,9 +1537,23 @@ fn pane_view<'a>(
         file_list
     };
 
-    // Status line: show selection count when ≥1 item selected
+    // Status line: show archive indicator and/or selection count
     let sel_count = active_tab.selection.len();
-    let status_line: Element<'_, Message> = if sel_count > 0 {
+    let archive_info = active_tab.archive_context.as_ref().map(|ctx| {
+        let zip_name = ctx.zip_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if ctx.inner_dir.is_empty() {
+            format!("Archive: {zip_name}")
+        } else {
+            format!("Archive: {zip_name}/{}", ctx.inner_dir)
+        }
+    });
+    let status_line: Element<'_, Message> = if let Some(archive_label) = archive_info {
+        let sel_suffix = if sel_count > 0 { format!(" — {sel_count} selected") } else { String::new() };
+        text(format!("{archive_label}{sel_suffix}")).size(12).into()
+    } else if sel_count > 0 {
         let label = if sel_count == 1 { "1 item selected".to_string() } else { format!("{sel_count} items selected") };
         text(label).size(12).into()
     } else {
@@ -1423,6 +1631,24 @@ fn copy_move_progress_overlay(label: &str) -> Element<'_, Message> {
         .center(Length::Fill)
         .style(copy_move_backdrop_style)
         .into()
+}
+
+fn load_archive_for(pane: PaneId, tab_idx: usize, zip_path: PathBuf, inner_dir: String) -> Task<Message> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || {
+                filescout_core::archive::list_archive_dir(&zip_path, &inner_dir)
+            })
+            .await
+            .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+        },
+        move |result| {
+            Message::Pane(
+                pane,
+                PaneMessage::ArchiveDirLoaded(tab_idx, result.map_err(|e| e.to_string())),
+            )
+        },
+    )
 }
 
 fn load_directory_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message> {

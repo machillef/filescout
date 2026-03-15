@@ -1,6 +1,18 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+/// State tracking navigation within a ZIP archive.
+///
+/// When this is `Some`, the pane's file list shows archive contents rather than a real
+/// directory. `current_path` is set to the virtual path
+/// `zip_path[/inner_dir_with_os_separators]`.
+pub struct ArchiveContext {
+    /// The ZIP file on disk.
+    pub zip_path: PathBuf,
+    /// Current directory within the archive, forward-slash separated ("" = root).
+    pub inner_dir: String,
+}
+
 use filescout_core::preview::PreviewContent;
 use filescout_core::{FileEntry, History, SortColumn, SortDirection, UndoStack};
 use filescout_ui::address_bar::AddressBarMessage;
@@ -141,6 +153,8 @@ pub struct TabState {
     pub undo_stack: UndoStack,
     /// Preview content for the currently selected file.
     pub preview: PreviewContent,
+    /// When `Some`, the tab is browsing inside a ZIP archive.
+    pub archive_context: Option<ArchiveContext>,
 }
 
 impl TabState {
@@ -158,6 +172,7 @@ impl TabState {
             renaming: None,
             undo_stack: UndoStack::new(),
             preview: PreviewContent::None,
+            archive_context: None,
         }
     }
 
@@ -231,6 +246,8 @@ pub enum PaneMessage {
     /// Used by the search overlay to jump to a result.
     NavigateToFile(PathBuf),
     // --- Async operation results ---
+    /// Result of loading an archive directory listing.
+    ArchiveDirLoaded(usize, Result<Vec<FileEntry>, String>),
     /// Result of an async rename. Carries tab_idx, refresh_path, original_path, result(new_path).
     RenameDone(usize, PathBuf, PathBuf, Result<PathBuf, String>),
     /// Result of an async delete or undo. Carries tab_idx, refresh_path, result.
