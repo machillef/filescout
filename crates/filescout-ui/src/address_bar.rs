@@ -39,7 +39,6 @@ pub enum AddressBarMessage {
 pub fn address_bar_view<'a>(
     current_path: &'a Path,
     address_text: &'a str,
-    drives: &'a [PathBuf],
     can_go_back: bool,
     can_go_forward: bool,
     suggestions: &'a [String],
@@ -64,31 +63,13 @@ pub fn address_bar_view<'a>(
 
     let nav_row = row![back_btn, forward_btn].spacing(4).align_y(Alignment::Center);
 
-    let drive_buttons: Vec<Element<'a, AddressBarMessage>> = drives
-        .iter()
-        .map(|drive| {
-            let label = drive
-                .components()
-                .next()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                .unwrap_or_else(|| drive.display().to_string());
-            let target = drive.clone();
-            button(text(label))
-                .on_press(AddressBarMessage::DriveSelected(target))
-                .style(button::text)
-                .into()
-        })
-        .collect();
-
-    let drives_row = row(drive_buttons).spacing(2).align_y(Alignment::Center);
-
     let path_input = text_input("Enter path…", address_text)
         .id(Id::new(ADDRESS_INPUT_ID))
         .on_input(AddressBarMessage::Edit)
         .on_submit(AddressBarMessage::Submit)
         .width(Length::Fill);
 
-    let top_row = row![nav_row, drives_row, path_input]
+    let top_row = row![nav_row, path_input]
         .spacing(8)
         .align_y(Alignment::Center)
         .padding(5)
@@ -96,10 +77,7 @@ pub fn address_bar_view<'a>(
 
     let crumbs = breadcrumbs(current_path);
 
-    // Quick-access shortcuts row (Home, Downloads, Documents, Desktop).
-    let quick_access = quick_access_row();
-
-    let mut col = column![top_row, crumbs, quick_access].spacing(2).width(Length::Fill);
+    let mut col = column![top_row, crumbs].spacing(2).width(Length::Fill);
 
     if !suggestions.is_empty() {
         let items: Vec<Element<'a, AddressBarMessage>> = suggestions
@@ -137,37 +115,6 @@ pub fn address_bar_view<'a>(
     }
 
     col.into()
-}
-
-/// Builds a row of quick-access shortcut buttons for common directories.
-fn quick_access_row<'a>() -> Element<'a, AddressBarMessage> {
-    let shortcuts: Vec<(&str, Option<PathBuf>)> = vec![
-        ("Home", dirs::home_dir()),
-        ("Desktop", dirs::desktop_dir()),
-        ("Documents", dirs::document_dir()),
-        ("Downloads", dirs::download_dir()),
-    ];
-
-    let buttons: Vec<Element<'a, AddressBarMessage>> = shortcuts
-        .into_iter()
-        .filter_map(|(label, path)| {
-            let target = path?;
-            Some(
-                button(text(label).size(11))
-                    .on_press(AddressBarMessage::QuickAccess(target))
-                    .style(button::text)
-                    .padding([2, 6])
-                    .into(),
-            )
-        })
-        .collect();
-
-    row(buttons)
-        .spacing(2)
-        .align_y(Alignment::Center)
-        .padding([0, 5])
-        .width(Length::Fill)
-        .into()
 }
 
 fn breadcrumbs<'a>(path: &'a Path) -> Element<'a, AddressBarMessage> {

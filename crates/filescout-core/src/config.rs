@@ -46,6 +46,8 @@ pub struct AppConfig {
     pub split_ratio: f32,
     #[serde(default)]
     pub dual_pane: bool,
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
 }
 
 impl Default for AppConfig {
@@ -56,6 +58,7 @@ impl Default for AppConfig {
             show_hidden: false,
             split_ratio: 0.5,
             dual_pane: false,
+            sidebar_collapsed: false,
         }
     }
 }

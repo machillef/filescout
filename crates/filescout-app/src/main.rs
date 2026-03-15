@@ -34,6 +34,7 @@ mod pane;
 mod properties;
 mod search;
 mod shortcuts_help;
+mod sidebar;
 mod watcher;
 
 use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
@@ -48,6 +49,7 @@ use pane::{ArchiveContext, PaneId, PaneMessage, PaneState};
 use properties::{properties_view, PropertiesMessage, PropertiesState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
 use shortcuts_help::{shortcuts_help_view, ShortcutsHelpMessage};
+use sidebar::{sidebar_view, SidebarMessage, SidebarState};
 
 /// Progress state for a copy/move operation.
 #[derive(Debug, Clone)]
@@ -109,6 +111,8 @@ struct FileScout {
     dual_pane: bool,
     /// Whether the keyboard shortcuts help overlay is visible.
     show_shortcuts_help: bool,
+    /// Sidebar navigation state.
+    sidebar: SidebarState,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -213,6 +217,8 @@ enum Message {
     ToggleShortcutsHelp,
     /// A message from the shortcuts help overlay.
     ShortcutsHelp(ShortcutsHelpMessage),
+    /// A message from the sidebar.
+    Sidebar(SidebarMessage),
 }
 
 impl FileScout {
@@ -242,6 +248,7 @@ impl FileScout {
             cursor_position: Point::ORIGIN,
             dual_pane: false,
             show_shortcuts_help: false,
+            sidebar: SidebarState::default(),
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd, 0);
@@ -323,6 +330,7 @@ impl FileScout {
                 self.show_hidden = cfg.show_hidden;
                 self.split_ratio = cfg.split_ratio.clamp(0.2, 0.8);
                 self.dual_pane = cfg.dual_pane;
+                self.sidebar.collapsed = cfg.sidebar_collapsed;
                 Task::none()
             }
             Message::ToggleTheme => {
@@ -571,6 +579,7 @@ impl FileScout {
                 self.show_shortcuts_help = false;
                 Task::none()
             }
+            Message::Sidebar(msg) => self.handle_sidebar(msg),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
             Message::ModifiersChanged(mods) => {
                 self.current_modifiers = mods;
@@ -1077,7 +1086,7 @@ impl FileScout {
                     self.update(Message::SetViewMode(ViewMode::Details))
                 }
                 keyboard::Key::Character("b") if modifiers.control() => {
-                    self.update(Message::OpenBookmarks)
+                    self.update(Message::Sidebar(SidebarMessage::ToggleCollapsed))
                 }
                 keyboard::Key::Character("d") if modifiers.control() => {
                     self.update(Message::AddBookmark)
@@ -1432,6 +1441,41 @@ impl FileScout {
         }
     }
 
+    fn handle_sidebar(&mut self, msg: SidebarMessage) -> Task<Message> {
+        match msg {
+            SidebarMessage::Navigate(path) => {
+                let id = self.active;
+                self.update_pane(id, PaneMessage::FileList(FileListMessage::Navigate(path)))
+            }
+            SidebarMessage::RemoveBookmark(index) => {
+                self.bookmarks = self.bookmarks.remove(index);
+                let cfg = self.current_config();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || { let _ = save_config(&cfg); })
+                            .await.ok();
+                    },
+                    |_| Message::Noop,
+                )
+            }
+            SidebarMessage::ToggleSection(section) => {
+                self.sidebar.toggle_section(section);
+                Task::none()
+            }
+            SidebarMessage::ToggleCollapsed => {
+                self.sidebar.collapsed = !self.sidebar.collapsed;
+                let cfg = self.current_config();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || { let _ = save_config(&cfg); })
+                            .await.ok();
+                    },
+                    |_| Message::Noop,
+                )
+            }
+        }
+    }
+
     fn current_config(&self) -> AppConfig {
         AppConfig {
             theme: self.theme,
@@ -1439,6 +1483,7 @@ impl FileScout {
             show_hidden: self.show_hidden,
             split_ratio: self.split_ratio,
             dual_pane: self.dual_pane,
+            sidebar_collapsed: self.sidebar.collapsed,
         }
     }
 
@@ -2265,16 +2310,16 @@ impl FileScout {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let left = container(
-            pane_view(PaneId::Left, &self.panes[0], &self.drives, self.active == PaneId::Left),
+        let left_pane = container(
+            pane_view(PaneId::Left, &self.panes[0], self.active == PaneId::Left),
         )
         .height(Length::Fill);
 
-        let main: Element<'_, Message> = if self.dual_pane {
+        let pane_area: Element<'_, Message> = if self.dual_pane {
             let left_portion = (self.split_ratio * 100.0) as u16;
             let right_portion = 100 - left_portion;
 
-            let left = left.width(Length::FillPortion(left_portion));
+            let left_pane = left_pane.width(Length::FillPortion(left_portion));
 
             let divider = container(text(""))
                 .width(2)
@@ -2282,14 +2327,40 @@ impl FileScout {
                 .style(pane_divider_style);
 
             let right = container(
-                pane_view(PaneId::Right, &self.panes[1], &self.drives, self.active == PaneId::Right),
+                pane_view(PaneId::Right, &self.panes[1], self.active == PaneId::Right),
             )
             .width(Length::FillPortion(right_portion))
             .height(Length::Fill);
 
+            row![left_pane, divider, right]
+                .spacing(2)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else {
+            left_pane.width(Length::Fill).into()
+        };
+
+        // Wrap pane area with sidebar
+        let active_path = &self.panes[self.active.index()].active().current_path;
+        let main: Element<'_, Message> = if self.sidebar.collapsed {
+            container(pane_area)
+                .padding(10)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else {
+            let sb = sidebar_view(&self.bookmarks, &self.drives, active_path, &self.sidebar)
+                .map(Message::Sidebar);
+
+            let sidebar_divider = container(text(""))
+                .width(1)
+                .height(Length::Fill)
+                .style(pane_divider_style);
+
             container(
-                row![left, divider, right]
-                    .spacing(2)
+                row![sb, sidebar_divider, pane_area]
+                    .spacing(0)
                     .width(Length::Fill)
                     .height(Length::Fill),
             )
@@ -2297,12 +2368,6 @@ impl FileScout {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
-        } else {
-            container(left.width(Length::Fill))
-                .padding(10)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
         };
 
         if let Some(ref confirm_state) = self.confirm {
@@ -2356,7 +2421,6 @@ impl FileScout {
 fn pane_view<'a>(
     id: PaneId,
     pane: &'a PaneState,
-    drives: &'a [PathBuf],
     is_active: bool,
 ) -> Element<'a, Message> {
     let tab_titles: Vec<String> = pane.tabs.iter().map(|t| t.title()).collect();
@@ -2369,7 +2433,6 @@ fn pane_view<'a>(
     let addr_bar = address_bar_view(
         &active_tab.current_path,
         &active_tab.address_text,
-        drives,
         active_tab.history.can_go_back(),
         active_tab.history.can_go_forward(),
         &active_tab.suggestions,
