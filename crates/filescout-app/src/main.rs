@@ -14,7 +14,7 @@ use filescout_core::preview::{load_preview, PreviewContent};
 use filescout_core::properties::{compute_dir_size, load_file_properties, FileProperties};
 use filescout_core::search::search_files;
 use filescout_core::{SortDirection, ViewMode};
-use filescout_ui::address_bar::{address_bar_view, AddressBarMessage};
+use filescout_ui::address_bar::{address_bar_view, AddressBarMessage, ADDRESS_INPUT_ID};
 use filescout_ui::file_list::{file_list_view, FileListMessage};
 use filescout_ui::preview_panel::preview_panel_view;
 use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
@@ -39,7 +39,7 @@ mod watcher;
 use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
 use bookmarks::{bookmarks_view, BookmarkMessage};
 use clipboard::{write_paths_to_system_clipboard, ClipOp, ClipboardState};
-use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
+use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState, PALETTE_LIST_ID};
 use confirm::{confirm_view, ConfirmAction, ConfirmMessage, ConfirmState};
 use context_menu::{
     context_menu_view, ContextAction, ContextMenuMessage, ContextMenuState,
@@ -1038,6 +1038,10 @@ impl FileScout {
                     let id = self.active;
                     self.update_pane(id, PaneMessage::TabBar(TabBarMessage::New))
                 }
+                keyboard::Key::Character("l") if modifiers.control() => {
+                    let id = self.active;
+                    self.update_pane(id, PaneMessage::AddressBar(AddressBarMessage::Focus))
+                }
                 keyboard::Key::Character("h") if modifiers.control() => {
                     self.update(Message::ToggleHidden)
                 }
@@ -1134,6 +1138,7 @@ impl FileScout {
             PaletteMessage::MoveUp => {
                 if let Some(ref mut p) = self.palette {
                     p.move_up();
+                    return palette_scroll_to(p.selected);
                 }
                 Task::none()
             }
@@ -1141,6 +1146,7 @@ impl FileScout {
                 if let Some(ref mut p) = self.palette {
                     let n = p.filtered_commands().len();
                     p.move_down(n);
+                    return palette_scroll_to(p.selected);
                 }
                 Task::none()
             }
@@ -1593,6 +1599,7 @@ impl FileScout {
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
                 tab.selection.clear();
+                tab.loading = true;
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -1817,6 +1824,15 @@ impl FileScout {
                 }
             }
 
+            PaneMessage::AddressBar(AddressBarMessage::Focus) => {
+                // Ensure address bar shows current path, focus it, and select all text.
+                let tab = pane.active_mut();
+                tab.address_text = tab.current_path.display().to_string();
+                tab.suggestions.clear();
+                iced::widget::operation::focus(ADDRESS_INPUT_ID)
+                    .chain(iced::widget::operation::select_all(ADDRESS_INPUT_ID))
+            }
+
             PaneMessage::AddressBar(AddressBarMessage::Edit(t)) => {
                 let suggestions = if t.len() >= 2 {
                     path_suggestions(&t, 10)
@@ -1905,11 +1921,13 @@ impl FileScout {
                 tab.current_path = path.clone();
                 tab.address_text = path.display().to_string();
                 tab.error = None;
+                tab.loading = false;
                 Task::none()
             }
 
             PaneMessage::DirectoryLoaded(tab_idx, _, Err(e)) => {
                 pane.tabs[tab_idx].error = Some(e);
+                pane.tabs[tab_idx].loading = false;
                 Task::none()
             }
 
@@ -2300,6 +2318,8 @@ fn pane_view<'a>(
 
     let file_list: Element<'_, Message> = if let Some(ref err) = active_tab.error {
         text(format!("Error: {err}")).into()
+    } else if active_tab.loading && active_tab.entries.is_empty() {
+        text("Loading…").into()
     } else {
         let pane_label = match id {
             PaneId::Left => "left",
@@ -2457,6 +2477,18 @@ fn load_archive_for(pane: PaneId, tab_idx: usize, zip_path: PathBuf, inner_dir: 
                 PaneMessage::ArchiveDirLoaded(tab_idx, result.map_err(|e| e.to_string())),
             )
         },
+    )
+}
+
+/// Scroll the command palette list to keep the selected item visible.
+fn palette_scroll_to(selected: usize) -> Task<Message> {
+    // Each palette item is ~50px tall (padding + text + spacing).
+    // The visible area is 320px. Snap so the selected item is near the top.
+    let item_height = 50.0_f32;
+    let y = (selected as f32) * item_height;
+    iced::widget::operation::scroll_to(
+        PALETTE_LIST_ID,
+        iced::widget::scrollable::AbsoluteOffset { x: None, y: Some(y) },
     )
 }
 

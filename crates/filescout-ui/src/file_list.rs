@@ -24,6 +24,13 @@ pub enum FileListMessage {
     RenameEdit(String),
 }
 
+// Column width proportions (FillPortion values).
+const NAME_PORTION: u16 = 6;
+const EXT_PORTION: u16 = 1;
+const TYPE_PORTION: u16 = 2;
+const SIZE_PORTION: u16 = 2;
+const MODIFIED_PORTION: u16 = 3;
+
 /// Render a sortable, scrollable list of file entries.
 ///
 /// - `parent_path` — if `Some`, a `..` row is shown at the top.
@@ -44,25 +51,36 @@ pub fn file_list_view<'a>(
     let is_details = *view_mode == ViewMode::Details;
 
     let mut header_items: Vec<Element<'a, FileListMessage>> = vec![
-        button(text(format!("Name{}", sort_indicator(sort_col, sort_dir, &SortColumn::Name))).width(300))
+        button(text(format!("Name{}", sort_indicator(sort_col, sort_dir, &SortColumn::Name))))
             .on_press(FileListMessage::Sort(SortColumn::Name))
             .style(button::text)
+            .width(Length::FillPortion(NAME_PORTION))
             .into(),
     ];
     if is_details {
-        header_items.push(text("Ext").width(60).into());
-        header_items.push(text("Type").width(100).into());
+        header_items.push(
+            text("Ext")
+                .width(Length::FillPortion(EXT_PORTION))
+                .into(),
+        );
+        header_items.push(
+            text("Type")
+                .width(Length::FillPortion(TYPE_PORTION))
+                .into(),
+        );
     }
     header_items.push(
-        button(text(format!("Size{}", sort_indicator(sort_col, sort_dir, &SortColumn::Size))).width(100))
+        button(text(format!("Size{}", sort_indicator(sort_col, sort_dir, &SortColumn::Size))))
             .on_press(FileListMessage::Sort(SortColumn::Size))
             .style(button::text)
+            .width(Length::FillPortion(SIZE_PORTION))
             .into(),
     );
     header_items.push(
-        button(text(format!("Modified{}", sort_indicator(sort_col, sort_dir, &SortColumn::Modified))).width(200))
+        button(text(format!("Modified{}", sort_indicator(sort_col, sort_dir, &SortColumn::Modified))))
             .on_press(FileListMessage::Sort(SortColumn::Modified))
             .style(button::text)
+            .width(Length::FillPortion(MODIFIED_PORTION))
             .into(),
     );
 
@@ -72,14 +90,17 @@ pub fn file_list_view<'a>(
 
     // ".." parent row — always navigates, never selectable
     if let Some(parent) = parent_path {
-        let mut up_items: Vec<Element<'a, FileListMessage>> =
-            vec![text("\u{1F4C1} ..").width(300).into()];
+        let mut up_items: Vec<Element<'a, FileListMessage>> = vec![
+            text("\u{1F4C1} ..")
+                .width(Length::FillPortion(NAME_PORTION))
+                .into(),
+        ];
         if is_details {
-            up_items.push(text("").width(60).into());
-            up_items.push(text("").width(100).into());
+            up_items.push(text("").width(Length::FillPortion(EXT_PORTION)).into());
+            up_items.push(text("").width(Length::FillPortion(TYPE_PORTION)).into());
         }
-        up_items.push(text("").width(100).into());
-        up_items.push(text("").width(200).into());
+        up_items.push(text("").width(Length::FillPortion(SIZE_PORTION)).into());
+        up_items.push(text("").width(Length::FillPortion(MODIFIED_PORTION)).into());
 
         let up_row = button(row(up_items).spacing(10).padding(2))
             .on_press(FileListMessage::Navigate(parent))
@@ -95,7 +116,7 @@ pub fn file_list_view<'a>(
         let is_renaming = renaming.is_some_and(|(rp, _)| rp == path);
 
         let size_text = if entry.is_dir {
-            String::new()
+            "<DIR>".to_string()
         } else {
             format_size(entry.size)
         };
@@ -122,15 +143,31 @@ pub fn file_list_view<'a>(
                 text_input("New name…", rename_text)
                     .id(Id::new(RENAME_INPUT_ID))
                     .on_input(FileListMessage::RenameEdit)
-                    .width(300)
+                    .width(Length::FillPortion(NAME_PORTION))
                     .into(),
             ];
             if is_details {
-                rename_items.push(text(ext_text).width(60).into());
-                rename_items.push(text(type_text).width(100).into());
+                rename_items.push(
+                    text(ext_text)
+                        .width(Length::FillPortion(EXT_PORTION))
+                        .into(),
+                );
+                rename_items.push(
+                    text(type_text)
+                        .width(Length::FillPortion(TYPE_PORTION))
+                        .into(),
+                );
             }
-            rename_items.push(text(size_text).width(100).into());
-            rename_items.push(text(modified_text).width(200).into());
+            rename_items.push(
+                text(size_text)
+                    .width(Length::FillPortion(SIZE_PORTION))
+                    .into(),
+            );
+            rename_items.push(
+                text(modified_text)
+                    .width(Length::FillPortion(MODIFIED_PORTION))
+                    .into(),
+            );
 
             let rename_row = container(row(rename_items).spacing(10).padding(2))
                 .style(container::bordered_box)
@@ -138,14 +175,33 @@ pub fn file_list_view<'a>(
 
             rows.push(rename_row.into());
         } else {
-            let mut row_items: Vec<Element<'a, FileListMessage>> =
-                vec![text(format!("{icon} {}", entry.name)).width(300).into()];
+            let mut row_items: Vec<Element<'a, FileListMessage>> = vec![
+                text(format!("{icon} {}", entry.name))
+                    .width(Length::FillPortion(NAME_PORTION))
+                    .into(),
+            ];
             if is_details {
-                row_items.push(text(ext_text).width(60).into());
-                row_items.push(text(type_text).width(100).into());
+                row_items.push(
+                    text(ext_text)
+                        .width(Length::FillPortion(EXT_PORTION))
+                        .into(),
+                );
+                row_items.push(
+                    text(type_text)
+                        .width(Length::FillPortion(TYPE_PORTION))
+                        .into(),
+                );
             }
-            row_items.push(text(size_text).width(100).into());
-            row_items.push(text(modified_text).width(200).into());
+            row_items.push(
+                text(size_text)
+                    .width(Length::FillPortion(SIZE_PORTION))
+                    .into(),
+            );
+            row_items.push(
+                text(modified_text)
+                    .width(Length::FillPortion(MODIFIED_PORTION))
+                    .into(),
+            );
 
             let row_content = row(row_items).spacing(10).padding(2);
             let path_clone = path.clone();

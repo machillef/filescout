@@ -25,6 +25,7 @@ const CATEGORIES: &[Category] = &[
             Shortcut { key: "← →", description: "Back / Forward in history" },
             Shortcut { key: "↑ ↓", description: "Move focus up / down" },
             Shortcut { key: "Tab", description: "Auto-complete path in address bar" },
+            Shortcut { key: "Ctrl+L", description: "Focus address bar" },
             Shortcut { key: "Letter key", description: "Jump to first file starting with letter" },
         ],
     },

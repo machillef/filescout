@@ -1,8 +1,11 @@
 //! Command palette — fuzzy-searchable list of app actions (Ctrl+Shift+P).
 
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-use iced::widget::{button, column, container, scrollable, text, text_input};
+use iced::widget::{button, column, container, scrollable, text, text_input, Id};
 use iced::{Background, Color, Element, Length, Theme};
+
+/// Widget ID for the palette scrollable (used for programmatic scroll).
+pub const PALETTE_LIST_ID: &str = "palette_list";
 
 /// All commands the user can invoke from the palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -317,7 +320,9 @@ pub fn command_palette_view(state: &PaletteState) -> Element<'_, PaletteMessage>
         })
         .collect();
 
-    let list = scrollable(column(items).spacing(2).width(Length::Fill)).height(320);
+    let list = scrollable(column(items).spacing(2).width(Length::Fill))
+        .id(Id::new(PALETTE_LIST_ID))
+        .height(320);
 
     let input = text_input("Search commands…", &state.query)
         .on_input(PaletteMessage::QueryChanged)

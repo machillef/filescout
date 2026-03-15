@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Id};
 use iced::{Alignment, Background, Border, Color, Element, Length, Theme};
+
+/// Widget ID for the address bar text input (used for programmatic focus).
+pub const ADDRESS_INPUT_ID: &str = "address_input";
 
 /// Messages emitted by the address bar component.
 #[derive(Debug, Clone)]
@@ -24,6 +27,8 @@ pub enum AddressBarMessage {
     TabComplete,
     /// User selected a suggestion from the dropdown.
     SelectSuggestion(String),
+    /// Focus the address bar text input (Ctrl+L).
+    Focus,
 }
 
 /// Render the full address bar:
@@ -78,6 +83,7 @@ pub fn address_bar_view<'a>(
     let drives_row = row(drive_buttons).spacing(2).align_y(Alignment::Center);
 
     let path_input = text_input("Enter path…", address_text)
+        .id(Id::new(ADDRESS_INPUT_ID))
         .on_input(AddressBarMessage::Edit)
         .on_submit(AddressBarMessage::Submit)
         .width(Length::Fill);

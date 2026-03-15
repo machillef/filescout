@@ -1,7 +1,7 @@
 //! Right-click context menu overlay.
 
 use iced::widget::{button, column, container, text};
-use iced::{Background, Color, Element, Length, Padding, Point, Theme};
+use iced::{Background, Border, Color, Element, Length, Padding, Point, Theme};
 
 /// Actions available from the context menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,14 +101,35 @@ pub fn context_menu_view(state: &ContextMenuState) -> Element<'_, ContextMenuMes
         .iter()
         .enumerate()
         .map(|(i, item)| {
-            let style = if i == state.selected {
-                button::primary
-            } else {
-                button::text
-            };
+            let is_keyboard_selected = i == state.selected;
             button(text(item.label).size(13))
                 .on_press(ContextMenuMessage::Select(item.action))
-                .style(style)
+                .style(move |theme: &Theme, status| {
+                    let palette = theme.palette();
+                    match status {
+                        button::Status::Hovered | button::Status::Pressed => button::Style {
+                            background: Some(Background::Color(palette.primary)),
+                            text_color: Color::WHITE,
+                            border: Border::default().rounded(4),
+                            ..Default::default()
+                        },
+                        _ if is_keyboard_selected => button::Style {
+                            background: Some(Background::Color(Color {
+                                a: 0.3,
+                                ..palette.primary
+                            })),
+                            text_color: palette.text,
+                            border: Border::default().rounded(4),
+                            ..Default::default()
+                        },
+                        _ => button::Style {
+                            background: Some(Background::Color(Color::TRANSPARENT)),
+                            text_color: palette.text,
+                            border: Border::default().rounded(4),
+                            ..Default::default()
+                        },
+                    }
+                })
                 .width(Length::Fill)
                 .padding([6, 16])
                 .into()

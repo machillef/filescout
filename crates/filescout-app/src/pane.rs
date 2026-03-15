@@ -160,6 +160,8 @@ pub struct TabState {
     pub last_click: Option<(PathBuf, Instant)>,
     /// Address bar autocomplete suggestions.
     pub suggestions: Vec<String>,
+    /// Whether a directory listing is currently loading.
+    pub loading: bool,
 }
 
 impl TabState {
@@ -180,6 +182,7 @@ impl TabState {
             archive_context: None,
             last_click: None,
             suggestions: Vec::new(),
+            loading: true, // starts loading on creation
         }
     }
 
