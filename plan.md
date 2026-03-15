@@ -63,19 +63,16 @@ None — all UX bugs resolved.
 
 ## Polish Phase
 
-### [ ] P1: Window title shows current directory path
-- Change static `.title("FileScout")` to dynamic `FileScout::title` method
-- Show `"FileScout — C:\Users\machi\Documents"` format
+### [x] P1: Window title shows current directory path
+- Dynamic title: `"C:\path — FileScout"` format
 
-### [ ] P2: Keyboard shortcut help overlay (F1)
-- New overlay showing all keybindings in categorized layout
-- F1 opens, Esc closes
-- Same stack overlay pattern as palette/search
+### [x] P2: Keyboard shortcut help overlay (F1)
+- F1 opens categorized overlay; Esc/F1 closes
+- Also in command palette as "Keyboard Shortcuts"
 
-### [ ] P3: Address bar dropdown autocomplete
-- Show dropdown suggestions below address bar as user types
-- Filter matching subdirectories/drives
-- Arrow keys navigate, Enter selects, Esc closes
+### [x] P3: Address bar dropdown autocomplete
+- Dropdown suggestions appear below address bar as user types
+- Click suggestion to navigate; clears on navigation
 
 ### Already Done
 - Draggable pane divider — Slice 25 already implemented resizable split
