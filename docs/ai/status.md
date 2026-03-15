@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 13: Bookmarks / Favorites** — Complete
+**Slice 14: File Watcher / Auto-Refresh** — Complete
 
 ## Last Completed
-Bookmarks overlay (Ctrl+B / Ctrl+D) with TOML persistence — 2026-03-14
+File watcher via `notify`; debounce 300 ms; auto-refresh open tabs on disk changes — 2026-03-15
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -37,9 +37,10 @@ Bookmarks overlay (Ctrl+B / Ctrl+D) with TOML persistence — 2026-03-14
 - **Copy & Move** — F5 copies selected item(s) to other pane's current dir; F6 moves; both async with progress overlay; batch-aware (operates on entire selection); "Copy to Other Pane" / "Move to Other Pane" in command palette; cross-device fallback (copy+delete)
 - **Multi-Selection** — Ctrl+click toggles; Shift+click range-selects from anchor; Ctrl+A selects all; Shift+↑/↓ extends selection; modifier state tracked via `ModifiersChanged` subscription event; selection count shown in pane status bar; `SelectionState` in `pane.rs` holds items/focus/anchor; F8 delete / F5 copy / F6 move operate on all selected items
 - **Bookmarks / Favorites** — Ctrl+D bookmarks current directory; Ctrl+B opens overlay; click navigates active pane; ✕ removes; persisted in `AppConfig.bookmarks` (same `config.toml`); "Open Bookmarks" / "Bookmark This Directory" in command palette; `Bookmark`/`Bookmarks` in `filescout-core/src/bookmarks.rs`; overlay in `filescout-app/src/bookmarks.rs`; 161 unit tests total (54 app + 104 core + 3 ui), all passing, clippy clean
+- **File Watcher** — `watcher.rs` in `filescout-app/src/`; `WatcherRecipe` implements `iced::advanced::subscription::Recipe`; `watch_directories(paths)` returns `Subscription<PathBuf>`; identity derived from sorted+deduped paths so iced restarts watcher on navigation; `iced = { features = ["advanced"] }` required; return type uses `iced::futures::stream::BoxStream<'static, PathBuf>`; `Message::DirectoryChanged(PathBuf)` refreshes all matching tabs; blocked while `copy_move_label.is_some()`
 
-## What's Next (Slice 14: File Watcher / Auto-Refresh)
-- Watch current directory for changes and refresh listing automatically (`notify` crate already in deps)
+## What's Next (Slice 15: Properties & Permissions)
+- File/directory properties dialog (size, dates, attributes, permissions)
 
 ## Blockers
 None

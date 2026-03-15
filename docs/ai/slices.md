@@ -64,9 +64,8 @@
 
 ## Slice 14: File Watcher (Auto-Refresh)
 **Goal:** Watch current directory for changes and refresh listing automatically
-**Status:** Not Started
+**Status:** Complete (notify crate; Recipe subscription; debounce 300 ms; auto-refresh on create/modify/remove)
 **Depends on:** Slice 1 ✓
-**Notes:** `notify` crate already in deps
 
 ## Slice 15: Properties & Permissions
 **Goal:** File/directory properties dialog (size, dates, attributes, permissions)
