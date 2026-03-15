@@ -18,7 +18,8 @@ use filescout_ui::file_list::{file_list_view, FileListMessage};
 use filescout_ui::preview_panel::preview_panel_view;
 use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
 use iced::widget::{column, container, progress_bar, row, stack, text};
-use iced::{event, keyboard, Background, Color, Element, Event, Length, Size, Subscription, Task, Theme};
+use iced::mouse;
+use iced::{event, keyboard, Background, Color, Element, Event, Length, Point, Size, Subscription, Task, Theme};
 use tracing_subscriber::EnvFilter;
 
 mod batch_rename;
@@ -26,6 +27,7 @@ mod bookmarks;
 mod clipboard;
 mod command_palette;
 mod confirm;
+mod context_menu;
 mod pane;
 mod properties;
 mod search;
@@ -36,6 +38,9 @@ use bookmarks::{bookmarks_view, BookmarkMessage};
 use clipboard::{write_paths_to_system_clipboard, ClipOp, ClipboardState};
 use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
 use confirm::{confirm_view, ConfirmAction, ConfirmMessage, ConfirmState};
+use context_menu::{
+    context_menu_view, ContextAction, ContextMenuMessage, ContextMenuState,
+};
 use pane::{ArchiveContext, PaneId, PaneMessage, PaneState};
 use properties::{properties_view, PropertiesMessage, PropertiesState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
@@ -88,6 +93,10 @@ struct FileScout {
     clipboard: Option<ClipboardState>,
     /// Ratio of left pane width (0.2..0.8), default 0.5.
     split_ratio: f32,
+    /// Context menu state; `Some` while the menu is visible.
+    context_menu: Option<ContextMenuState>,
+    /// Current cursor position for context menu placement.
+    cursor_position: Point,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -128,6 +137,12 @@ enum Message {
     ClipboardCut,
     /// Paste clipboard contents into the active pane (Ctrl+V).
     ClipboardPaste,
+    /// A message from the context menu overlay.
+    ContextMenu(ContextMenuMessage),
+    /// Right-click detected — open context menu.
+    OpenContextMenu,
+    /// Mouse cursor moved — track position.
+    CursorMoved(Point),
     /// No-op sink for fire-and-forget async tasks.
     Noop,
     /// Raw key press forwarded from the subscription for stateful routing.
@@ -190,6 +205,8 @@ impl FileScout {
             show_hidden: false,
             clipboard: None,
             split_ratio: 0.5,
+            context_menu: None,
+            cursor_position: Point::ORIGIN,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -213,6 +230,12 @@ impl FileScout {
             }
             Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) => {
                 Some(Message::ModifiersChanged(mods))
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                Some(Message::OpenContextMenu)
+            }
+            Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                Some(Message::CursorMoved(position))
             }
             _ => None,
         });
@@ -410,6 +433,27 @@ impl FileScout {
                         result,
                     },
                 )
+            }
+            Message::ContextMenu(msg) => self.handle_context_menu(msg),
+            Message::OpenContextMenu => {
+                let has_selection = !self.panes[self.active.index()]
+                    .active()
+                    .selection
+                    .is_empty();
+                let has_clipboard = self.clipboard.is_some();
+                if !has_selection && !has_clipboard {
+                    return Task::none();
+                }
+                self.context_menu = Some(ContextMenuState::new(
+                    self.cursor_position,
+                    has_selection,
+                    has_clipboard,
+                ));
+                Task::none()
+            }
+            Message::CursorMoved(pos) => {
+                self.cursor_position = pos;
+                Task::none()
             }
             Message::Noop => Task::none(),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
@@ -713,6 +757,25 @@ impl FileScout {
                 }
                 keyboard::Key::Named(Named::Escape) => {
                     self.update(Message::Confirm(ConfirmMessage::Cancel))
+                }
+                _ => Task::none(),
+            };
+        }
+
+        // Context menu — arrow keys navigate, Enter selects, Escape closes.
+        if self.context_menu.is_some() {
+            return match key.as_ref() {
+                keyboard::Key::Named(Named::ArrowUp) => {
+                    self.handle_context_menu(ContextMenuMessage::MoveUp)
+                }
+                keyboard::Key::Named(Named::ArrowDown) => {
+                    self.handle_context_menu(ContextMenuMessage::MoveDown)
+                }
+                keyboard::Key::Named(Named::Enter) => {
+                    self.handle_context_menu(ContextMenuMessage::Execute)
+                }
+                keyboard::Key::Named(Named::Escape) => {
+                    self.handle_context_menu(ContextMenuMessage::Close)
                 }
                 _ => Task::none(),
             };
@@ -1083,6 +1146,55 @@ impl FileScout {
                     }
                 }
             }
+        }
+    }
+
+    fn handle_context_menu(&mut self, msg: ContextMenuMessage) -> Task<Message> {
+        match msg {
+            ContextMenuMessage::Close => {
+                self.context_menu = None;
+                Task::none()
+            }
+            ContextMenuMessage::MoveUp => {
+                if let Some(ref mut cm) = self.context_menu {
+                    cm.move_up();
+                }
+                Task::none()
+            }
+            ContextMenuMessage::MoveDown => {
+                if let Some(ref mut cm) = self.context_menu {
+                    cm.move_down();
+                }
+                Task::none()
+            }
+            ContextMenuMessage::Execute => {
+                let action = self
+                    .context_menu
+                    .as_ref()
+                    .and_then(|cm| cm.selected_action());
+                self.context_menu = None;
+                self.dispatch_context_action(action)
+            }
+            ContextMenuMessage::Select(action) => {
+                self.context_menu = None;
+                self.dispatch_context_action(Some(action))
+            }
+        }
+    }
+
+    fn dispatch_context_action(&mut self, action: Option<ContextAction>) -> Task<Message> {
+        let Some(action) = action else {
+            return Task::none();
+        };
+        let id = self.active;
+        match action {
+            ContextAction::Open => self.update_pane(id, PaneMessage::OpenFile),
+            ContextAction::Copy => self.update(Message::ClipboardCopy),
+            ContextAction::Cut => self.update(Message::ClipboardCut),
+            ContextAction::Paste => self.update(Message::ClipboardPaste),
+            ContextAction::Delete => self.update_pane(id, PaneMessage::DeleteSelected),
+            ContextAction::Rename => self.update_pane(id, PaneMessage::StartRename),
+            ContextAction::Properties => self.update(Message::OpenProperties),
         }
     }
 
@@ -1741,6 +1853,9 @@ impl FileScout {
 
         if let Some(ref confirm_state) = self.confirm {
             let overlay = confirm_view(confirm_state).map(Message::Confirm);
+            stack([main, overlay]).into()
+        } else if let Some(ref cm) = self.context_menu {
+            let overlay = context_menu_view(cm).map(Message::ContextMenu);
             stack([main, overlay]).into()
         } else if let Some(ref pal) = self.palette {
             let overlay = command_palette_view(pal).map(Message::Palette);
