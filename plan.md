@@ -53,5 +53,8 @@
 ### Fixed (Round 4)
 - [x] Bug 13: Improved file icons (19 distinct categories vs. original 9)
 
+### Fixed (Round 5)
+- [x] Bug 7: App icon (Fluent UI folder icon, embedded via winres)
+
 ### Remaining
-- [ ] Bug 7: App icon (needs .ico asset — requires graphic design)
+None — all UX bugs resolved.
