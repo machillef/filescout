@@ -128,6 +128,65 @@ pub fn tab_complete_path(partial: &str) -> Option<String> {
     matches.into_iter().next()
 }
 
+/// Return up to `max` directory paths matching the typed `partial` path.
+///
+/// Used for address bar dropdown autocomplete suggestions.
+pub fn path_suggestions(partial: &str, max: usize) -> Vec<String> {
+    let path = Path::new(partial);
+
+    // If partial is a directory with trailing separator, list its children.
+    if path.is_dir() && (partial.ends_with('\\') || partial.ends_with('/')) {
+        return std::fs::read_dir(path)
+            .ok()
+            .map(|rd| {
+                let mut entries: Vec<String> = rd
+                    .filter_map(|entry| {
+                        let entry = entry.ok()?;
+                        if entry.path().is_dir() {
+                            Some(entry.path().display().to_string() + "\\")
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                entries.sort();
+                entries.truncate(max);
+                entries
+            })
+            .unwrap_or_default();
+    }
+
+    // Split into parent dir + partial filename prefix.
+    let parent = match path.parent() {
+        Some(p) if p.is_dir() => p,
+        _ => return Vec::new(),
+    };
+    let prefix = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    let mut matches: Vec<String> = std::fs::read_dir(parent)
+        .ok()
+        .map(|rd| {
+            rd.filter_map(|entry| {
+                let entry = entry.ok()?;
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.to_lowercase().starts_with(&prefix) && entry.path().is_dir() {
+                    Some(parent.join(&name).display().to_string() + "\\")
+                } else {
+                    None
+                }
+            })
+            .collect()
+        })
+        .unwrap_or_default();
+
+    matches.sort();
+    matches.truncate(max);
+    matches
+}
+
 /// Copy `src` into `dest_dir`, preserving the entry name.
 ///
 /// Directories are copied recursively. Returns the full destination path on success.
@@ -299,6 +358,44 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let partial = format!("{}\\zzz_nonexistent_xyz", dir.path().display());
         assert!(tab_complete_path(&partial).is_none());
+    }
+
+    // --- path_suggestions ---
+
+    #[test]
+    fn path_suggestions_returns_subdirs_with_trailing_separator() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("alpha")).unwrap();
+        std::fs::create_dir(dir.path().join("beta")).unwrap();
+        std::fs::File::create(dir.path().join("file.txt")).unwrap();
+
+        let partial = format!("{}\\", dir.path().display());
+        let results = path_suggestions(&partial, 10);
+        assert_eq!(results.len(), 2); // only dirs, not file.txt
+        assert!(results[0].ends_with('\\'));
+    }
+
+    #[test]
+    fn path_suggestions_filters_by_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("alpha")).unwrap();
+        std::fs::create_dir(dir.path().join("beta")).unwrap();
+
+        let partial = format!("{}\\al", dir.path().display());
+        let results = path_suggestions(&partial, 10);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].contains("alpha"));
+    }
+
+    #[test]
+    fn path_suggestions_respects_max() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..5 {
+            std::fs::create_dir(dir.path().join(format!("dir{i}"))).unwrap();
+        }
+        let partial = format!("{}\\", dir.path().display());
+        let results = path_suggestions(&partial, 3);
+        assert_eq!(results.len(), 3);
     }
 
     // --- UndoStack ---

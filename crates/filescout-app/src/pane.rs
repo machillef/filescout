@@ -158,6 +158,8 @@ pub struct TabState {
     pub archive_context: Option<ArchiveContext>,
     /// Last click info for double-click detection: `(path, timestamp)`.
     pub last_click: Option<(PathBuf, Instant)>,
+    /// Address bar autocomplete suggestions.
+    pub suggestions: Vec<String>,
 }
 
 impl TabState {
@@ -177,6 +179,7 @@ impl TabState {
             preview: PreviewContent::None,
             archive_context: None,
             last_click: None,
+            suggestions: Vec::new(),
         }
     }
 

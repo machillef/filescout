@@ -7,8 +7,8 @@ use filescout_core::bookmarks::Bookmarks;
 use filescout_core::config::{load_config, save_config, AppConfig, ThemePreference};
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
 use filescout_core::ops::{
-    copy_item, create_new_folder, delete_to_trash, move_item, open_file, rename_file,
-    tab_complete_path, undo_rename, validate_file_name, UndoAction,
+    copy_item, create_new_folder, delete_to_trash, move_item, open_file, path_suggestions,
+    rename_file, tab_complete_path, undo_rename, validate_file_name, UndoAction,
 };
 use filescout_core::preview::{load_preview, PreviewContent};
 use filescout_core::properties::{compute_dir_size, load_file_properties, FileProperties};
@@ -1818,16 +1818,46 @@ impl FileScout {
             }
 
             PaneMessage::AddressBar(AddressBarMessage::Edit(t)) => {
-                pane.active_mut().address_text = t;
+                let suggestions = if t.len() >= 2 {
+                    path_suggestions(&t, 10)
+                } else {
+                    Vec::new()
+                };
+                let tab = pane.active_mut();
+                tab.address_text = t;
+                tab.suggestions = suggestions;
                 Task::none()
             }
 
             PaneMessage::AddressBar(AddressBarMessage::TabComplete) => {
                 let text = &pane.active().address_text;
                 if let Some(completed) = tab_complete_path(text) {
-                    pane.active_mut().address_text = completed;
+                    let suggestions = path_suggestions(&completed, 10);
+                    let tab = pane.active_mut();
+                    tab.address_text = completed;
+                    tab.suggestions = suggestions;
                 }
                 Task::none()
+            }
+
+            PaneMessage::AddressBar(AddressBarMessage::SelectSuggestion(path_str)) => {
+                let path = PathBuf::from(&path_str);
+                if path.is_dir() {
+                    let tab_idx = pane.active_tab;
+                    let tab = &mut pane.tabs[tab_idx];
+                    tab.archive_context = None;
+                    tab.history.navigate(path.clone());
+                    tab.address_text = path_str;
+                    tab.selection.clear();
+                    tab.suggestions.clear();
+                    load_directory_for(id, tab_idx, path)
+                } else {
+                    // If not a directory, just fill the text box.
+                    let tab = pane.active_mut();
+                    tab.address_text = path_str;
+                    tab.suggestions.clear();
+                    Task::none()
+                }
             }
 
             PaneMessage::AddressBar(AddressBarMessage::Submit) => {
@@ -1837,6 +1867,7 @@ impl FileScout {
                 tab.archive_context = None;
                 tab.history.navigate(path.clone());
                 tab.selection.clear();
+                tab.suggestions.clear();
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -1847,6 +1878,7 @@ impl FileScout {
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
                 tab.selection.clear();
+                tab.suggestions.clear();
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -1858,6 +1890,7 @@ impl FileScout {
                 tab.history.navigate(path.clone());
                 tab.address_text = path.display().to_string();
                 tab.selection.clear();
+                tab.suggestions.clear();
                 load_directory_for(id, tab_idx, path)
             }
 
@@ -2255,6 +2288,7 @@ fn pane_view<'a>(
         drives,
         active_tab.history.can_go_back(),
         active_tab.history.can_go_forward(),
+        &active_tab.suggestions,
     )
     .map(move |msg| Message::Pane(id, PaneMessage::AddressBar(msg)));
 

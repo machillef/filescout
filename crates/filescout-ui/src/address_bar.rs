@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use iced::widget::{button, column, row, text, text_input};
-use iced::{Alignment, Element, Length};
+use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::{Alignment, Background, Border, Color, Element, Length, Theme};
 
 /// Messages emitted by the address bar component.
 #[derive(Debug, Clone)]
@@ -22,6 +22,8 @@ pub enum AddressBarMessage {
     QuickAccess(PathBuf),
     /// Tab key pressed — trigger path auto-completion.
     TabComplete,
+    /// User selected a suggestion from the dropdown.
+    SelectSuggestion(String),
 }
 
 /// Render the full address bar:
@@ -35,6 +37,7 @@ pub fn address_bar_view<'a>(
     drives: &'a [PathBuf],
     can_go_back: bool,
     can_go_forward: bool,
+    suggestions: &'a [String],
 ) -> Element<'a, AddressBarMessage> {
     let back_btn = {
         let b = button(text("←")).style(button::text);
@@ -90,10 +93,44 @@ pub fn address_bar_view<'a>(
     // Quick-access shortcuts row (Home, Downloads, Documents, Desktop).
     let quick_access = quick_access_row();
 
-    column![top_row, crumbs, quick_access]
-        .spacing(2)
+    let mut col = column![top_row, crumbs, quick_access].spacing(2).width(Length::Fill);
+
+    if !suggestions.is_empty() {
+        let items: Vec<Element<'a, AddressBarMessage>> = suggestions
+            .iter()
+            .map(|s| {
+                let path = s.clone();
+                button(text(s.as_str()).size(13))
+                    .on_press(AddressBarMessage::SelectSuggestion(path))
+                    .style(button::text)
+                    .width(Length::Fill)
+                    .padding([4, 8])
+                    .into()
+            })
+            .collect();
+
+        let dropdown = container(
+            scrollable(column(items).width(Length::Fill)).height(Length::Shrink),
+        )
+        .max_height(200)
         .width(Length::Fill)
-        .into()
+        .style(|theme: &Theme| {
+            let palette = theme.palette();
+            container::Style {
+                background: Some(Background::Color(palette.background)),
+                border: Border {
+                    color: Color { a: 0.3, ..palette.text },
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            }
+        });
+
+        col = col.push(dropdown);
+    }
+
+    col.into()
 }
 
 /// Builds a row of quick-access shortcut buttons for common directories.
