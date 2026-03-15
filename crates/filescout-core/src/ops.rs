@@ -86,6 +86,48 @@ pub fn rename_file(old_path: PathBuf, new_name: String) -> Result<PathBuf> {
     Ok(new_path)
 }
 
+/// Complete a partial path by finding the first directory that matches the prefix.
+///
+/// If `partial` ends with a complete existing directory, appends `\` so the user
+/// can continue typing. If it ends with a partial name, completes to the first
+/// matching child directory.
+pub fn tab_complete_path(partial: &str) -> Option<String> {
+    let path = Path::new(partial);
+
+    // If it's already a directory, just ensure trailing backslash.
+    if path.is_dir() {
+        let mut s = partial.to_string();
+        if !s.ends_with('\\') && !s.ends_with('/') {
+            s.push('\\');
+        }
+        return Some(s);
+    }
+
+    // Split into parent dir + partial filename prefix.
+    let parent = path.parent()?;
+    let prefix = path.file_name()?.to_string_lossy().to_lowercase();
+
+    if !parent.is_dir() {
+        return None;
+    }
+
+    let mut matches: Vec<String> = std::fs::read_dir(parent)
+        .ok()?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.to_lowercase().starts_with(&prefix) && entry.path().is_dir() {
+                Some(parent.join(&name).display().to_string() + "\\")
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    matches.sort();
+    matches.into_iter().next()
+}
+
 /// Copy `src` into `dest_dir`, preserving the entry name.
 ///
 /// Directories are copied recursively. Returns the full destination path on success.
@@ -228,6 +270,35 @@ mod tests {
         std::fs::create_dir(dir.path().join("New Folder (2)")).unwrap();
         let result = create_new_folder(dir.path()).unwrap();
         assert_eq!(result.file_name().unwrap(), "New Folder (3)");
+    }
+
+    // --- tab_complete_path ---
+
+    #[test]
+    fn tab_complete_adds_separator_for_existing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = tab_complete_path(&dir.path().display().to_string());
+        assert!(result.is_some());
+        let completed = result.unwrap();
+        assert!(completed.ends_with('\\') || completed.ends_with('/'));
+    }
+
+    #[test]
+    fn tab_complete_completes_partial_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("Downloads")).unwrap();
+        let partial = format!("{}\\Down", dir.path().display());
+        let result = tab_complete_path(&partial);
+        assert!(result.is_some());
+        let completed = result.unwrap();
+        assert!(completed.contains("Downloads"));
+    }
+
+    #[test]
+    fn tab_complete_returns_none_for_no_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let partial = format!("{}\\zzz_nonexistent_xyz", dir.path().display());
+        assert!(tab_complete_path(&partial).is_none());
     }
 
     // --- UndoStack ---

@@ -20,6 +20,8 @@ pub enum AddressBarMessage {
     Forward,
     /// User clicked a quick-access shortcut (Home, Downloads, etc.).
     QuickAccess(PathBuf),
+    /// Tab key pressed — trigger path auto-completion.
+    TabComplete,
 }
 
 /// Render the full address bar:

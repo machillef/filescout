@@ -7,8 +7,8 @@ use filescout_core::bookmarks::Bookmarks;
 use filescout_core::config::{load_config, save_config, AppConfig, ThemePreference};
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
 use filescout_core::ops::{
-    copy_item, create_new_folder, delete_to_trash, move_item, open_file, rename_file, undo_rename,
-    validate_file_name, UndoAction,
+    copy_item, create_new_folder, delete_to_trash, move_item, open_file, rename_file,
+    tab_complete_path, undo_rename, validate_file_name, UndoAction,
 };
 use filescout_core::preview::{load_preview, PreviewContent};
 use filescout_core::properties::{compute_dir_size, load_file_properties, FileProperties};
@@ -1035,6 +1035,10 @@ impl FileScout {
                 keyboard::Key::Character("d") if modifiers.control() => {
                     self.update(Message::AddBookmark)
                 }
+                keyboard::Key::Named(Named::Tab) if !modifiers.control() && !modifiers.shift() => {
+                    let id = self.active;
+                    self.update_pane(id, PaneMessage::AddressBar(AddressBarMessage::TabComplete))
+                }
                 keyboard::Key::Named(Named::F9) => self.update(Message::ToggleDualPane),
                 keyboard::Key::Named(Named::F5) => self.update(Message::CopyToOtherPane),
                 keyboard::Key::Named(Named::F6) => self.update(Message::MoveToOtherPane),
@@ -1786,6 +1790,14 @@ impl FileScout {
 
             PaneMessage::AddressBar(AddressBarMessage::Edit(t)) => {
                 pane.active_mut().address_text = t;
+                Task::none()
+            }
+
+            PaneMessage::AddressBar(AddressBarMessage::TabComplete) => {
+                let text = &pane.active().address_text;
+                if let Some(completed) = tab_complete_path(text) {
+                    pane.active_mut().address_text = completed;
+                }
                 Task::none()
             }
 
