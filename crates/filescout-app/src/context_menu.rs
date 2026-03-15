@@ -7,12 +7,15 @@ use iced::{Background, Border, Color, Element, Length, Padding, Point, Theme};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextAction {
     Open,
+    OpenWith,
+    OpenInTerminal,
     Copy,
     Cut,
     Paste,
     Delete,
     Rename,
     Properties,
+    WindowsProperties,
     Refresh,
     NewFolder,
 }
@@ -36,6 +39,7 @@ impl ContextMenuState {
         let mut items = Vec::new();
         if has_selection {
             items.push(ContextMenuItem { label: "Open", action: ContextAction::Open });
+            items.push(ContextMenuItem { label: "Open With...", action: ContextAction::OpenWith });
             items.push(ContextMenuItem { label: "Copy", action: ContextAction::Copy });
             items.push(ContextMenuItem { label: "Cut", action: ContextAction::Cut });
         }
@@ -46,8 +50,10 @@ impl ContextMenuState {
             items.push(ContextMenuItem { label: "Delete", action: ContextAction::Delete });
             items.push(ContextMenuItem { label: "Rename", action: ContextAction::Rename });
             items.push(ContextMenuItem { label: "Properties", action: ContextAction::Properties });
+            items.push(ContextMenuItem { label: "Windows Properties", action: ContextAction::WindowsProperties });
         }
         // Always available actions (even when right-clicking empty space).
+        items.push(ContextMenuItem { label: "Open in Terminal", action: ContextAction::OpenInTerminal });
         items.push(ContextMenuItem { label: "New Folder", action: ContextAction::NewFolder });
         items.push(ContextMenuItem { label: "Refresh", action: ContextAction::Refresh });
         Self {
@@ -168,29 +174,29 @@ mod tests {
     #[test]
     fn menu_with_selection_has_all_items() {
         let state = ContextMenuState::new(Point::new(100.0, 200.0), true, false);
-        // Open, Copy, Cut, Delete, Rename, Properties + New Folder, Refresh
-        assert_eq!(state.item_count(), 8);
+        // Open, OpenWith, Copy, Cut, Delete, Rename, Properties, WinProperties + OpenInTerminal, NewFolder, Refresh
+        assert_eq!(state.item_count(), 11);
     }
 
     #[test]
     fn menu_with_selection_and_clipboard() {
         let state = ContextMenuState::new(Point::new(0.0, 0.0), true, true);
         // + Paste
-        assert_eq!(state.item_count(), 9);
+        assert_eq!(state.item_count(), 12);
     }
 
     #[test]
     fn menu_without_selection_paste_only() {
         let state = ContextMenuState::new(Point::new(0.0, 0.0), false, true);
-        // Paste + New Folder + Refresh
-        assert_eq!(state.item_count(), 3);
+        // Paste + OpenInTerminal + New Folder + Refresh
+        assert_eq!(state.item_count(), 4);
     }
 
     #[test]
     fn menu_has_new_folder_and_refresh_without_selection() {
         let state = ContextMenuState::new(Point::new(0.0, 0.0), false, false);
-        // New Folder + Refresh always present
-        assert_eq!(state.item_count(), 2);
+        // OpenInTerminal + New Folder + Refresh always present
+        assert_eq!(state.item_count(), 3);
     }
 
     #[test]

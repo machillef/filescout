@@ -1447,12 +1447,62 @@ impl FileScout {
         let id = self.active;
         match action {
             ContextAction::Open => self.update_pane(id, PaneMessage::OpenFile),
+            ContextAction::OpenWith => {
+                let pane = &self.panes[id.index()];
+                if let Some(path) = pane.active().selection.focus() {
+                    let path = path.to_path_buf();
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                let _ = filescout_core::win32_context_menu::shell_open_with(&path);
+                            })
+                            .await
+                            .ok();
+                        },
+                        |_| Message::Noop,
+                    )
+                } else {
+                    Task::none()
+                }
+            }
+            ContextAction::OpenInTerminal => {
+                let pane = &self.panes[id.index()];
+                let dir = pane.active().current_path.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let _ = filescout_core::win32_context_menu::shell_open_terminal(&dir);
+                        })
+                        .await
+                        .ok();
+                    },
+                    |_| Message::Noop,
+                )
+            }
             ContextAction::Copy => self.update(Message::ClipboardCopy),
             ContextAction::Cut => self.update(Message::ClipboardCut),
             ContextAction::Paste => self.update(Message::ClipboardPaste),
             ContextAction::Delete => self.update_pane(id, PaneMessage::DeleteSelected),
             ContextAction::Rename => self.update_pane(id, PaneMessage::StartRename),
             ContextAction::Properties => self.update(Message::OpenProperties),
+            ContextAction::WindowsProperties => {
+                let pane = &self.panes[id.index()];
+                if let Some(path) = pane.active().selection.focus() {
+                    let path = path.to_path_buf();
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                let _ = filescout_core::win32_context_menu::shell_properties(&path);
+                            })
+                            .await
+                            .ok();
+                        },
+                        |_| Message::Noop,
+                    )
+                } else {
+                    Task::none()
+                }
+            }
             ContextAction::Refresh => self.update(Message::RefreshActivePane),
             ContextAction::NewFolder => self.update(Message::NewFolder),
         }
