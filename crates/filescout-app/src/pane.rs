@@ -236,6 +236,8 @@ pub enum PaneMessage {
     Undo,
     /// Navigate into the currently selected directory (Enter key).
     NavigateSelected,
+    /// Open the focused file with the system default application.
+    OpenFile,
     /// Select all entries in the active tab (Ctrl+A).
     SelectAll,
     /// Extend selection one row down (Shift+Down).

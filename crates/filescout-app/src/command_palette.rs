@@ -24,6 +24,7 @@ pub enum CommandId {
     AddBookmark,
     FileProperties,
     ExtractArchive,
+    OpenFile,
 }
 
 pub struct CommandDef {
@@ -117,6 +118,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::ExtractArchive,
         label: "Extract Archive",
         description: "Extract the current ZIP archive contents to the other pane (F7)",
+    },
+    CommandDef {
+        id: CommandId::OpenFile,
+        label: "Open File",
+        description: "Open the selected file with the default application (Enter)",
     },
 ];
 

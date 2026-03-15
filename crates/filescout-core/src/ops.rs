@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::Result;
 use walkdir::WalkDir;
@@ -37,6 +38,20 @@ impl UndoStack {
     pub fn can_undo(&self) -> bool {
         !self.actions.is_empty()
     }
+}
+
+/// Open `path` with the system default application.
+pub fn open_file(path: &Path) -> Result<()> {
+    open::that(path).map_err(|e| anyhow::anyhow!("failed to open '{}': {e}", path.display()))
+}
+
+/// Open `path` with a specific program.
+pub fn open_with(path: &Path, program: &str) -> Result<()> {
+    Command::new(program)
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("failed to open '{}' with '{program}': {e}", path.display()))
 }
 
 /// Move `path` to the system Recycle Bin / Trash.
@@ -153,6 +168,23 @@ pub fn validate_file_name(name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- open_file / open_with ---
+
+    #[test]
+    fn open_file_err_for_nonexistent() {
+        let result = open_file(Path::new("/nonexistent/path/file.xyz"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn open_with_err_for_invalid_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, b"hello").unwrap();
+        let result = open_with(&file, "nonexistent_program_xyz_12345");
+        assert!(result.is_err());
+    }
 
     // --- UndoStack ---
 

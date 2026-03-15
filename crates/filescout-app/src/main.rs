@@ -6,7 +6,8 @@ use filescout_core::bookmarks::Bookmarks;
 use filescout_core::config::{load_config, save_config, AppConfig, ThemePreference};
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
 use filescout_core::ops::{
-    copy_item, delete_to_trash, move_item, rename_file, undo_rename, validate_file_name, UndoAction,
+    copy_item, delete_to_trash, move_item, open_file, rename_file, undo_rename, validate_file_name,
+    UndoAction,
 };
 use filescout_core::preview::{load_preview, PreviewContent};
 use filescout_core::properties::{compute_dir_size, load_file_properties, FileProperties};
@@ -882,6 +883,7 @@ impl FileScout {
             CommandId::AddBookmark => self.update(Message::AddBookmark),
             CommandId::FileProperties => self.update(Message::OpenProperties),
             CommandId::ExtractArchive => self.update(Message::ExtractArchive),
+            CommandId::OpenFile => self.update_pane(id, PaneMessage::OpenFile),
         }
     }
 
@@ -1047,8 +1049,47 @@ impl FileScout {
                         tab.selection.clear();
                     }
                     return load_archive_for(id, tab_idx, focus, String::new());
+                } else {
+                    // Regular file: open with default application.
+                    return Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || open_file(&focus))
+                                .await
+                                .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                        },
+                        move |result| {
+                            if let Err(e) = result {
+                                Message::Pane(id, PaneMessage::OperationDone(tab_idx, PathBuf::new(), Err(e.to_string())))
+                            } else {
+                                Message::Noop
+                            }
+                        },
+                    );
                 }
                 Task::none()
+            }
+
+            PaneMessage::OpenFile => {
+                let tab_idx = pane.active_tab;
+                let focus = pane.tabs[tab_idx].selection.focus().map(|p| p.to_path_buf());
+                let Some(focus) = focus else { return Task::none() };
+                if focus.is_dir() {
+                    return Task::none();
+                }
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || open_file(&focus))
+                            .await
+                            .unwrap_or_else(|e| Err(anyhow::anyhow!(e)))
+                    },
+                    move |result| {
+                        if let Err(e) = result {
+                            Message::Pane(id, PaneMessage::OperationDone(tab_idx, PathBuf::new(), Err(e.to_string())))
+                        } else {
+                            Message::Noop
+                        }
+                    },
+                )
             }
 
             PaneMessage::NavigateToFile(path) => {
