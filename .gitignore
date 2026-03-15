@@ -34,3 +34,6 @@ docs/ai/
 
 # Logs
 *.log
+
+# UX/UI test screenshots
+test-img/
