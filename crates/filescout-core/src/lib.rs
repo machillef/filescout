@@ -8,6 +8,7 @@ pub mod models;
 pub mod navigation;
 pub mod ops;
 pub mod preview;
+pub mod properties;
 pub mod search;
 
 pub use bookmarks::{Bookmark, Bookmarks};

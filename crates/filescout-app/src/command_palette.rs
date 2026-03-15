@@ -22,6 +22,7 @@ pub enum CommandId {
     MoveToOther,
     OpenBookmarks,
     AddBookmark,
+    FileProperties,
 }
 
 pub struct CommandDef {
@@ -105,6 +106,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::AddBookmark,
         label: "Bookmark This Directory",
         description: "Save the current directory as a bookmark (Ctrl+D)",
+    },
+    CommandDef {
+        id: CommandId::FileProperties,
+        label: "File Properties",
+        description: "Show properties for the selected file or directory (Alt+Enter)",
     },
 ];
 

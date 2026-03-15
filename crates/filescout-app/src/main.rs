@@ -8,6 +8,7 @@ use filescout_core::ops::{
     copy_item, delete_to_trash, move_item, rename_file, undo_rename, validate_file_name, UndoAction,
 };
 use filescout_core::preview::{load_preview, PreviewContent};
+use filescout_core::properties::{compute_dir_size, load_file_properties, FileProperties};
 use filescout_core::search::search_files;
 use filescout_core::SortDirection;
 use filescout_ui::address_bar::{address_bar_view, AddressBarMessage};
@@ -22,6 +23,7 @@ mod batch_rename;
 mod bookmarks;
 mod command_palette;
 mod pane;
+mod properties;
 mod search;
 mod watcher;
 
@@ -29,6 +31,7 @@ use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
 use bookmarks::{bookmarks_view, BookmarkMessage};
 use command_palette::{command_palette_view, CommandId, PaletteMessage, PaletteState};
 use pane::{PaneId, PaneMessage, PaneState};
+use properties::{properties_view, PropertiesMessage, PropertiesState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
 
 fn main() -> iced::Result {
@@ -60,6 +63,8 @@ struct FileScout {
     copy_move_label: Option<String>,
     /// Currently held modifier keys — used to detect Ctrl/Shift during mouse clicks.
     current_modifiers: keyboard::Modifiers,
+    /// Properties overlay state; `Some` while the overlay is visible.
+    properties: Option<PropertiesState>,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -110,6 +115,12 @@ enum Message {
     Bookmark(BookmarkMessage),
     /// A watched directory has changed on disk — refresh any tab showing it.
     DirectoryChanged(PathBuf),
+    /// Open the properties overlay for the focused item (Alt+Enter).
+    OpenProperties,
+    /// Properties loaded from disk; open the overlay.
+    PropertiesLoaded(FileProperties),
+    /// A message from the properties overlay.
+    Properties(PropertiesMessage),
     /// Result of an async copy or move operation.
     CopyMoveDone {
         dest_pane: PaneId,
@@ -137,6 +148,7 @@ impl FileScout {
             show_bookmarks: false,
             copy_move_label: None,
             current_modifiers: keyboard::Modifiers::default(),
+            properties: None,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -300,6 +312,58 @@ impl FileScout {
                     }
                 }
             }
+            Message::OpenProperties => {
+                let path = self.panes[self.active.index()]
+                    .active()
+                    .selection
+                    .focus()
+                    .map(|p| p.to_path_buf());
+                let Some(path) = path else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || load_file_properties(&path))
+                            .await
+                            .unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")))
+                            .ok()
+                    },
+                    |result| match result {
+                        Some(props) => Message::PropertiesLoaded(props),
+                        None => Message::Noop,
+                    },
+                )
+            }
+            Message::PropertiesLoaded(props) => {
+                let is_dir = props.is_dir;
+                let path = props.path.clone();
+                self.properties = Some(PropertiesState::new(props));
+                if is_dir {
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || compute_dir_size(&path))
+                                .await
+                                .unwrap_or(0)
+                        },
+                        |size| Message::Properties(PropertiesMessage::DirSizeComputed(size)),
+                    )
+                } else {
+                    Task::none()
+                }
+            }
+            Message::Properties(msg) => {
+                match msg {
+                    PropertiesMessage::Close => {
+                        self.properties = None;
+                    }
+                    PropertiesMessage::DirSizeComputed(size) => {
+                        if let Some(ref mut s) = self.properties {
+                            s.dir_size = Some(size);
+                        }
+                    }
+                }
+                Task::none()
+            }
         }
     }
 
@@ -400,8 +464,15 @@ impl FileScout {
     fn route_key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
         use keyboard::key::Named;
 
-        // Bookmarks overlay.
-        if self.show_bookmarks {
+        // Properties overlay.
+        if self.properties.is_some() {
+            match key.as_ref() {
+                keyboard::Key::Named(Named::Escape) => {
+                    self.update(Message::Properties(PropertiesMessage::Close))
+                }
+                _ => Task::none(),
+            }
+        } else if self.show_bookmarks {
             match key.as_ref() {
                 keyboard::Key::Named(Named::Escape) => {
                     self.handle_bookmark(BookmarkMessage::Close)
@@ -493,6 +564,9 @@ impl FileScout {
                 }
                 keyboard::Key::Named(Named::F8) => {
                     self.update(Message::ActivePaneAction(ActiveAction::Delete))
+                }
+                keyboard::Key::Named(Named::Enter) if modifiers.alt() => {
+                    self.update(Message::OpenProperties)
                 }
                 keyboard::Key::Named(Named::Enter) => {
                     self.update(Message::ActivePaneAction(ActiveAction::CommitRename))
@@ -737,6 +811,7 @@ impl FileScout {
             CommandId::MoveToOther => self.update(Message::MoveToOtherPane),
             CommandId::OpenBookmarks => self.update(Message::OpenBookmarks),
             CommandId::AddBookmark => self.update(Message::AddBookmark),
+            CommandId::FileProperties => self.update(Message::OpenProperties),
         }
     }
 
@@ -1194,6 +1269,9 @@ impl FileScout {
                 &self.panes[self.active.index()].active().current_path,
             )
             .map(Message::Bookmark);
+            stack([main, overlay]).into()
+        } else if let Some(ref props) = self.properties {
+            let overlay = properties_view(props).map(Message::Properties);
             stack([main, overlay]).into()
         } else if let Some(ref label) = self.copy_move_label {
             let overlay = copy_move_progress_overlay(label);
