@@ -14,6 +14,8 @@ use iced::{Background, Color, Element, Length, Theme};
 pub enum PropertiesMessage {
     /// Async directory-size computation completed.
     DirSizeComputed(u64),
+    /// Total size of multi-selection computed.
+    MultiSizeComputed(u64),
     /// Close the overlay.
     Close,
 }
@@ -24,11 +26,47 @@ pub struct PropertiesState {
     pub props: FileProperties,
     /// Computed total size of a directory, populated asynchronously.
     pub dir_size: Option<u64>,
+    /// When showing multi-selection properties, the count and total size.
+    pub multi_info: Option<MultiSelectionInfo>,
+}
+
+/// Summary info for a multi-selection properties view.
+pub struct MultiSelectionInfo {
+    pub file_count: usize,
+    pub dir_count: usize,
+    pub total_size: Option<u64>,
 }
 
 impl PropertiesState {
     pub fn new(props: FileProperties) -> Self {
-        Self { props, dir_size: None }
+        Self { props, dir_size: None, multi_info: None }
+    }
+
+    pub fn new_multi(file_count: usize, dir_count: usize) -> Self {
+        let total = file_count + dir_count;
+        let name = format!("{total} items selected");
+        let props = FileProperties {
+            name,
+            path: std::path::PathBuf::new(),
+            is_dir: false,
+            size_bytes: 0,
+            created: None,
+            modified: None,
+            accessed: None,
+            read_only: false,
+            hidden: false,
+            system: false,
+            archive: false,
+        };
+        Self {
+            props,
+            dir_size: None,
+            multi_info: Some(MultiSelectionInfo {
+                file_count,
+                dir_count,
+                total_size: None,
+            }),
+        }
     }
 }
 
@@ -106,39 +144,56 @@ fn checkbox_label(checked: bool, label: &str) -> String {
 
 /// Renders the properties overlay.
 pub fn properties_view(state: &PropertiesState) -> Element<'_, PropertiesMessage> {
-    let p = &state.props;
-
-    let kind = if p.is_dir { "Directory" } else { "File" };
-
-    let size_str = if p.is_dir {
-        match state.dir_size {
+    let rows: Element<'_, PropertiesMessage> = if let Some(ref multi) = state.multi_info {
+        // Multi-selection view: summary with total size.
+        let total = multi.file_count + multi.dir_count;
+        let contains = format!(
+            "{} files, {} folders",
+            multi.file_count, multi.dir_count,
+        );
+        let size_str = match multi.total_size {
             Some(n) => format!("{} ({n} bytes)", format_size(n)),
             None => "Computing…".into(),
-        }
+        };
+        column![
+            prop_row("Selection:", format!("{total} items")),
+            prop_row("Contains:", contains),
+            prop_row("Total Size:", size_str),
+        ]
+        .spacing(6)
+        .into()
     } else {
-        format!("{} ({} bytes)", format_size(p.size_bytes), p.size_bytes)
+        // Single-item view.
+        let p = &state.props;
+        let kind = if p.is_dir { "Directory" } else { "File" };
+        let size_str = if p.is_dir {
+            match state.dir_size {
+                Some(n) => format!("{} ({n} bytes)", format_size(n)),
+                None => "Computing…".into(),
+            }
+        } else {
+            format!("{} ({} bytes)", format_size(p.size_bytes), p.size_bytes)
+        };
+        let attrs_str = format!(
+            "{}  {}  {}  {}",
+            checkbox_label(p.read_only, "Read-Only"),
+            checkbox_label(p.hidden, "Hidden"),
+            checkbox_label(p.system, "System"),
+            checkbox_label(p.archive, "Archive"),
+        );
+        column![
+            prop_row("Name:", p.name.clone()),
+            prop_row("Path:", p.path.display().to_string()),
+            prop_row("Type:", kind.into()),
+            prop_row("Size:", size_str),
+            prop_row("Created:", format_time(p.created)),
+            prop_row("Modified:", format_time(p.modified)),
+            prop_row("Accessed:", format_time(p.accessed)),
+            prop_row("Attributes:", attrs_str),
+        ]
+        .spacing(6)
+        .into()
     };
-
-    let attrs_str = format!(
-        "{}  {}  {}  {}",
-        checkbox_label(p.read_only, "Read-Only"),
-        checkbox_label(p.hidden, "Hidden"),
-        checkbox_label(p.system, "System"),
-        checkbox_label(p.archive, "Archive"),
-    );
-
-    let rows: Element<'_, PropertiesMessage> = column![
-        prop_row("Name:", p.name.clone()),
-        prop_row("Path:", p.path.display().to_string()),
-        prop_row("Type:", kind.into()),
-        prop_row("Size:", size_str),
-        prop_row("Created:", format_time(p.created)),
-        prop_row("Modified:", format_time(p.modified)),
-        prop_row("Accessed:", format_time(p.accessed)),
-        prop_row("Attributes:", attrs_str),
-    ]
-    .spacing(6)
-    .into();
 
     let header = row![
         text("Properties").size(15).width(Length::Fill),

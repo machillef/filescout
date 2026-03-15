@@ -7,8 +7,8 @@ use filescout_core::bookmarks::Bookmarks;
 use filescout_core::config::{load_config, save_config, AppConfig, ThemePreference};
 use filescout_core::fs::{list_directory, list_drives, sort_entries};
 use filescout_core::ops::{
-    copy_item, delete_to_trash, move_item, open_file, rename_file, undo_rename, validate_file_name,
-    UndoAction,
+    copy_item, create_new_folder, delete_to_trash, move_item, open_file, rename_file, undo_rename,
+    validate_file_name, UndoAction,
 };
 use filescout_core::preview::{load_preview, PreviewContent};
 use filescout_core::properties::{compute_dir_size, load_file_properties, FileProperties};
@@ -197,6 +197,14 @@ enum Message {
         src_refresh: Option<(PaneId, usize, PathBuf)>,
         result: Result<(), String>,
     },
+    /// Incremental progress update during copy/move.
+    CopyMoveProgressUpdate { completed: usize, current_file: String },
+    /// Create a new folder in the active pane's current directory.
+    NewFolder,
+    /// Result of async new-folder creation; the path is the new folder to select.
+    NewFolderDone(PaneId, usize, PathBuf, Result<PathBuf, String>),
+    /// Refresh the active pane's current directory listing.
+    RefreshActivePane,
 }
 
 impl FileScout {
@@ -423,37 +431,39 @@ impl FileScout {
                     operation: if is_cut { "Moving" } else { "Copying" },
                 });
                 let dest_dir2 = dest_dir.clone();
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let errors: Vec<String> = paths
-                                .into_iter()
-                                .filter_map(|p| {
-                                    let result = if is_cut {
-                                        move_item(p, dest_dir.clone())
-                                    } else {
-                                        copy_item(p, dest_dir.clone())
-                                    };
-                                    result.err().map(|e| e.to_string())
-                                })
-                                .collect();
-                            if errors.is_empty() {
-                                Ok(())
+                Task::stream(iced::stream::channel(16, move |mut sender: iced::futures::channel::mpsc::Sender<Message>| async move {
+                    let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, String)>(16);
+                    let handle = tokio::task::spawn_blocking(move || {
+                        let mut errors = Vec::new();
+                        for (i, p) in paths.iter().enumerate() {
+                            let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                            let _ = tx.blocking_send((i, name));
+                            let result = if is_cut {
+                                move_item(p.clone(), dest_dir.clone())
                             } else {
-                                Err(errors.join("; "))
+                                copy_item(p.clone(), dest_dir.clone())
+                            };
+                            if let Err(e) = result {
+                                errors.push(e.to_string());
                             }
-                        })
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
-                    },
-                    move |result| Message::CopyMoveDone {
+                        }
+                        if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
+                    });
+                    while let Some((completed, current_file)) = rx.recv().await {
+                        let _ = sender.try_send(Message::CopyMoveProgressUpdate {
+                            completed,
+                            current_file,
+                        });
+                    }
+                    let result = handle.await.unwrap_or_else(|e| Err(e.to_string()));
+                    let _ = sender.try_send(Message::CopyMoveDone {
                         dest_pane,
                         dest_tab,
                         dest_dir: dest_dir2,
                         src_refresh,
                         result,
-                    },
-                )
+                    });
+                }))
             }
             Message::ContextMenu(msg) => self.handle_context_menu(msg),
             Message::OpenContextMenu => {
@@ -462,9 +472,6 @@ impl FileScout {
                     .selection
                     .is_empty();
                 let has_clipboard = self.clipboard.is_some();
-                if !has_selection && !has_clipboard {
-                    return Task::none();
-                }
                 self.context_menu = Some(ContextMenuState::new(
                     self.cursor_position,
                     has_selection,
@@ -502,6 +509,48 @@ impl FileScout {
                 ])
             }
             Message::Noop => Task::none(),
+            Message::NewFolder => {
+                let id = self.active;
+                let tab_idx = self.panes[id.index()].active_tab;
+                let dir = self.panes[id.index()].active().current_path.clone();
+                let dir2 = dir.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            create_new_folder(&dir).map_err(|e| e.to_string())
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    move |result| Message::NewFolderDone(id, tab_idx, dir2, result),
+                )
+            }
+            Message::NewFolderDone(pane_id, tab_idx, dir, result) => match result {
+                Err(e) => {
+                    self.panes[pane_id.index()].active_mut().error = Some(e);
+                    Task::none()
+                }
+                Ok(new_path) => {
+                    // Refresh listing, then start rename on the new folder.
+                    let name = new_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned();
+                    if tab_idx < self.panes[pane_id.index()].tabs.len() {
+                        let tab = &mut self.panes[pane_id.index()].tabs[tab_idx];
+                        tab.selection.single_select(new_path.clone());
+                        tab.renaming = Some((new_path, name));
+                    }
+                    load_directory_for(pane_id, tab_idx, dir)
+                }
+            },
+            Message::RefreshActivePane => {
+                let id = self.active;
+                let tab_idx = self.panes[id.index()].active_tab;
+                let path = self.panes[id.index()].active().current_path.clone();
+                load_directory_for(id, tab_idx, path)
+            }
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
             Message::ModifiersChanged(mods) => {
                 self.current_modifiers = mods;
@@ -557,6 +606,13 @@ impl FileScout {
                     })
                     .collect();
                 Task::batch(tasks)
+            }
+            Message::CopyMoveProgressUpdate { completed, current_file } => {
+                if let Some(ref mut progress) = self.copy_move_progress {
+                    progress.completed = completed;
+                    progress.current_file = current_file;
+                }
+                Task::none()
             }
             Message::CopyMoveDone { dest_pane, dest_tab, dest_dir, src_refresh, result } => {
                 self.copy_move_progress = None;
@@ -636,26 +692,51 @@ impl FileScout {
                 }
             }
             Message::OpenProperties => {
-                let path = self.panes[self.active.index()]
-                    .active()
-                    .selection
-                    .focus()
-                    .map(|p| p.to_path_buf());
-                let Some(path) = path else {
+                let tab = self.panes[self.active.index()].active();
+                let items: Vec<PathBuf> = tab.selection.items().iter().cloned().collect();
+                if items.is_empty() {
                     return Task::none();
-                };
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || load_file_properties(&path))
+                }
+                if items.len() == 1 {
+                    // Single item — load full properties.
+                    let path = items.into_iter().next().unwrap();
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || load_file_properties(&path))
+                                .await
+                                .unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")))
+                                .ok()
+                        },
+                        |result| match result {
+                            Some(props) => Message::PropertiesLoaded(props),
+                            None => Message::Noop,
+                        },
+                    )
+                } else {
+                    // Multi-selection — show summary with total size.
+                    let file_count = items.iter().filter(|p| p.is_file()).count();
+                    let dir_count = items.iter().filter(|p| p.is_dir()).count();
+                    self.properties = Some(PropertiesState::new_multi(file_count, dir_count));
+                    let paths = items;
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                let mut total: u64 = 0;
+                                for p in &paths {
+                                    if p.is_dir() {
+                                        total += compute_dir_size(p);
+                                    } else if let Ok(meta) = std::fs::metadata(p) {
+                                        total += meta.len();
+                                    }
+                                }
+                                total
+                            })
                             .await
-                            .unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")))
-                            .ok()
-                    },
-                    |result| match result {
-                        Some(props) => Message::PropertiesLoaded(props),
-                        None => Message::Noop,
-                    },
-                )
+                            .unwrap_or(0)
+                        },
+                        |size| Message::Properties(PropertiesMessage::MultiSizeComputed(size)),
+                    )
+                }
             }
             Message::PropertiesLoaded(props) => {
                 let is_dir = props.is_dir;
@@ -682,6 +763,13 @@ impl FileScout {
                     PropertiesMessage::DirSizeComputed(size) => {
                         if let Some(ref mut s) = self.properties {
                             s.dir_size = Some(size);
+                        }
+                    }
+                    PropertiesMessage::MultiSizeComputed(size) => {
+                        if let Some(ref mut s) = self.properties
+                            && let Some(ref mut mi) = s.multi_info
+                        {
+                            mi.total_size = Some(size);
                         }
                     }
                 }
@@ -718,26 +806,35 @@ impl FileScout {
             operation: "Copying",
         });
         let dest_dir2 = dest_dir.clone();
-        Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    let errors: Vec<String> = paths
-                        .into_iter()
-                        .filter_map(|p| copy_item(p, dest_dir.clone()).err().map(|e| e.to_string()))
-                        .collect();
-                    if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
-                })
-                .await
-                .unwrap_or_else(|e| Err(e.to_string()))
-            },
-            move |result| Message::CopyMoveDone {
+        Task::stream(iced::stream::channel(16, move |mut sender: iced::futures::channel::mpsc::Sender<Message>| async move {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, String)>(16);
+            let handle = tokio::task::spawn_blocking(move || {
+                let mut errors = Vec::new();
+                for (i, p) in paths.iter().enumerate() {
+                    let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                    let _ = tx.blocking_send((i, name));
+                    if let Err(e) = copy_item(p.clone(), dest_dir.clone()) {
+                        errors.push(e.to_string());
+                    }
+                }
+                if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
+            });
+            // Forward progress updates from the blocking thread.
+            while let Some((completed, current_file)) = rx.recv().await {
+                let _ = sender.try_send(Message::CopyMoveProgressUpdate {
+                    completed,
+                    current_file,
+                });
+            }
+            let result = handle.await.unwrap_or_else(|e| Err(e.to_string()));
+            let _ = sender.try_send(Message::CopyMoveDone {
                 dest_pane,
                 dest_tab,
                 dest_dir: dest_dir2,
                 src_refresh: None,
                 result,
-            },
-        )
+            });
+        }))
     }
 
     fn start_move(&mut self) -> Task<Message> {
@@ -770,26 +867,34 @@ impl FileScout {
             operation: "Moving",
         });
         let dest_dir2 = dest_dir.clone();
-        Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    let errors: Vec<String> = paths
-                        .into_iter()
-                        .filter_map(|p| move_item(p, dest_dir.clone()).err().map(|e| e.to_string()))
-                        .collect();
-                    if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
-                })
-                .await
-                .unwrap_or_else(|e| Err(e.to_string()))
-            },
-            move |result| Message::CopyMoveDone {
+        Task::stream(iced::stream::channel(16, move |mut sender: iced::futures::channel::mpsc::Sender<Message>| async move {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, String)>(16);
+            let handle = tokio::task::spawn_blocking(move || {
+                let mut errors = Vec::new();
+                for (i, p) in paths.iter().enumerate() {
+                    let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                    let _ = tx.blocking_send((i, name));
+                    if let Err(e) = move_item(p.clone(), dest_dir.clone()) {
+                        errors.push(e.to_string());
+                    }
+                }
+                if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
+            });
+            while let Some((completed, current_file)) = rx.recv().await {
+                let _ = sender.try_send(Message::CopyMoveProgressUpdate {
+                    completed,
+                    current_file,
+                });
+            }
+            let result = handle.await.unwrap_or_else(|e| Err(e.to_string()));
+            let _ = sender.try_send(Message::CopyMoveDone {
                 dest_pane,
                 dest_tab,
                 dest_dir: dest_dir2,
                 src_refresh: Some((src_pane, src_tab, src_dir)),
                 result,
-            },
-        )
+            });
+        }))
     }
 
     fn route_key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
@@ -1268,6 +1373,8 @@ impl FileScout {
             ContextAction::Delete => self.update_pane(id, PaneMessage::DeleteSelected),
             ContextAction::Rename => self.update_pane(id, PaneMessage::StartRename),
             ContextAction::Properties => self.update(Message::OpenProperties),
+            ContextAction::Refresh => self.update(Message::RefreshActivePane),
+            ContextAction::NewFolder => self.update(Message::NewFolder),
         }
     }
 
@@ -1975,6 +2082,11 @@ impl FileScout {
 
             let left = left.width(Length::FillPortion(left_portion));
 
+            let divider = container(text(""))
+                .width(2)
+                .height(Length::Fill)
+                .style(pane_divider_style);
+
             let right = container(
                 pane_view(PaneId::Right, &self.panes[1], &self.drives, self.active == PaneId::Right),
             )
@@ -1982,8 +2094,8 @@ impl FileScout {
             .height(Length::Fill);
 
             container(
-                row![left, right]
-                    .spacing(4)
+                row![left, divider, right]
+                    .spacing(2)
                     .width(Length::Fill)
                     .height(Length::Fill),
             )
@@ -2171,6 +2283,13 @@ fn load_preview_for(pane: PaneId, tab_idx: usize, path: PathBuf) -> Task<Message
         },
         move |content| Message::Pane(pane, PaneMessage::PreviewLoaded(tab_idx, content)),
     )
+}
+
+fn pane_divider_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.5, 0.5, 0.5, 0.6))),
+        ..Default::default()
+    }
 }
 
 fn copy_move_backdrop_style(_theme: &Theme) -> container::Style {

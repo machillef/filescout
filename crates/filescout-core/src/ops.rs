@@ -59,6 +59,21 @@ pub fn delete_to_trash(path: PathBuf) -> Result<()> {
     trash::delete(path).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
+/// Create a new folder in `parent_dir` with a unique name like "New Folder", "New Folder (2)", etc.
+/// Returns the full path of the created directory.
+pub fn create_new_folder(parent_dir: &Path) -> Result<PathBuf> {
+    let mut name = String::from("New Folder");
+    let mut target = parent_dir.join(&name);
+    let mut counter = 2u32;
+    while target.exists() {
+        name = format!("New Folder ({counter})");
+        target = parent_dir.join(&name);
+        counter += 1;
+    }
+    std::fs::create_dir(&target)?;
+    Ok(target)
+}
+
 /// Rename `old_path` to a new entry in the same directory with `new_name`.
 ///
 /// Returns the full path of the renamed item on success.
@@ -171,7 +186,11 @@ mod tests {
 
     // --- open_file / open_with ---
 
+    // NOTE: open_file and open_with tests are skipped on Windows because they
+    // spawn Windows Shell processes that may show error dialogs for non-existent
+    // paths, which is disruptive during automated testing.
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn open_file_err_for_nonexistent() {
         let result = open_file(Path::new("/nonexistent/path/file.xyz"));
         assert!(result.is_err());
@@ -179,11 +198,36 @@ mod tests {
 
     #[test]
     fn open_with_err_for_invalid_program() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.txt");
-        std::fs::write(&file, b"hello").unwrap();
-        let result = open_with(&file, "nonexistent_program_xyz_12345");
+        let result = open_with(Path::new("."), "nonexistent_program_xyz_12345");
         assert!(result.is_err());
+    }
+
+    // --- create_new_folder ---
+
+    #[test]
+    fn create_new_folder_creates_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = create_new_folder(dir.path()).unwrap();
+        assert_eq!(result.file_name().unwrap(), "New Folder");
+        assert!(result.is_dir());
+    }
+
+    #[test]
+    fn create_new_folder_increments_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("New Folder")).unwrap();
+        let result = create_new_folder(dir.path()).unwrap();
+        assert_eq!(result.file_name().unwrap(), "New Folder (2)");
+        assert!(result.is_dir());
+    }
+
+    #[test]
+    fn create_new_folder_skips_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("New Folder")).unwrap();
+        std::fs::create_dir(dir.path().join("New Folder (2)")).unwrap();
+        let result = create_new_folder(dir.path()).unwrap();
+        assert_eq!(result.file_name().unwrap(), "New Folder (3)");
     }
 
     // --- UndoStack ---

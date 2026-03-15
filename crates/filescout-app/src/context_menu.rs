@@ -13,6 +13,8 @@ pub enum ContextAction {
     Delete,
     Rename,
     Properties,
+    Refresh,
+    NewFolder,
 }
 
 /// A single menu item.
@@ -45,6 +47,9 @@ impl ContextMenuState {
             items.push(ContextMenuItem { label: "Rename", action: ContextAction::Rename });
             items.push(ContextMenuItem { label: "Properties", action: ContextAction::Properties });
         }
+        // Always available actions (even when right-clicking empty space).
+        items.push(ContextMenuItem { label: "New Folder", action: ContextAction::NewFolder });
+        items.push(ContextMenuItem { label: "Refresh", action: ContextAction::Refresh });
         Self {
             position,
             items,
@@ -142,25 +147,29 @@ mod tests {
     #[test]
     fn menu_with_selection_has_all_items() {
         let state = ContextMenuState::new(Point::new(100.0, 200.0), true, false);
-        assert_eq!(state.item_count(), 6); // Open, Copy, Cut, Delete, Rename, Properties
+        // Open, Copy, Cut, Delete, Rename, Properties + New Folder, Refresh
+        assert_eq!(state.item_count(), 8);
     }
 
     #[test]
     fn menu_with_selection_and_clipboard() {
         let state = ContextMenuState::new(Point::new(0.0, 0.0), true, true);
-        assert_eq!(state.item_count(), 7); // + Paste
+        // + Paste
+        assert_eq!(state.item_count(), 9);
     }
 
     #[test]
     fn menu_without_selection_paste_only() {
         let state = ContextMenuState::new(Point::new(0.0, 0.0), false, true);
-        assert_eq!(state.item_count(), 1); // Paste only
+        // Paste + New Folder + Refresh
+        assert_eq!(state.item_count(), 3);
     }
 
     #[test]
-    fn menu_empty_when_no_selection_no_clipboard() {
+    fn menu_has_new_folder_and_refresh_without_selection() {
         let state = ContextMenuState::new(Point::new(0.0, 0.0), false, false);
-        assert_eq!(state.item_count(), 0);
+        // New Folder + Refresh always present
+        assert_eq!(state.item_count(), 2);
     }
 
     #[test]
