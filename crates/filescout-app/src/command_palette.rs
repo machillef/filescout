@@ -39,6 +39,7 @@ pub enum CommandId {
     NavigateDocuments,
     NavigateDesktop,
     RefreshDir,
+    KeyboardShortcuts,
 }
 
 pub struct CommandDef {
@@ -207,6 +208,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::RefreshDir,
         label: "Refresh",
         description: "Reload the current directory listing",
+    },
+    CommandDef {
+        id: CommandId::KeyboardShortcuts,
+        label: "Keyboard Shortcuts",
+        description: "Show all keyboard shortcuts (F1)",
     },
 ];
 

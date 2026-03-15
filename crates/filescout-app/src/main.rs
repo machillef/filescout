@@ -33,6 +33,7 @@ mod drag_drop;
 mod pane;
 mod properties;
 mod search;
+mod shortcuts_help;
 mod watcher;
 
 use batch_rename::{batch_rename_view, BatchRenameMessage, BatchRenameState};
@@ -46,6 +47,7 @@ use context_menu::{
 use pane::{ArchiveContext, PaneId, PaneMessage, PaneState};
 use properties::{properties_view, PropertiesMessage, PropertiesState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
+use shortcuts_help::{shortcuts_help_view, ShortcutsHelpMessage};
 
 /// Progress state for a copy/move operation.
 #[derive(Debug, Clone)]
@@ -105,6 +107,8 @@ struct FileScout {
     cursor_position: Point,
     /// Whether dual-pane mode is active (default: single pane).
     dual_pane: bool,
+    /// Whether the keyboard shortcuts help overlay is visible.
+    show_shortcuts_help: bool,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -205,6 +209,10 @@ enum Message {
     NewFolderDone(PaneId, usize, PathBuf, Result<PathBuf, String>),
     /// Refresh the active pane's current directory listing.
     RefreshActivePane,
+    /// Toggle keyboard shortcuts help overlay.
+    ToggleShortcutsHelp,
+    /// A message from the shortcuts help overlay.
+    ShortcutsHelp(ShortcutsHelpMessage),
 }
 
 impl FileScout {
@@ -233,6 +241,7 @@ impl FileScout {
             context_menu: None,
             cursor_position: Point::ORIGIN,
             dual_pane: false,
+            show_shortcuts_help: false,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd);
@@ -550,6 +559,14 @@ impl FileScout {
                 let tab_idx = self.panes[id.index()].active_tab;
                 let path = self.panes[id.index()].active().current_path.clone();
                 load_directory_for(id, tab_idx, path)
+            }
+            Message::ToggleShortcutsHelp => {
+                self.show_shortcuts_help = !self.show_shortcuts_help;
+                Task::none()
+            }
+            Message::ShortcutsHelp(ShortcutsHelpMessage::Close) => {
+                self.show_shortcuts_help = false;
+                Task::none()
             }
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
             Message::ModifiersChanged(mods) => {
@@ -900,6 +917,16 @@ impl FileScout {
     fn route_key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
         use keyboard::key::Named;
 
+        // Shortcuts help overlay — F1 or Escape closes.
+        if self.show_shortcuts_help {
+            return match key.as_ref() {
+                keyboard::Key::Named(Named::Escape) | keyboard::Key::Named(Named::F1) => {
+                    self.update(Message::ShortcutsHelp(ShortcutsHelpMessage::Close))
+                }
+                _ => Task::none(),
+            };
+        }
+
         // Confirmation dialog — intercepts Enter/Escape only.
         if self.confirm.is_some() {
             return match key.as_ref() {
@@ -1039,6 +1066,7 @@ impl FileScout {
                     let id = self.active;
                     self.update_pane(id, PaneMessage::AddressBar(AddressBarMessage::TabComplete))
                 }
+                keyboard::Key::Named(Named::F1) => self.update(Message::ToggleShortcutsHelp),
                 keyboard::Key::Named(Named::F9) => self.update(Message::ToggleDualPane),
                 keyboard::Key::Named(Named::F5) => self.update(Message::CopyToOtherPane),
                 keyboard::Key::Named(Named::F6) => self.update(Message::MoveToOtherPane),
@@ -1448,6 +1476,7 @@ impl FileScout {
             CommandId::ToggleDualPane => self.update(Message::ToggleDualPane),
             CommandId::NewFolder => self.update(Message::NewFolder),
             CommandId::RefreshDir => self.update(Message::RefreshActivePane),
+            CommandId::KeyboardShortcuts => self.update(Message::ToggleShortcutsHelp),
             CommandId::NavigateThisPC => {
                 // Navigate to C:\ as the "This PC" equivalent.
                 let path = PathBuf::from("C:\\");
@@ -2161,6 +2190,9 @@ impl FileScout {
 
         if let Some(ref confirm_state) = self.confirm {
             let overlay = confirm_view(confirm_state).map(Message::Confirm);
+            stack([main, overlay]).into()
+        } else if self.show_shortcuts_help {
+            let overlay = shortcuts_help_view().map(Message::ShortcutsHelp);
             stack([main, overlay]).into()
         } else if let Some(ref cm) = self.context_menu {
             let overlay = context_menu_view(cm).map(Message::ContextMenu);
