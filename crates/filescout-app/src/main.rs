@@ -17,7 +17,7 @@ use filescout_ui::address_bar::{address_bar_view, AddressBarMessage};
 use filescout_ui::file_list::{file_list_view, FileListMessage};
 use filescout_ui::preview_panel::preview_panel_view;
 use filescout_ui::tab_bar::{tab_bar_view, TabBarMessage};
-use iced::widget::{column, container, row, stack, text};
+use iced::widget::{column, container, progress_bar, row, stack, text};
 use iced::{event, keyboard, Background, Color, Element, Event, Length, Size, Subscription, Task, Theme};
 use tracing_subscriber::EnvFilter;
 
@@ -39,6 +39,15 @@ use confirm::{confirm_view, ConfirmAction, ConfirmMessage, ConfirmState};
 use pane::{ArchiveContext, PaneId, PaneMessage, PaneState};
 use properties::{properties_view, PropertiesMessage, PropertiesState};
 use search::{search_view, SearchMessage, SearchState, MAX_SEARCH_RESULTS};
+
+/// Progress state for a copy/move operation.
+#[derive(Debug, Clone)]
+struct CopyMoveProgress {
+    completed: usize,
+    total: usize,
+    current_file: String,
+    operation: &'static str,
+}
 
 fn main() -> iced::Result {
     tracing_subscriber::fmt()
@@ -65,8 +74,8 @@ struct FileScout {
     bookmarks: Bookmarks,
     /// When `true`, the bookmarks overlay is shown.
     show_bookmarks: bool,
-    /// Label shown in the progress overlay while a copy/move is in flight.
-    copy_move_label: Option<String>,
+    /// Progress state for an in-flight copy/move operation.
+    copy_move_progress: Option<CopyMoveProgress>,
     /// Currently held modifier keys — used to detect Ctrl/Shift during mouse clicks.
     current_modifiers: keyboard::Modifiers,
     /// Properties overlay state; `Some` while the overlay is visible.
@@ -172,7 +181,7 @@ impl FileScout {
             theme: ThemePreference::Dark,
             bookmarks: Bookmarks::default(),
             show_bookmarks: false,
-            copy_move_label: None,
+            copy_move_progress: None,
             current_modifiers: keyboard::Modifiers::default(),
             properties: None,
             confirm: None,
@@ -357,22 +366,18 @@ impl FileScout {
                     None
                 };
                 let paths = clip.paths;
-                let label = if paths.len() == 1 {
-                    format!(
-                        "{}ing '{}'  →  {}…",
-                        if is_cut { "Mov" } else { "Copy" },
-                        paths[0].file_name().unwrap_or_default().to_string_lossy(),
-                        dest_dir.display()
-                    )
-                } else {
-                    format!(
-                        "{}ing {} items  →  {}…",
-                        if is_cut { "Mov" } else { "Copy" },
-                        paths.len(),
-                        dest_dir.display()
-                    )
-                };
-                self.copy_move_label = Some(label);
+                let first_name = paths
+                    .first()
+                    .and_then(|p| p.file_name())
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                self.copy_move_progress = Some(CopyMoveProgress {
+                    completed: 0,
+                    total: paths.len(),
+                    current_file: first_name,
+                    operation: if is_cut { "Moving" } else { "Copying" },
+                });
                 let dest_dir2 = dest_dir.clone();
                 Task::perform(
                     async move {
@@ -443,7 +448,7 @@ impl FileScout {
             Message::DirectoryChanged(path) => {
                 // Skip auto-refresh while a copy/move is in progress to avoid
                 // racing with the operation's own post-completion refresh.
-                if self.copy_move_label.is_some() {
+                if self.copy_move_progress.is_some() {
                     return Task::none();
                 }
                 // Refresh every tab (in either pane) whose current_path matches
@@ -465,7 +470,7 @@ impl FileScout {
                 Task::batch(tasks)
             }
             Message::CopyMoveDone { dest_pane, dest_tab, dest_dir, src_refresh, result } => {
-                self.copy_move_label = None;
+                self.copy_move_progress = None;
                 match result {
                     Err(e) => {
                         self.panes[self.active.index()].active_mut().error = Some(e);
@@ -597,7 +602,7 @@ impl FileScout {
     }
 
     fn start_copy(&mut self) -> Task<Message> {
-        if self.copy_move_label.is_some() {
+        if self.copy_move_progress.is_some() {
             return Task::none();
         }
         if self.panes[self.active.index()].active().archive_context.is_some() {
@@ -612,16 +617,17 @@ impl FileScout {
         }
         let dest_dir = self.panes[dest_pane.index()].active().current_path.clone();
         let dest_tab = self.panes[dest_pane.index()].active_tab;
-        let label = if paths.len() == 1 {
-            format!(
-                "Copying '{}'  →  {}…",
-                paths[0].file_name().unwrap_or_default().to_string_lossy(),
-                dest_dir.display()
-            )
-        } else {
-            format!("Copying {} items  →  {}…", paths.len(), dest_dir.display())
-        };
-        self.copy_move_label = Some(label);
+        let first_name = paths[0]
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        self.copy_move_progress = Some(CopyMoveProgress {
+            completed: 0,
+            total: paths.len(),
+            current_file: first_name,
+            operation: "Copying",
+        });
         let dest_dir2 = dest_dir.clone();
         Task::perform(
             async move {
@@ -646,7 +652,7 @@ impl FileScout {
     }
 
     fn start_move(&mut self) -> Task<Message> {
-        if self.copy_move_label.is_some() {
+        if self.copy_move_progress.is_some() {
             return Task::none();
         }
         if self.panes[self.active.index()].active().archive_context.is_some() {
@@ -663,16 +669,17 @@ impl FileScout {
         let dest_tab = self.panes[dest_pane.index()].active_tab;
         let src_tab = self.panes[src_pane.index()].active_tab;
         let src_dir = self.panes[src_pane.index()].active().current_path.clone();
-        let label = if paths.len() == 1 {
-            format!(
-                "Moving '{}'  →  {}…",
-                paths[0].file_name().unwrap_or_default().to_string_lossy(),
-                dest_dir.display()
-            )
-        } else {
-            format!("Moving {} items  →  {}…", paths.len(), dest_dir.display())
-        };
-        self.copy_move_label = Some(label);
+        let first_name = paths[0]
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        self.copy_move_progress = Some(CopyMoveProgress {
+            completed: 0,
+            total: paths.len(),
+            current_file: first_name,
+            operation: "Moving",
+        });
         let dest_dir2 = dest_dir.clone();
         Task::perform(
             async move {
@@ -1735,8 +1742,8 @@ impl FileScout {
         } else if let Some(ref props) = self.properties {
             let overlay = properties_view(props).map(Message::Properties);
             stack([main, overlay]).into()
-        } else if let Some(ref label) = self.copy_move_label {
-            let overlay = copy_move_progress_overlay(label);
+        } else if let Some(ref progress) = self.copy_move_progress {
+            let overlay = copy_move_progress_overlay(progress);
             stack([main, overlay]).into()
         } else {
             main
@@ -1885,10 +1892,16 @@ fn copy_move_backdrop_style(_theme: &Theme) -> container::Style {
     }
 }
 
-/// Renders a centered progress card while a copy/move is in flight.
-fn copy_move_progress_overlay(label: &str) -> Element<'_, Message> {
+/// Renders a centered progress card with a progress bar while a copy/move is in flight.
+fn copy_move_progress_overlay(progress: &CopyMoveProgress) -> Element<'_, Message> {
+    let counter = format!(
+        "{} {}/{}: {}",
+        progress.operation, progress.completed, progress.total, progress.current_file
+    );
+    let bar = progress_bar(0.0..=progress.total as f32, progress.completed as f32);
+
     let card = container(
-        column![text(label).size(14), text("Please wait…").size(12)]
+        column![text(counter).size(14), bar, text("Please wait…").size(12)]
             .spacing(8)
             .align_x(iced::alignment::Horizontal::Center),
     )
