@@ -28,6 +28,7 @@ mod clipboard;
 mod command_palette;
 mod confirm;
 mod context_menu;
+mod drag_drop;
 mod pane;
 mod properties;
 mod search;
