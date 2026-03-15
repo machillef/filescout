@@ -6,6 +6,8 @@ use iced::widget::{button, column, container, row, scrollable, text, text_input}
 use iced::{Element, Length};
 use iced::widget::Id;
 
+use crate::icons::file_icon_text;
+
 /// Unique ID for the inline rename text input (used for programmatic focus).
 pub const RENAME_INPUT_ID: &str = "rename_input";
 
@@ -85,7 +87,7 @@ pub fn file_list_view<'a>(
             .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
             .unwrap_or_default();
 
-        let icon = if entry.is_dir { "📁" } else { "📄" };
+        let icon = file_icon_text(entry);
 
         if is_renaming {
             let (_, rename_text) = renaming.unwrap();
