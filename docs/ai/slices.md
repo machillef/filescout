@@ -69,7 +69,7 @@
 
 ## Slice 15: Properties & Permissions
 **Goal:** File/directory properties dialog (size, dates, attributes, permissions)
-**Status:** Not Started
+**Status:** Complete (Alt+Enter; modal overlay; timestamps; Windows attrs; async dir size)
 **Depends on:** Slice 1 ✓
 
 ## Slice 16: Archive Support

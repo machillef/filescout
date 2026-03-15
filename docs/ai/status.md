@@ -1,10 +1,10 @@
 # FileScout Status
 
 ## Current Slice
-**Slice 14: File Watcher / Auto-Refresh** — Complete
+**Slice 15: Properties & Permissions** — Complete
 
 ## Last Completed
-File watcher via `notify`; debounce 300 ms; auto-refresh open tabs on disk changes — 2026-03-15
+Properties overlay (Alt+Enter); name/path/type/size/timestamps/Windows attributes; async dir size — 2026-03-15
 
 ## What's Working
 - Cargo workspace builds and passes clippy
@@ -38,9 +38,10 @@ File watcher via `notify`; debounce 300 ms; auto-refresh open tabs on disk chang
 - **Multi-Selection** — Ctrl+click toggles; Shift+click range-selects from anchor; Ctrl+A selects all; Shift+↑/↓ extends selection; modifier state tracked via `ModifiersChanged` subscription event; selection count shown in pane status bar; `SelectionState` in `pane.rs` holds items/focus/anchor; F8 delete / F5 copy / F6 move operate on all selected items
 - **Bookmarks / Favorites** — Ctrl+D bookmarks current directory; Ctrl+B opens overlay; click navigates active pane; ✕ removes; persisted in `AppConfig.bookmarks` (same `config.toml`); "Open Bookmarks" / "Bookmark This Directory" in command palette; `Bookmark`/`Bookmarks` in `filescout-core/src/bookmarks.rs`; overlay in `filescout-app/src/bookmarks.rs`; 161 unit tests total (54 app + 104 core + 3 ui), all passing, clippy clean
 - **File Watcher** — `watcher.rs` in `filescout-app/src/`; `WatcherRecipe` implements `iced::advanced::subscription::Recipe`; `watch_directories(paths)` returns `Subscription<PathBuf>`; identity derived from sorted+deduped paths so iced restarts watcher on navigation; `iced = { features = ["advanced"] }` required; return type uses `iced::futures::stream::BoxStream<'static, PathBuf>`; `Message::DirectoryChanged(PathBuf)` refreshes all matching tabs; blocked while `copy_move_label.is_some()`
+- **Properties & Permissions** — Alt+Enter or command palette "File Properties"; `properties.rs` in both crates; `FileProperties` struct (name, path, is_dir, size_bytes, created/modified/accessed, read_only/hidden/system/archive); `load_file_properties(path)` blocking; `compute_dir_size(path)` async via walkdir; `format_size(bytes)` helper; Windows attributes via `std::os::windows::fs::MetadataExt::file_attributes()`; `PropertiesState { props, dir_size }` + `PropertiesMessage { DirSizeComputed, Close }`; modal overlay with dimmed backdrop; 172 tests total, all passing
 
-## What's Next (Slice 15: Properties & Permissions)
-- File/directory properties dialog (size, dates, attributes, permissions)
+## What's Next (Slice 16: Archive Support)
+- Browse ZIP archives as virtual directories; extract to current/other pane
 
 ## Blockers
 None
