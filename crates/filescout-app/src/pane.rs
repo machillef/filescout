@@ -244,6 +244,12 @@ pub enum PaneMessage {
     ExtendSelectionDown,
     /// Extend selection one row up (Shift+Up).
     ExtendSelectionUp,
+    /// Move focus one row down (plain Arrow Down).
+    MoveDown,
+    /// Move focus one row up (plain Arrow Up).
+    MoveUp,
+    /// Jump to the first entry starting with the given letter.
+    JumpToLetter(String),
     /// Navigate to the parent of `path` and select `path` in the resulting listing.
     /// Used by the search overlay to jump to a result.
     NavigateToFile(PathBuf),

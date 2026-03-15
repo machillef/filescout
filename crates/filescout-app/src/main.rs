@@ -64,8 +64,12 @@ fn main() -> iced::Result {
         .title("FileScout")
         .theme(FileScout::theme)
         .subscription(FileScout::subscription)
-        .window_size(Size::new(1400.0, 800.0))
-        .centered()
+        .window(iced::window::Settings {
+            size: Size::new(1400.0, 800.0),
+            position: iced::window::Position::Centered,
+            maximized: true,
+            ..Default::default()
+        })
         .run()
 }
 
@@ -104,7 +108,7 @@ struct FileScout {
 #[derive(Debug, Clone)]
 enum ActiveAction {
     StartRename,         // F2
-    Delete,              // F8
+    Delete,              // F8 or Delete
     CommitRename,        // Enter (commit rename OR navigate into selected dir — routed in update_pane)
     CancelEdit,          // Esc
     Undo,                // Ctrl+Z
@@ -112,6 +116,9 @@ enum ActiveAction {
     SelectAll,           // Ctrl+A
     ExtendSelectionDown, // Shift+Down
     ExtendSelectionUp,   // Shift+Up
+    MoveDown,            // Arrow Down (plain)
+    MoveUp,              // Arrow Up (plain)
+    JumpToLetter(String), // Type-ahead: jump to first file starting with letter
 }
 
 #[derive(Debug, Clone)]
@@ -189,7 +196,9 @@ enum Message {
 
 impl FileScout {
     fn new() -> (Self, Task<Message>) {
-        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("C:\\"));
+        let cwd = dirs::home_dir()
+            .or_else(|| env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("C:\\"));
 
         let app = Self {
             panes: [PaneState::new(cwd.clone()), PaneState::new(cwd.clone())],
@@ -277,6 +286,9 @@ impl FileScout {
                     ActiveAction::SelectAll => PaneMessage::SelectAll,
                     ActiveAction::ExtendSelectionDown => PaneMessage::ExtendSelectionDown,
                     ActiveAction::ExtendSelectionUp => PaneMessage::ExtendSelectionUp,
+                    ActiveAction::MoveDown => PaneMessage::MoveDown,
+                    ActiveAction::MoveUp => PaneMessage::MoveUp,
+                    ActiveAction::JumpToLetter(c) => PaneMessage::JumpToLetter(c),
                 };
                 self.update_pane(id, msg)
             }
@@ -860,8 +872,12 @@ impl FileScout {
                     self.batch_rename = Some(BatchRenameState::new(&entries));
                     Task::none()
                 }
-                keyboard::Key::Character("t") if modifiers.control() => {
+                keyboard::Key::Character("t") if modifiers.control() && modifiers.shift() => {
                     self.update(Message::ToggleTheme)
+                }
+                keyboard::Key::Character("t") if modifiers.control() => {
+                    let id = self.active;
+                    self.update_pane(id, PaneMessage::TabBar(TabBarMessage::New))
                 }
                 keyboard::Key::Character("h") if modifiers.control() => {
                     self.update(Message::ToggleHidden)
@@ -899,13 +915,19 @@ impl FileScout {
                 keyboard::Key::Named(Named::ArrowUp) if modifiers.shift() => {
                     self.update(Message::ActivePaneAction(ActiveAction::ExtendSelectionUp))
                 }
+                keyboard::Key::Named(Named::ArrowDown) => {
+                    self.update(Message::ActivePaneAction(ActiveAction::MoveDown))
+                }
+                keyboard::Key::Named(Named::ArrowUp) => {
+                    self.update(Message::ActivePaneAction(ActiveAction::MoveUp))
+                }
                 keyboard::Key::Named(Named::F2) => {
                     self.update(Message::ActivePaneAction(ActiveAction::StartRename))
                 }
                 keyboard::Key::Named(Named::F3) => {
                     self.update(Message::ActivePaneAction(ActiveAction::TogglePreview))
                 }
-                keyboard::Key::Named(Named::F8) => {
+                keyboard::Key::Named(Named::F8) | keyboard::Key::Named(Named::Delete) => {
                     self.update(Message::ActivePaneAction(ActiveAction::Delete))
                 }
                 keyboard::Key::Named(Named::Enter) if modifiers.alt() => {
@@ -919,6 +941,16 @@ impl FileScout {
                 }
                 keyboard::Key::Character("z") if modifiers.control() => {
                     self.update(Message::ActivePaneAction(ActiveAction::Undo))
+                }
+                // Type-ahead letter jump: press a letter to jump to the first matching file.
+                // Only fires when no modifiers (except Shift for uppercase) and no rename active.
+                keyboard::Key::Character(c)
+                    if !modifiers.control() && !modifiers.alt()
+                        && c.len() == 1
+                        && c.chars().next().is_some_and(|ch| ch.is_alphabetic())
+                        && self.panes[self.active.index()].active().renaming.is_none() =>
+                {
+                    self.update(Message::ActivePaneAction(ActiveAction::JumpToLetter(c.to_string())))
                 }
                 _ => Task::none(),
             }
@@ -1645,6 +1677,9 @@ impl FileScout {
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     tab.renaming = Some((focus, name));
+                    return iced::widget::operation::focus(
+                        filescout_ui::file_list::RENAME_INPUT_ID,
+                    );
                 }
                 Task::none()
             }
@@ -1752,6 +1787,48 @@ impl FileScout {
                 };
                 let entries = tab.entries.clone();
                 tab.selection.extend_to(&entries, prev_idx);
+                Task::none()
+            }
+
+            PaneMessage::MoveDown => {
+                let tab = pane.active_mut();
+                let current_idx = tab
+                    .selection
+                    .focus()
+                    .and_then(|f| tab.entries.iter().position(|e| e.path == *f));
+                let next_idx = match current_idx {
+                    Some(i) if i + 1 < tab.entries.len() => i + 1,
+                    None if !tab.entries.is_empty() => 0,
+                    _ => return Task::none(),
+                };
+                tab.selection.single_select(tab.entries[next_idx].path.clone());
+                Task::none()
+            }
+
+            PaneMessage::MoveUp => {
+                let tab = pane.active_mut();
+                let current_idx = tab
+                    .selection
+                    .focus()
+                    .and_then(|f| tab.entries.iter().position(|e| e.path == *f));
+                let prev_idx = match current_idx {
+                    Some(i) if i > 0 => i - 1,
+                    None if !tab.entries.is_empty() => 0,
+                    _ => return Task::none(),
+                };
+                tab.selection.single_select(tab.entries[prev_idx].path.clone());
+                Task::none()
+            }
+
+            PaneMessage::JumpToLetter(ref c) => {
+                let tab = pane.active_mut();
+                let lower = c.to_lowercase();
+                if let Some(entry) = tab.entries.iter().find(|e| {
+                    e.name.to_lowercase().starts_with(&lower)
+                }) {
+                    let path = entry.path.clone();
+                    tab.selection.single_select(path);
+                }
                 Task::none()
             }
 

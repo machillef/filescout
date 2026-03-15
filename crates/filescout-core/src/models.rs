@@ -27,9 +27,9 @@ pub enum SortColumn {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
     /// Compact list with Name, Size, Modified columns.
-    #[default]
     List,
     /// Detailed view with Extension and Type columns added.
+    #[default]
     Details,
 }
 

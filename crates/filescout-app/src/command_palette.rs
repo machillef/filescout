@@ -53,7 +53,7 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
     CommandDef {
         id: CommandId::NewTab,
         label: "New Tab",
-        description: "Open a new tab in the active pane",
+        description: "Open a new tab in the active pane (Ctrl+T)",
     },
     CommandDef {
         id: CommandId::CloseTab,
@@ -93,7 +93,7 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
     CommandDef {
         id: CommandId::ToggleTheme,
         label: "Toggle Theme",
-        description: "Switch between dark and light theme (Ctrl+T)",
+        description: "Switch between dark and light theme (Ctrl+Shift+T)",
     },
     CommandDef {
         id: CommandId::CopyToOther,
