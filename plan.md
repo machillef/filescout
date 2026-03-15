@@ -39,13 +39,19 @@
 - [x] Bug 17: Delete key works
 - [x] Bug 24-fix: Rename auto-focuses input
 
+### Fixed (Round 2)
+- [x] Bug 2: Right-click on empty space (Refresh, New Folder)
+- [x] Bug 16: Multi-select properties with total size
+- [x] Slice 23 fix: Progress bar animation (stream-based per-file updates)
+- [x] Slice 25 fix: Visible pane divider
+
+### Fixed (Round 3)
+- [x] Bug 8: Address bar Tab completion (auto-complete partial paths)
+- [x] Bug 9: Quick-access bar (Home, Desktop, Documents, Downloads)
+- [x] Bug 10: "This PC" and navigation shortcuts in command palette
+
+### Fixed (Round 4)
+- [x] Bug 13: Improved file icons (19 distinct categories vs. original 9)
+
 ### Remaining
-- [ ] Bug 2: Right-click on empty space (Refresh, New Folder)
-- [ ] Bug 7: App icon
-- [ ] Bug 8: Address bar autocomplete
-- [ ] Bug 9: Pinned favorites sidebar
-- [ ] Bug 10: "This PC" shortcut
-- [ ] Bug 13: Better file icons (SVG icon set)
-- [ ] Bug 16: Multi-select properties with total size
-- [ ] Slice 23 fix: Progress bar animation
-- [ ] Slice 25 fix: Visible pane divider
+- [ ] Bug 7: App icon (needs .ico asset — requires graphic design)
