@@ -473,6 +473,7 @@ mod tests {
             is_dir: false,
             size: 0,
             modified: None,
+            is_hidden: false,
         }
     }
 

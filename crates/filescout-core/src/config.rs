@@ -40,6 +40,8 @@ pub struct AppConfig {
     pub theme: ThemePreference,
     #[serde(default)]
     pub bookmarks: Bookmarks,
+    #[serde(default)]
+    pub show_hidden: bool,
 }
 
 /// Returns the path to the config file, or `None` if the OS has no config dir.
@@ -190,6 +192,20 @@ mod tests {
         // fallback logic by testing that toml::from_str("") returns the default.
         let cfg: AppConfig = toml::from_str("").unwrap_or_default();
         assert_eq!(cfg.theme, ThemePreference::Dark);
+    }
+
+    #[test]
+    fn show_hidden_defaults_to_false() {
+        let cfg = AppConfig::default();
+        assert!(!cfg.show_hidden);
+    }
+
+    #[test]
+    fn show_hidden_round_trip() {
+        let cfg = AppConfig { show_hidden: true, ..Default::default() };
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        let restored: AppConfig = toml::from_str(&text).unwrap();
+        assert!(restored.show_hidden);
     }
 
     #[test]

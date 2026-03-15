@@ -135,6 +135,7 @@ mod tests {
             is_dir: false,
             size: 0,
             modified: None,
+            is_hidden: false,
         }
     }
 
@@ -146,6 +147,7 @@ mod tests {
             is_dir: true,
             size: 0,
             modified: None,
+            is_hidden: false,
         }
     }
 

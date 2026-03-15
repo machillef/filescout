@@ -98,6 +98,7 @@ pub fn list_archive_dir(zip_path: &Path, inner_dir: &str) -> Result<Vec<FileEntr
             is_dir,
             size,
             modified,
+            is_hidden: false,
         });
     }
 

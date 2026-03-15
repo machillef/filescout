@@ -10,6 +10,9 @@ pub struct FileEntry {
     pub is_dir: bool,
     pub size: u64,
     pub modified: Option<DateTime<Local>>,
+    /// Whether the file has the Windows hidden or system attribute.
+    #[serde(default)]
+    pub is_hidden: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

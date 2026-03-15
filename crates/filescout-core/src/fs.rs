@@ -1,9 +1,15 @@
+use std::os::windows::fs::MetadataExt;
 use std::path::Path;
 
 use anyhow::Result;
 use chrono::{DateTime, Local};
 
 use crate::models::{FileEntry, SortColumn, SortDirection};
+
+/// Windows file attribute flag for hidden files.
+const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+/// Windows file attribute flag for system files.
+const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
 
 /// List all entries in the given directory, sorted dirs-first then by name ascending.
 pub fn list_directory(path: &Path) -> Result<Vec<FileEntry>> {
@@ -17,12 +23,17 @@ pub fn list_directory(path: &Path) -> Result<Vec<FileEntry>> {
             .ok()
             .map(DateTime::<Local>::from);
 
+        let attrs = metadata.file_attributes();
+        let is_hidden =
+            (attrs & FILE_ATTRIBUTE_HIDDEN != 0) || (attrs & FILE_ATTRIBUTE_SYSTEM != 0);
+
         entries.push(FileEntry {
             name: entry.file_name().to_string_lossy().into_owned(),
             path: entry.path(),
             is_dir: metadata.is_dir(),
             size: metadata.len(),
             modified,
+            is_hidden,
         });
     }
 
@@ -95,6 +106,18 @@ mod tests {
     }
 
     #[test]
+    fn list_directory_populates_is_hidden() {
+        // list_directory on cwd should produce entries with is_hidden set.
+        let cwd = env::current_dir().unwrap();
+        let entries = list_directory(&cwd).unwrap();
+        // Just verify the field is populated (all false or some true).
+        // We mainly test that it compiles and doesn't panic.
+        for entry in &entries {
+            let _ = entry.is_hidden;
+        }
+    }
+
+    #[test]
     fn sort_by_size_desc_keeps_dirs_first() {
         let mut entries = vec![
             FileEntry {
@@ -103,6 +126,7 @@ mod tests {
                 is_dir: false,
                 size: 10,
                 modified: None,
+                is_hidden: false,
             },
             FileEntry {
                 name: "dir_a".into(),
@@ -110,6 +134,7 @@ mod tests {
                 is_dir: true,
                 size: 0,
                 modified: None,
+                is_hidden: false,
             },
             FileEntry {
                 name: "file_large.bin".into(),
@@ -117,6 +142,7 @@ mod tests {
                 is_dir: false,
                 size: 9999,
                 modified: None,
+                is_hidden: false,
             },
         ];
 

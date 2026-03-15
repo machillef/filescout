@@ -25,6 +25,7 @@ pub enum CommandId {
     FileProperties,
     ExtractArchive,
     OpenFile,
+    ToggleHidden,
 }
 
 pub struct CommandDef {
@@ -123,6 +124,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::OpenFile,
         label: "Open File",
         description: "Open the selected file with the default application (Enter)",
+    },
+    CommandDef {
+        id: CommandId::ToggleHidden,
+        label: "Toggle Hidden Files",
+        description: "Show or hide hidden and system files (Ctrl+H)",
     },
 ];
 

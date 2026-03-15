@@ -71,6 +71,8 @@ struct FileScout {
     properties: Option<PropertiesState>,
     /// Confirmation dialog state; `Some` while a confirm dialog is visible.
     confirm: Option<ConfirmState>,
+    /// Whether hidden/system files are visible.
+    show_hidden: bool,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -103,6 +105,8 @@ enum Message {
     ConfigLoaded(AppConfig),
     /// Toggle between dark and light theme.
     ToggleTheme,
+    /// Toggle hidden files visibility (Ctrl+H).
+    ToggleHidden,
     /// No-op sink for fire-and-forget async tasks.
     Noop,
     /// Raw key press forwarded from the subscription for stateful routing.
@@ -162,6 +166,7 @@ impl FileScout {
             current_modifiers: keyboard::Modifiers::default(),
             properties: None,
             confirm: None,
+            show_hidden: false,
         };
 
         let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
@@ -232,11 +237,12 @@ impl FileScout {
             Message::ConfigLoaded(cfg) => {
                 self.theme = cfg.theme;
                 self.bookmarks = cfg.bookmarks;
+                self.show_hidden = cfg.show_hidden;
                 Task::none()
             }
             Message::ToggleTheme => {
                 self.theme = self.theme.toggled();
-                let cfg = AppConfig { theme: self.theme, bookmarks: self.bookmarks.clone() };
+                let cfg = AppConfig { theme: self.theme, bookmarks: self.bookmarks.clone(), show_hidden: self.show_hidden };
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -247,6 +253,35 @@ impl FileScout {
                     },
                     |_| Message::Noop,
                 )
+            }
+            Message::ToggleHidden => {
+                self.show_hidden = !self.show_hidden;
+                // Persist and refresh all visible tabs.
+                let cfg = AppConfig {
+                    theme: self.theme,
+                    bookmarks: self.bookmarks.clone(),
+                    show_hidden: self.show_hidden,
+                };
+                let save_task = Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let _ = save_config(&cfg);
+                        })
+                        .await
+                        .ok();
+                    },
+                    |_| Message::Noop,
+                );
+                // Refresh both active tabs so the filter applies immediately.
+                let refresh_tasks: Vec<Task<Message>> = [PaneId::Left, PaneId::Right]
+                    .into_iter()
+                    .map(|pid| {
+                        let tab_idx = self.panes[pid.index()].active_tab;
+                        let path = self.panes[pid.index()].active().current_path.clone();
+                        load_directory_for(pid, tab_idx, path)
+                    })
+                    .collect();
+                Task::batch(std::iter::once(save_task).chain(refresh_tasks))
             }
             Message::Noop => Task::none(),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
@@ -269,7 +304,7 @@ impl FileScout {
                     .unwrap_or_else(|| path.display().to_string());
                 self.bookmarks = self.bookmarks.add(name, path);
                 let bm = self.bookmarks.clone();
-                let cfg = AppConfig { theme: self.theme, bookmarks: bm };
+                let cfg = AppConfig { theme: self.theme, bookmarks: bm, show_hidden: self.show_hidden };
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -629,6 +664,9 @@ impl FileScout {
                 keyboard::Key::Character("t") if modifiers.control() => {
                     self.update(Message::ToggleTheme)
                 }
+                keyboard::Key::Character("h") if modifiers.control() => {
+                    self.update(Message::ToggleHidden)
+                }
                 keyboard::Key::Character("b") if modifiers.control() => {
                     self.update(Message::OpenBookmarks)
                 }
@@ -839,7 +877,7 @@ impl FileScout {
             BookmarkMessage::Remove(index) => {
                 self.bookmarks = self.bookmarks.remove(index);
                 let bm = self.bookmarks.clone();
-                let cfg = AppConfig { theme: self.theme, bookmarks: bm };
+                let cfg = AppConfig { theme: self.theme, bookmarks: bm, show_hidden: self.show_hidden };
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -958,11 +996,13 @@ impl FileScout {
             CommandId::FileProperties => self.update(Message::OpenProperties),
             CommandId::ExtractArchive => self.update(Message::ExtractArchive),
             CommandId::OpenFile => self.update_pane(id, PaneMessage::OpenFile),
+            CommandId::ToggleHidden => self.update(Message::ToggleHidden),
         }
     }
 
     fn update_pane(&mut self, id: PaneId, msg: PaneMessage) -> Task<Message> {
         let current_mods = self.current_modifiers;
+        let show_hidden = self.show_hidden;
         let pane = &mut self.panes[id.index()];
 
         match msg {
@@ -1284,6 +1324,9 @@ impl FileScout {
 
             // --- Directory load result ---
             PaneMessage::DirectoryLoaded(tab_idx, path, Ok(mut entries)) => {
+                if !show_hidden {
+                    entries.retain(|e| !e.is_hidden);
+                }
                 let tab = &mut pane.tabs[tab_idx];
                 sort_entries(&mut entries, &tab.sort_col, &tab.sort_dir);
                 tab.entries = entries;
