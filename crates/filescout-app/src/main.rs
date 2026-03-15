@@ -1,5 +1,6 @@
 use std::env;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use filescout_core::archive::{extract_archive, extract_entry, is_zip};
 use filescout_core::bookmarks::Bookmarks;
@@ -102,6 +103,8 @@ struct FileScout {
     context_menu: Option<ContextMenuState>,
     /// Current cursor position for context menu placement.
     cursor_position: Point,
+    /// Whether dual-pane mode is active (default: single pane).
+    dual_pane: bool,
 }
 
 /// Keyboard actions that apply to whichever pane is currently active.
@@ -153,6 +156,8 @@ enum Message {
     CursorMoved(Point),
     /// Set view mode for the active pane.
     SetViewMode(ViewMode),
+    /// Toggle between single-pane and dual-pane layout.
+    ToggleDualPane,
     /// No-op sink for fire-and-forget async tasks.
     Noop,
     /// Raw key press forwarded from the subscription for stateful routing.
@@ -219,10 +224,10 @@ impl FileScout {
             split_ratio: 0.5,
             context_menu: None,
             cursor_position: Point::ORIGIN,
+            dual_pane: false,
         };
 
-        let load_left = load_directory_for(PaneId::Left, 0, cwd.clone());
-        let load_right = load_directory_for(PaneId::Right, 0, cwd);
+        let load_left = load_directory_for(PaneId::Left, 0, cwd);
         let load_drvs = Task::perform(
             async { tokio::task::spawn_blocking(list_drives).await.unwrap_or_default() },
             Message::DrivesLoaded,
@@ -232,7 +237,7 @@ impl FileScout {
             Message::ConfigLoaded,
         );
 
-        (app, Task::batch([load_left, load_right, load_drvs, load_cfg]))
+        (app, Task::batch([load_left, load_drvs, load_cfg]))
     }
 
     fn subscription(state: &Self) -> Subscription<Message> {
@@ -300,6 +305,7 @@ impl FileScout {
                 self.bookmarks = cfg.bookmarks;
                 self.show_hidden = cfg.show_hidden;
                 self.split_ratio = cfg.split_ratio.clamp(0.2, 0.8);
+                self.dual_pane = cfg.dual_pane;
                 Task::none()
             }
             Message::ToggleTheme => {
@@ -473,6 +479,27 @@ impl FileScout {
             Message::SetViewMode(mode) => {
                 self.panes[self.active.index()].view_mode = mode;
                 Task::none()
+            }
+            Message::ToggleDualPane => {
+                self.dual_pane = !self.dual_pane;
+                // When switching to dual-pane, reload the right pane if it has no entries.
+                let task = if self.dual_pane && self.panes[1].active().entries.is_empty() {
+                    let path = self.panes[1].active().current_path.clone();
+                    load_directory_for(PaneId::Right, 0, path)
+                } else {
+                    Task::none()
+                };
+                let cfg = self.current_config();
+                Task::batch([
+                    task,
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || { let _ = save_config(&cfg); })
+                                .await.ok();
+                        },
+                        |_| Message::Noop,
+                    ),
+                ])
             }
             Message::Noop => Task::none(),
             Message::KeyPressed(key, modifiers) => self.route_key(key, modifiers),
@@ -903,6 +930,7 @@ impl FileScout {
                 keyboard::Key::Character("d") if modifiers.control() => {
                     self.update(Message::AddBookmark)
                 }
+                keyboard::Key::Named(Named::F9) => self.update(Message::ToggleDualPane),
                 keyboard::Key::Named(Named::F5) => self.update(Message::CopyToOtherPane),
                 keyboard::Key::Named(Named::F6) => self.update(Message::MoveToOtherPane),
                 keyboard::Key::Named(Named::F7) => self.update(Message::ExtractArchive),
@@ -1249,6 +1277,7 @@ impl FileScout {
             bookmarks: self.bookmarks.clone(),
             show_hidden: self.show_hidden,
             split_ratio: self.split_ratio,
+            dual_pane: self.dual_pane,
         }
     }
 
@@ -1305,6 +1334,7 @@ impl FileScout {
             CommandId::ClipboardPaste => self.update(Message::ClipboardPaste),
             CommandId::ViewList => self.update(Message::SetViewMode(ViewMode::List)),
             CommandId::ViewDetails => self.update(Message::SetViewMode(ViewMode::Details)),
+            CommandId::ToggleDualPane => self.update(Message::ToggleDualPane),
         }
     }
 
@@ -1393,6 +1423,16 @@ impl FileScout {
 
             PaneMessage::FileList(FileListMessage::Select(path)) => {
                 let tab_idx = pane.active_tab;
+                let now = Instant::now();
+
+                // Double-click detection: same path clicked within 500ms.
+                let is_double_click = !current_mods.control()
+                    && !current_mods.shift()
+                    && pane.active()
+                        .last_click
+                        .as_ref()
+                        .is_some_and(|(p, t)| p == &path && now.duration_since(*t).as_millis() < 500);
+
                 let entries = pane.active().entries.clone();
                 let tab = pane.active_mut();
                 if current_mods.control() {
@@ -1402,6 +1442,13 @@ impl FileScout {
                 } else {
                     tab.selection.single_select(path.clone());
                 }
+                tab.last_click = Some((path, now));
+
+                // Double-click: navigate into directory or open file.
+                if is_double_click {
+                    return self.update_pane(id, PaneMessage::NavigateSelected);
+                }
+
                 if pane.show_preview
                     && let Some(focus) = pane.active().selection.focus().map(|p| p.to_path_buf())
                 {
@@ -1917,31 +1964,40 @@ impl FileScout {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let left_portion = (self.split_ratio * 100.0) as u16;
-        let right_portion = 100 - left_portion;
-
         let left = container(
             pane_view(PaneId::Left, &self.panes[0], &self.drives, self.active == PaneId::Left),
         )
-        .width(Length::FillPortion(left_portion))
         .height(Length::Fill);
 
-        let right = container(
-            pane_view(PaneId::Right, &self.panes[1], &self.drives, self.active == PaneId::Right),
-        )
-        .width(Length::FillPortion(right_portion))
-        .height(Length::Fill);
+        let main: Element<'_, Message> = if self.dual_pane {
+            let left_portion = (self.split_ratio * 100.0) as u16;
+            let right_portion = 100 - left_portion;
 
-        let main: Element<'_, Message> = container(
-            row![left, right]
-                .spacing(4)
+            let left = left.width(Length::FillPortion(left_portion));
+
+            let right = container(
+                pane_view(PaneId::Right, &self.panes[1], &self.drives, self.active == PaneId::Right),
+            )
+            .width(Length::FillPortion(right_portion))
+            .height(Length::Fill);
+
+            container(
+                row![left, right]
+                    .spacing(4)
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+            )
+            .padding(10)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        } else {
+            container(left.width(Length::Fill))
+                .padding(10)
                 .width(Length::Fill)
-                .height(Length::Fill),
-        )
-        .padding(10)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into();
+                .height(Length::Fill)
+                .into()
+        };
 
         if let Some(ref confirm_state) = self.confirm {
             let overlay = confirm_view(confirm_state).map(Message::Confirm);
@@ -2012,6 +2068,10 @@ fn pane_view<'a>(
     let file_list: Element<'_, Message> = if let Some(ref err) = active_tab.error {
         text(format!("Error: {err}")).into()
     } else {
+        let pane_label = match id {
+            PaneId::Left => "left",
+            PaneId::Right => "right",
+        };
         file_list_view(
             &active_tab.entries,
             parent,
@@ -2020,6 +2080,7 @@ fn pane_view<'a>(
             selection_items,
             renaming_ref,
             &pane.view_mode,
+            pane_label,
         )
         .map(move |msg| Message::Pane(id, PaneMessage::FileList(msg)))
     };

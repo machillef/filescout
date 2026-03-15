@@ -30,6 +30,7 @@ pub enum FileListMessage {
 /// - `sort_col` / `sort_dir` — current sort state for column indicators.
 /// - `selection` — set of selected paths (for multi-row highlight).
 /// - `renaming` — if `Some((path, text))`, that row shows an inline text input.
+#[allow(clippy::too_many_arguments)]
 pub fn file_list_view<'a>(
     entries: &'a [FileEntry],
     parent_path: Option<PathBuf>,
@@ -38,6 +39,7 @@ pub fn file_list_view<'a>(
     selection: &'a HashSet<PathBuf>,
     renaming: Option<(&'a Path, &'a str)>,
     view_mode: &'a ViewMode,
+    pane_id: &'static str,
 ) -> Element<'a, FileListMessage> {
     let is_details = *view_mode == ViewMode::Details;
 
@@ -160,7 +162,9 @@ pub fn file_list_view<'a>(
 
     let list = column(rows).spacing(1);
 
-    scrollable(column![header, list].spacing(5)).into()
+    scrollable(column![header, list].spacing(5))
+        .id(Id::new(pane_id))
+        .into()
 }
 
 fn sort_indicator<'a>(current: &SortColumn, dir: &SortDirection, col: &SortColumn) -> &'a str {

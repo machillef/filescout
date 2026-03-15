@@ -31,6 +31,7 @@ pub enum CommandId {
     ClipboardPaste,
     ViewList,
     ViewDetails,
+    ToggleDualPane,
 }
 
 pub struct CommandDef {
@@ -159,6 +160,11 @@ pub const ALL_COMMANDS: &[CommandDef] = &[
         id: CommandId::ViewDetails,
         label: "Details View",
         description: "Show detailed file list with extension and type columns (Ctrl+2)",
+    },
+    CommandDef {
+        id: CommandId::ToggleDualPane,
+        label: "Toggle Dual Pane",
+        description: "Switch between single-pane and dual-pane layout (F9)",
     },
 ];
 

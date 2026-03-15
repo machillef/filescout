@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 /// State tracking navigation within a ZIP archive.
 ///
@@ -155,6 +156,8 @@ pub struct TabState {
     pub preview: PreviewContent,
     /// When `Some`, the tab is browsing inside a ZIP archive.
     pub archive_context: Option<ArchiveContext>,
+    /// Last click info for double-click detection: `(path, timestamp)`.
+    pub last_click: Option<(PathBuf, Instant)>,
 }
 
 impl TabState {
@@ -173,6 +176,7 @@ impl TabState {
             undo_stack: UndoStack::new(),
             preview: PreviewContent::None,
             archive_context: None,
+            last_click: None,
         }
     }
 

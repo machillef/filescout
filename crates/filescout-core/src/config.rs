@@ -44,6 +44,8 @@ pub struct AppConfig {
     pub show_hidden: bool,
     #[serde(default = "default_split_ratio")]
     pub split_ratio: f32,
+    #[serde(default)]
+    pub dual_pane: bool,
 }
 
 impl Default for AppConfig {
@@ -53,6 +55,7 @@ impl Default for AppConfig {
             bookmarks: Bookmarks::default(),
             show_hidden: false,
             split_ratio: 0.5,
+            dual_pane: false,
         }
     }
 }
