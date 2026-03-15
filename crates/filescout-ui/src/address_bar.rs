@@ -67,12 +67,13 @@ pub fn address_bar_view<'a>(
         .id(Id::new(ADDRESS_INPUT_ID))
         .on_input(AddressBarMessage::Edit)
         .on_submit(AddressBarMessage::Submit)
-        .width(Length::Fill);
+        .width(Length::Fill)
+        .padding([4, 8]);
 
     let top_row = row![nav_row, path_input]
         .spacing(8)
         .align_y(Alignment::Center)
-        .padding(5)
+        .padding([4, 5])
         .width(Length::Fill);
 
     let crumbs = breadcrumbs(current_path);

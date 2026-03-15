@@ -1,5 +1,7 @@
-use iced::widget::{button, row, text};
-use iced::{Alignment, Element, Length};
+use iced::widget::{button, container, row, text};
+use iced::{Alignment, Border, Element, Length, Theme};
+
+use crate::theme;
 
 /// Messages emitted by the tab bar component.
 #[derive(Debug, Clone)]
@@ -14,9 +16,8 @@ pub enum TabBarMessage {
 
 /// Render a horizontal tab bar.
 ///
-/// Takes ownership of `tab_titles` so the returned `Element` has no borrowed lifetime.
 /// Each tab shows its title and a close button (disabled when only one tab remains).
-/// A `+` button at the end opens a new tab.
+/// Active tab has a bottom accent border. A `+` button at the end opens a new tab.
 pub fn tab_bar_view(tab_titles: Vec<String>, active: usize) -> Element<'static, TabBarMessage> {
     let can_close = tab_titles.len() > 1;
     let mut elements: Vec<Element<'static, TabBarMessage>> = Vec::new();
@@ -44,7 +45,16 @@ pub fn tab_bar_view(tab_titles: Vec<String>, active: usize) -> Element<'static, 
         .style(if is_active { button::primary } else { button::text })
         .padding([4, 10]);
 
-        elements.push(title_btn.into());
+        if is_active {
+            // Active tab: wrap with bottom accent border
+            elements.push(
+                container(title_btn)
+                    .style(active_tab_indicator_style)
+                    .into(),
+            );
+        } else {
+            elements.push(title_btn.into());
+        }
     }
 
     elements.push(
@@ -60,4 +70,16 @@ pub fn tab_bar_view(tab_titles: Vec<String>, active: usize) -> Element<'static, 
         .align_y(Alignment::Center)
         .width(Length::Fill)
         .into()
+}
+
+fn active_tab_indicator_style(t: &Theme) -> container::Style {
+    let accent = if theme::is_dark_theme(t) { theme::dark::ACCENT } else { theme::light::ACCENT };
+    container::Style {
+        border: Border {
+            color: accent,
+            width: 2.0,
+            radius: 0.0.into(),
+        },
+        ..Default::default()
+    }
 }
