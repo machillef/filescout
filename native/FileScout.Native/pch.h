@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <commctrl.h>
+#include <ole2.h>
 #include <unknwn.h>
 #include <restrictederrorinfo.h>
 #include <hstring.h>
@@ -51,3 +52,7 @@
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <winrt/Microsoft.UI.Xaml.Navigation.h>
+
+#include <winrt/Windows.Storage.h>
+#include <winrt/Windows.ApplicationModel.DataTransfer.h>
+#include <winrt/Windows.ApplicationModel.DataTransfer.DragDrop.h>

@@ -52,7 +52,12 @@ clean-build PCH memory failure (`C3859`/`C1076`)
 
 ## R5: Native Drag/Drop And Clipboard Interop
 **Goal:** Native drag/drop and clipboard parity for filesystem items.
-**Status:** Not Started
+**Status:** Complete
+**Completed sub-slices:** `R5a` keyboard shortcuts (Ctrl+C/X/V, Del, F2, F5);
+`R5b` drop target (DragOver + Drop with GetDeferral + CopyItemsFromPaths);
+`R5c` drag source (DragItemsStarting with StorageFile/Folder packaging)
+**Follow-up note:** manual validation of in-app drag/drop and cross-app
+Explorer interop is recommended before widening into R6
 **Depends on:** `R4d`
 
 ## R6: Tabs

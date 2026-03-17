@@ -42,7 +42,7 @@
                     CornerRadius="999"
                     VerticalAlignment="Top"
                     Background="#E1513A">
-                <TextBlock Text="R4a"
+                <TextBlock Text="Alpha"
                            Foreground="White"
                            FontWeight="SemiBold" />
             </Border>
@@ -132,6 +132,11 @@
                     <ListView Grid.Row="1"
                               x:Name="FileRowsListView"
                               Margin="12,0,12,12"
+                              AllowDrop="True"
+                              CanDrag="True"
+                              DragItemsStarting="FileRowsListView_DragItemsStarting"
+                              DragOver="FileRowsListView_DragOver"
+                              Drop="FileRowsListView_Drop"
                               DoubleTapped="FileRowsListView_DoubleTapped"
                               RightTapped="FileRowsListView_RightTapped"
                               SelectionChanged="FileRowsListView_SelectionChanged"

@@ -5,6 +5,7 @@
 #include "Domain\PaneSelectionState.h"
 #include "Domain\ShellItemRef.h"
 #include "Shell\ContextMenuService.h"
+#include "Shell\ShellClipboardService.h"
 #include "Shell\ShellFileOperationService.h"
 #include "Shell\ShellOverflowMenuService.h"
 #include "Shell\ShellInteropService.h"
@@ -30,6 +31,15 @@ namespace winrt::FileScoutNative::implementation
         void FileRowsListView_RightTapped(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Input::RightTappedRoutedEventArgs const&);
+        void FileRowsListView_DragItemsStarting(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::Controls::DragItemsStartingEventArgs const&);
+        void FileRowsListView_DragOver(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::DragEventArgs const&);
+        winrt::fire_and_forget FileRowsListView_Drop(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::DragEventArgs const&);
 
     private:
         HWND m_hwnd{ nullptr };
@@ -40,6 +50,7 @@ namespace winrt::FileScoutNative::implementation
         ::FileScoutNative::Domain::PaneSelectionState m_selection;
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;
+        ::FileScoutNative::Shell::ShellClipboardService m_shellClipboardService;
         ::FileScoutNative::Shell::ShellFileOperationService m_shellFileOperationService;
         ::FileScoutNative::Shell::ShellOverflowMenuService m_shellOverflowMenuService;
         ::FileScoutNative::Shell::ShellInteropService m_shellInterop;
@@ -48,6 +59,7 @@ namespace winrt::FileScoutNative::implementation
 
         HWND GetWindowHandle();
         void ConfigureWindow();
+        void SetupKeyboardAccelerators();
         void LoadDirectory(std::filesystem::path const& path);
         void UpdateRows(std::vector<::FileScoutNative::Domain::ShellItemRef> const& items);
         void SelectItemByIndex(int32_t index);
@@ -64,6 +76,13 @@ namespace winrt::FileScoutNative::implementation
             std::vector<::FileScoutNative::Domain::ExplorerCommand> const& commands,
             std::optional<int32_t> itemIndex);
         void ExecuteContextCommand(std::wstring const& commandId, std::optional<int32_t> itemIndex);
+        winrt::fire_and_forget ShowNewFolderDialogAsync();
+        winrt::fire_and_forget ShowRenameDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
+        winrt::fire_and_forget ShowDeleteDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
+        void SelectItemByPath(std::filesystem::path const& path);
+        [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;
+        [[nodiscard]] std::wstring SuggestNewFolderName() const;
+        [[nodiscard]] static std::optional<std::wstring> ValidateFileName(std::wstring const& name);
     };
 }
 

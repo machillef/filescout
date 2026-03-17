@@ -337,3 +337,51 @@ Last updated: 2026-03-17
 
 ### Next recommended step
 - Continue with `R5`: native drag/drop and clipboard interop
+
+## Slice R5: Native Drag/Drop And Clipboard Interop
+Status: Complete
+Last updated: 2026-03-17
+
+### What was implemented
+- Added three WinRT namespace headers to `native/FileScout.Native/pch.h` for
+  Windows Storage and DataTransfer APIs
+- Added `CopyItemsFromPaths` to `native/FileScout.Native/Shell/ShellFileOperationService.h`
+  and `native/FileScout.Native/Shell/ShellFileOperationService.cpp` — mirrors the
+  existing `PasteItems` pattern but accepts a `std::span<std::filesystem::path>`
+  instead of an `IDataObject`, routing path-based copy/move through `IFileOperation`
+- Added drag source support via `FileRowsListView_DragItemsStarting` in
+  `native/FileScout.Native/MainWindow.xaml.cpp`: resolves the selected item via
+  `StorageFile::GetFileFromPathAsync` or `StorageFolder::GetFolderFromPathAsync`,
+  packages it as `StorageItems` in the `DataPackage`, and sets
+  `RequestedOperation` to `Copy`
+- Added drop target support via `FileRowsListView_DragOver` (accepts
+  `StorageItems` payloads, sets Copy/Move based on Shift modifier, updates
+  DragUIOverride caption) and `FileRowsListView_Drop` (a `fire_and_forget`
+  coroutine using `GetDeferral()` to stay alive across the `co_await` of
+  `GetStorageItemsAsync`, then calls `CopyItemsFromPaths` and reloads the
+  directory)
+- Added `SetupKeyboardAccelerators()` in
+  `native/FileScout.Native/MainWindow.xaml.cpp` called from the constructor:
+  attaches WinUI `KeyboardAccelerator` objects for Ctrl+C (`copy`), Ctrl+X
+  (`cut`), Ctrl+V (`paste`), Delete (`delete`), F2 (`rename`), and F5
+  (`refresh`), all routed through the existing `ExecuteContextCommand` dispatch
+- Updated `native/FileScout.Native/MainWindow.xaml` with `AllowDrop="True"`,
+  `CanDrag="True"`, and the three DnD event attributes on the ListView
+- Updated `native/FileScout.Native/MainWindow.xaml.h` with the three DnD event
+  handler declarations and the `SetupKeyboardAccelerators` private helper
+
+### What was validated
+- Clean build (`/t:Rebuild`) with `0 Error(s)` and `0 Warning(s)` — pass
+- Launch smoke: process stays alive for 4+ seconds, no VC++ runtime abort,
+  startup log empty — pass
+
+### What remains unverified
+- Manual drag-and-drop from FileScout pane to itself (copy and move paths)
+- Manual drag-from-Explorer-into-FileScout and drag-from-FileScout-into-Explorer
+- Keyboard shortcut behavior (Ctrl+C/X/V/Del/F2/F5) in the running WinUI app
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R6`: multiple tabs per pane in the native shell

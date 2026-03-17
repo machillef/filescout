@@ -84,6 +84,18 @@ namespace
         return action + L": " + item->display_name;
     }
 
+    std::wstring TrimFileName(std::wstring value)
+    {
+        auto const begin = value.find_first_not_of(L" \t\r\n");
+        if (begin == std::wstring::npos)
+        {
+            return {};
+        }
+
+        auto const end = value.find_last_not_of(L" \t\r\n");
+        return value.substr(begin, end - begin + 1);
+    }
+
     winrt::Microsoft::UI::Xaml::FrameworkElement CreateRowView(::FileScoutNative::Domain::ShellItemRef const& item)
     {
         std::wstring details = item.kind_label;
@@ -164,6 +176,7 @@ namespace winrt::FileScoutNative::implementation
     {
         InitializeComponent();
         ConfigureWindow();
+        SetupKeyboardAccelerators();
         FileRowsListView().ItemsSource(m_rows);
         LoadDirectory(std::filesystem::current_path());
     }
@@ -248,6 +261,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         ::FileScoutNative::Shell::ContextMenuScenario scenario;
+        scenario.can_paste = m_shellClipboardService.CanPasteInto(m_currentPath);
         if (itemIndex.has_value())
         {
             scenario.focused_item = m_items[static_cast<std::size_t>(*itemIndex)];
@@ -510,32 +524,93 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"rename")
         {
-            StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Rename is queued for R4", item)));
+            if (!item.has_value())
+            {
+                StatusTextBlock().Text(L"Rename needs a selected item.");
+                return;
+            }
+
+            ShowRenameDialogAsync(*item);
             return;
         }
 
         if (commandId == L"delete")
         {
-            StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Delete is queued for R4", item)));
+            if (!item.has_value())
+            {
+                StatusTextBlock().Text(L"Delete needs a selected item.");
+                return;
+            }
+
+            ShowDeleteDialogAsync(*item);
             return;
         }
 
         if (commandId == L"copy")
         {
-            StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Copy is queued for R4", item)));
+            if (!item.has_value())
+            {
+                StatusTextBlock().Text(L"Copy needs a selected item.");
+                return;
+            }
+
+            try
+            {
+                std::array selection{ *item };
+                m_shellClipboardService.CopyShellItems(selection);
+                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Copied", item)));
+            }
+            catch (std::exception const&)
+            {
+                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Copy failed for", item)));
+            }
             return;
         }
 
         if (commandId == L"cut")
         {
-            StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Cut is queued for R4", item)));
+            if (!item.has_value())
+            {
+                StatusTextBlock().Text(L"Cut needs a selected item.");
+                return;
+            }
+
+            try
+            {
+                std::array selection{ *item };
+                m_shellClipboardService.CutShellItems(selection);
+                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Cut", item)));
+            }
+            catch (std::exception const&)
+            {
+                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Cut failed for", item)));
+            }
             return;
         }
 
         if (commandId == L"paste")
         {
-            StatusTextBlock().Text(
-                ToHString(L"Paste is queued for R4 into " + m_currentPath.wstring()));
+            if (!m_shellClipboardService.CanPasteInto(m_currentPath))
+            {
+                StatusTextBlock().Text(L"Paste needs shell items on the clipboard.");
+                return;
+            }
+
+            try
+            {
+                auto const outcome = m_shellClipboardService.PasteInto(GetWindowHandle(), m_currentPath);
+                LoadDirectory(m_currentPath);
+
+                std::wstring action = outcome.was_move ? L"Moved " : L"Pasted ";
+                action += std::to_wstring(outcome.item_count);
+                action += outcome.item_count == 1 ? L" item into " : L" items into ";
+                action += m_currentPath.wstring();
+                StatusTextBlock().Text(ToHString(action));
+            }
+            catch (std::exception const&)
+            {
+                StatusTextBlock().Text(ToHString(L"Paste failed into " + m_currentPath.wstring()));
+            }
             return;
         }
 
@@ -604,9 +679,389 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"newFolder")
         {
-            StatusTextBlock().Text(
-                ToHString(L"New folder is queued for R4 in " + m_currentPath.wstring()));
+            ShowNewFolderDialogAsync();
             return;
         }
+    }
+
+    winrt::fire_and_forget MainWindow::ShowNewFolderDialogAsync()
+    {
+        auto lifetime = get_strong();
+
+        auto textBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        textBox.Text(ToHString(SuggestNewFolderName()));
+        textBox.SelectAll();
+
+        auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Title(winrt::box_value(L"Create New Folder"));
+        dialog.PrimaryButtonText(L"Create");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Primary);
+        dialog.Content(textBox);
+
+        if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        {
+            co_return;
+        }
+
+        auto const folderName = TrimFileName(textBox.Text().c_str());
+        if (auto const error = ValidateFileName(folderName); error.has_value())
+        {
+            StatusTextBlock().Text(ToHString(*error));
+            co_return;
+        }
+
+        try
+        {
+            auto const createdPath = m_shellFileOperationService.CreateFolder(
+                GetWindowHandle(),
+                m_currentPath,
+                folderName);
+            LoadDirectory(m_currentPath);
+            SelectItemByPath(createdPath);
+            StatusTextBlock().Text(ToHString(L"Created folder: " + createdPath.filename().wstring()));
+        }
+        catch (std::exception const&)
+        {
+            StatusTextBlock().Text(ToHString(L"New folder failed in " + m_currentPath.wstring()));
+        }
+    }
+
+    winrt::fire_and_forget MainWindow::ShowRenameDialogAsync(::FileScoutNative::Domain::ShellItemRef item)
+    {
+        auto lifetime = get_strong();
+
+        auto textBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        textBox.Text(ToHString(item.display_name));
+        textBox.SelectAll();
+
+        auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Title(winrt::box_value(L"Rename"));
+        dialog.PrimaryButtonText(L"Rename");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Primary);
+        dialog.Content(textBox);
+
+        if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        {
+            co_return;
+        }
+
+        auto const newName = TrimFileName(textBox.Text().c_str());
+        if (auto const error = ValidateFileName(newName); error.has_value())
+        {
+            StatusTextBlock().Text(ToHString(*error));
+            co_return;
+        }
+
+        if (_wcsicmp(newName.c_str(), item.display_name.c_str()) == 0)
+        {
+            StatusTextBlock().Text(ToHString(L"Rename skipped: " + item.display_name));
+            co_return;
+        }
+
+        try
+        {
+            auto const renamedPath = m_shellFileOperationService.RenameItem(
+                GetWindowHandle(),
+                item.path,
+                newName);
+            LoadDirectory(m_currentPath);
+            SelectItemByPath(renamedPath);
+            StatusTextBlock().Text(ToHString(L"Renamed to " + renamedPath.filename().wstring()));
+        }
+        catch (std::exception const&)
+        {
+            StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Rename failed for", item)));
+        }
+    }
+
+    winrt::fire_and_forget MainWindow::ShowDeleteDialogAsync(::FileScoutNative::Domain::ShellItemRef item)
+    {
+        auto lifetime = get_strong();
+
+        auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Title(winrt::box_value(L"Delete To Recycle Bin"));
+        dialog.PrimaryButtonText(L"Delete");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
+        dialog.Content(winrt::box_value(
+            L"Move " + item.display_name + L" to the Recycle Bin?"));
+
+        if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        {
+            co_return;
+        }
+
+        try
+        {
+            m_shellFileOperationService.DeleteItem(GetWindowHandle(), item.path);
+            LoadDirectory(m_currentPath);
+            StatusTextBlock().Text(ToHString(L"Deleted " + item.display_name + L" to Recycle Bin"));
+        }
+        catch (std::exception const&)
+        {
+            StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Delete failed for", item)));
+        }
+    }
+
+    void MainWindow::SelectItemByPath(std::filesystem::path const& path)
+    {
+        auto const itemIndex = FindItemIndexByPath(path);
+        if (!itemIndex.has_value())
+        {
+            return;
+        }
+
+        FileRowsListView().SelectedIndex(*itemIndex);
+        SelectItemByIndex(*itemIndex);
+    }
+
+    std::optional<int32_t> MainWindow::FindItemIndexByPath(std::filesystem::path const& path) const
+    {
+        for (std::size_t index = 0; index < m_items.size(); ++index)
+        {
+            if (m_items[index].path == path)
+            {
+                return static_cast<int32_t>(index);
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    std::wstring MainWindow::SuggestNewFolderName() const
+    {
+        std::wstring candidate = L"New Folder";
+        int32_t suffix = 2;
+
+        auto folderNameExists = [this](std::wstring const& name)
+            {
+                return std::ranges::any_of(m_items, [&name](auto const& item)
+                    {
+                        return item.is_folder && _wcsicmp(item.display_name.c_str(), name.c_str()) == 0;
+                    });
+            };
+
+        while (folderNameExists(candidate))
+        {
+            candidate = L"New Folder (" + std::to_wstring(suffix++) + L")";
+        }
+
+        return candidate;
+    }
+
+    void MainWindow::SetupKeyboardAccelerators()
+    {
+        using VK = winrt::Windows::System::VirtualKey;
+        using VKM = winrt::Windows::System::VirtualKeyModifiers;
+        using KA = winrt::Microsoft::UI::Xaml::Input::KeyboardAccelerator;
+        using KAArgs = winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs;
+
+        auto const rootElement = Content().as<winrt::Microsoft::UI::Xaml::UIElement>();
+        auto const& accelerators = rootElement.KeyboardAccelerators();
+
+        auto const AddAccelerator = [&](VK const key, VKM const modifiers, std::wstring commandId)
+        {
+            auto accel = KA{};
+            accel.Key(key);
+            accel.Modifiers(modifiers);
+            accel.Invoked([this, commandId](winrt::Windows::Foundation::IInspectable const&, KAArgs const& e)
+            {
+                auto const index = FileRowsListView().SelectedIndex();
+                std::optional<int32_t> const itemIndex =
+                    index >= 0 ? std::optional<int32_t>{ index } : std::nullopt;
+                ExecuteContextCommand(commandId, itemIndex);
+                e.Handled(true);
+            });
+            accelerators.Append(accel);
+        };
+
+        AddAccelerator(VK::C, VKM::Control, L"copy");
+        AddAccelerator(VK::X, VKM::Control, L"cut");
+        AddAccelerator(VK::V, VKM::Control, L"paste");
+        AddAccelerator(VK::Delete, VKM::None, L"delete");
+        AddAccelerator(VK::F2, VKM::None, L"rename");
+        AddAccelerator(VK::F5, VKM::None, L"refresh");
+    }
+
+    void MainWindow::FileRowsListView_DragItemsStarting(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::DragItemsStartingEventArgs const& e)
+    {
+        auto const selectedIndex = FileRowsListView().SelectedIndex();
+        if (selectedIndex < 0 || selectedIndex >= static_cast<int32_t>(m_items.size()))
+        {
+            e.Cancel(true);
+            return;
+        }
+
+        auto const& item = m_items[static_cast<std::size_t>(selectedIndex)];
+
+        try
+        {
+            winrt::Windows::Foundation::Collections::IVector<winrt::Windows::Storage::IStorageItem> storageItems =
+                winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
+
+            auto const pathStr = winrt::hstring{ item.path.wstring() };
+            if (item.is_folder)
+            {
+                auto storageFolder =
+                    winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(pathStr).get();
+                storageItems.Append(storageFolder);
+            }
+            else
+            {
+                auto storageFile =
+                    winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(pathStr).get();
+                storageItems.Append(storageFile);
+            }
+
+            e.Data().SetStorageItems(storageItems, false);
+            e.Data().RequestedOperation(
+                winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy |
+                winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+        }
+        catch (...)
+        {
+            e.Cancel(true);
+        }
+    }
+
+    void MainWindow::FileRowsListView_DragOver(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::DragEventArgs const& args)
+    {
+        if (!args.DataView().Contains(
+            winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems()))
+        {
+            return;
+        }
+
+        bool const isMove =
+            (args.Modifiers() &
+             winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::Shift) !=
+            winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::None;
+
+        args.AcceptedOperation(
+            isMove
+                ? winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move
+                : winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy);
+
+        auto const& uiOverride = args.DragUIOverride();
+        uiOverride.Caption(isMove ? L"Move here" : L"Copy here");
+        uiOverride.IsGlyphVisible(true);
+        uiOverride.IsContentVisible(true);
+        uiOverride.IsCaptionVisible(true);
+    }
+
+    winrt::fire_and_forget MainWindow::FileRowsListView_Drop(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::DragEventArgs const& args)
+    {
+        auto lifetime = get_strong();
+        auto const deferral = args.GetDeferral();
+
+        // Capture state before the co_await suspension point.
+        auto const destinationPath = m_currentPath;
+        bool const isMove =
+            (args.Modifiers() &
+             winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::Shift) !=
+            winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::None;
+
+        try
+        {
+            auto const storageItems = co_await args.DataView().GetStorageItemsAsync();
+
+            std::vector<std::filesystem::path> sourcePaths;
+            sourcePaths.reserve(storageItems.Size());
+            for (auto const& storageItem : storageItems)
+            {
+                sourcePaths.emplace_back(storageItem.Path().c_str());
+            }
+
+            if (sourcePaths.empty())
+            {
+                deferral.Complete();
+                co_return;
+            }
+
+            m_shellFileOperationService.CopyItemsFromPaths(
+                GetWindowHandle(), sourcePaths, destinationPath, isMove);
+            LoadDirectory(destinationPath);
+
+            StatusTextBlock().Text(ToHString(
+                (isMove ? L"Moved " : L"Copied ") +
+                std::to_wstring(sourcePaths.size()) +
+                (sourcePaths.size() == 1 ? L" item into " : L" items into ") +
+                destinationPath.wstring()));
+        }
+        catch (...)
+        {
+            StatusTextBlock().Text(L"Drop failed.");
+        }
+
+        deferral.Complete();
+    }
+
+    std::optional<std::wstring> MainWindow::ValidateFileName(std::wstring const& name)
+    {
+        if (name.empty())
+        {
+            return std::wstring{ L"File name cannot be empty." };
+        }
+
+        static constexpr std::array<wchar_t, 9> invalidChars{ L'/', L'\\', L':', L'*', L'?', L'"', L'<', L'>', L'|' };
+        if (auto const invalidChar = std::ranges::find_if(name, [](wchar_t const character)
+                {
+                    return std::ranges::find(invalidChars, character) != invalidChars.end();
+                });
+            invalidChar != name.end())
+        {
+            return std::wstring{ L"File name contains an invalid character." };
+        }
+
+        auto upper = name;
+        std::transform(upper.begin(), upper.end(), upper.begin(), [](wchar_t const character)
+            {
+                return static_cast<wchar_t>(towupper(character));
+            });
+
+        auto const extensionSeparator = upper.find(L'.');
+        auto const stem = upper.substr(0, extensionSeparator);
+        static constexpr std::array reservedNames{
+            L"CON",
+            L"PRN",
+            L"AUX",
+            L"NUL",
+            L"COM1",
+            L"COM2",
+            L"COM3",
+            L"COM4",
+            L"COM5",
+            L"COM6",
+            L"COM7",
+            L"COM8",
+            L"COM9",
+            L"LPT1",
+            L"LPT2",
+            L"LPT3",
+            L"LPT4",
+            L"LPT5",
+            L"LPT6",
+            L"LPT7",
+            L"LPT8",
+            L"LPT9",
+        };
+
+        if (std::ranges::find(reservedNames, stem) != reservedNames.end())
+        {
+            return std::wstring{ L"That name is reserved on Windows." };
+        }
+
+        return std::nullopt;
     }
 }
