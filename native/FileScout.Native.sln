@@ -1,0 +1,21 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.37012.4
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FileScout.Native", "FileScout.Native\FileScout.Native.vcxproj", "{E59B35B2-EAEB-4206-89AC-31C888CC1769}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E59B35B2-EAEB-4206-89AC-31C888CC1769}.Debug|x64.ActiveCfg = Debug|x64
+		{E59B35B2-EAEB-4206-89AC-31C888CC1769}.Debug|x64.Build.0 = Debug|x64
+		{E59B35B2-EAEB-4206-89AC-31C888CC1769}.Release|x64.ActiveCfg = Release|x64
+		{E59B35B2-EAEB-4206-89AC-31C888CC1769}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

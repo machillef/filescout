@@ -1,0 +1,114 @@
+#include "pch.h"
+#include "ContextMenuService.h"
+
+namespace FileScoutNative::Shell
+{
+    namespace
+    {
+        void AppendCommand(
+            std::vector<FileScoutNative::Domain::ExplorerCommand>& commands,
+            std::wstring id,
+            std::wstring label,
+            std::wstring iconKey = {},
+            std::wstring shortcutText = {},
+            bool available = true,
+            FileScoutNative::Domain::ExplorerCommandSource source =
+                FileScoutNative::Domain::ExplorerCommandSource::App)
+        {
+            commands.push_back(ContextMenuService::MakeCommand(
+                std::move(id),
+                std::move(label),
+                std::move(iconKey),
+                std::move(shortcutText),
+                available,
+                source));
+        }
+    }
+
+    FileScoutNative::Domain::ContextMenuModel ContextMenuService::BuildMenu(
+        ContextMenuScenario const& scenario) const
+    {
+        FileScoutNative::Domain::ContextMenuModel model;
+        const auto hasSelection = scenario.focused_item.has_value();
+
+        if (hasSelection)
+        {
+            AppendCommand(
+                model.primary_commands,
+                L"open",
+                L"Open",
+                L"open",
+                scenario.focused_item->is_folder ? L"Enter" : L"");
+
+            if (!scenario.focused_item->is_folder)
+            {
+                AppendCommand(model.primary_commands, L"openWith", L"Open with...", L"openWith");
+            }
+
+            AppendCommand(model.primary_commands, L"rename", L"Rename", L"rename", L"F2");
+            AppendCommand(model.primary_commands, L"delete", L"Delete", L"delete", L"Del");
+        }
+
+        if (hasSelection || scenario.can_paste)
+        {
+            FileScoutNative::Domain::ContextMenuGroup clipboardGroup;
+            if (hasSelection)
+            {
+                AppendCommand(clipboardGroup.commands, L"copy", L"Copy", L"copy", L"Ctrl+C");
+                AppendCommand(clipboardGroup.commands, L"cut", L"Cut", L"cut", L"Ctrl+X");
+            }
+
+            if (scenario.can_paste)
+            {
+                AppendCommand(clipboardGroup.commands, L"paste", L"Paste", L"paste", L"Ctrl+V");
+            }
+
+            if (!clipboardGroup.commands.empty())
+            {
+                model.groups.push_back(std::move(clipboardGroup));
+            }
+        }
+
+        if (hasSelection)
+        {
+            FileScoutNative::Domain::ContextMenuGroup inspectGroup;
+            AppendCommand(inspectGroup.commands, L"properties", L"Properties", L"properties", L"Alt+Enter");
+            AppendCommand(
+                inspectGroup.commands,
+                L"moreWindowsActions",
+                L"More Windows actions...",
+                L"overflow",
+                {},
+                true,
+                FileScoutNative::Domain::ExplorerCommandSource::Overflow);
+
+            model.groups.push_back(std::move(inspectGroup));
+            model.has_overflow_menu = true;
+        }
+
+        FileScoutNative::Domain::ContextMenuGroup workspaceGroup;
+        AppendCommand(workspaceGroup.commands, L"newFolder", L"New folder", L"newFolder");
+        AppendCommand(workspaceGroup.commands, L"refresh", L"Refresh", L"refresh", L"F5");
+        model.groups.push_back(std::move(workspaceGroup));
+
+        return model;
+    }
+
+    FileScoutNative::Domain::ExplorerCommand ContextMenuService::MakeCommand(
+        std::wstring id,
+        std::wstring label,
+        std::wstring iconKey,
+        std::wstring shortcutText,
+        bool const available,
+        FileScoutNative::Domain::ExplorerCommandSource const source)
+    {
+        return FileScoutNative::Domain::ExplorerCommand{
+            std::move(id),
+            std::move(label),
+            std::move(iconKey),
+            std::move(shortcutText),
+            available,
+            source,
+        };
+    }
+}

@@ -1,112 +1,339 @@
-# FileScout Status
+# FileScout Native Rewrite Status
 
-## Current Slice
-**Polish Phase** — Complete
+## Initiative State
 
-## Last Completed
-Polish round: dynamic window title (shows current dir path), keyboard shortcuts help overlay (F1), address bar dropdown autocomplete — 2026-03-15
+- Active track: `native/` C++20 + C++/WinRT + WinUI 3
+- Target: unpackaged Windows 11 x64 desktop app
+- `native/` is now tracked in git; unrelated Rust work remains untouched
+- Legacy Rust prototype under `crates/` is reference material only and is no
+  longer part of the active implementation plan
+- Current phase: Phase 1, Explorer parity foundation
+- Current blocker: none
+- Current known warning: none in the current native debug build
 
-## What's Working
-- Cargo workspace builds and passes clippy
-- Directory listing with scrollable view
-- Column headers: Name / Size / Modified with ▲/▼ sort indicators
-- Click column header to sort; click again to reverse direction
-- Directories always sorted before files
-- `..` parent row navigates to parent on click
-- Async directory loading via `Task::perform` (UI never blocks)
-- **Back / Forward buttons** — enabled when history allows, disabled otherwise
-- **Address bar text input** — always editable; Enter navigates to typed path
-- **Breadcrumb trail** — clickable path segments below address bar
-- **Drive selector** — one button per available Windows drive (A-Z probed on startup)
-- Navigation history: `History` struct in `filescout-core`
-- **Dual pane** — two independent panes side by side, each with own history/state
-- **Active pane indicator** — bordered box highlights the active pane
-- **Tabs** — multiple tabs per pane, each with independent navigation state
-- **Tab bar** — `+` opens new tab, `×` closes, active tab highlighted
-- **Selection** — single-click any row to select (highlighted with primary button style)
-- **Navigate into dir** — Enter key navigates into the selected directory
-- **Rename** — F2 opens inline text_input in the file row; Enter commits, Esc cancels
-- **Delete to trash** — F8 moves selected item to Recycle Bin (async); refreshes listing
-- **Undo rename** — Ctrl+Z reverses the last rename (LIFO stack, capped at 50)
-- **File name validation** — rejects empty names, invalid characters, Windows reserved names
-- **Command Palette** — Ctrl+Shift+P opens overlay; fuzzy-search via SkimMatcherV2; arrow keys + Enter to execute; Esc closes; mouse click on any row executes; dimmed backdrop using `stack` overlay
-- **File Search** — Ctrl+F opens search overlay; fuzzy recursive search via `walkdir` + `fuzzy-matcher`; optional extension filter; arrow keys navigate results; Enter / click navigates active pane to result and selects the file; Esc closes; "Search Files" also in command palette
-- **File Preview** — F3 toggles per-pane preview panel (60/40 split); text files show first 16 KB in monospace scrollable; images rendered via `iced::widget::image` (`Handle::from_path`); other files show type + size metadata; preview loads async on selection; "Toggle Preview" in command palette; `iced` feature `image` enabled
-- **Batch Rename** — Ctrl+R opens modal overlay; pattern tokens `{name}` `{ext}` `{n}` `{n:NN}`; optional extension filter; live preview table (original → new name); validation errors shown inline; Enter/Apply executes renames async; each successful rename pushed to undo stack; "Batch Rename" in command palette
-- **Theming** — Ctrl+T toggles between Dark and Light theme; persisted to `%APPDATA%\filescout\config.toml` (TOML via `serde`/`toml`); loaded async at startup; "Toggle Theme" in command palette; `Message::Noop` sink for fire-and-forget async tasks
-- **Copy & Move** — F5 copies selected item(s) to other pane's current dir; F6 moves; both async with progress overlay; batch-aware (operates on entire selection); "Copy to Other Pane" / "Move to Other Pane" in command palette; cross-device fallback (copy+delete)
-- **Multi-Selection** — Ctrl+click toggles; Shift+click range-selects from anchor; Ctrl+A selects all; Shift+↑/↓ extends selection; modifier state tracked via `ModifiersChanged` subscription event; selection count shown in pane status bar; `SelectionState` in `pane.rs` holds items/focus/anchor; F8 delete / F5 copy / F6 move operate on all selected items
-- **Bookmarks / Favorites** — Ctrl+D bookmarks current directory; Ctrl+B opens overlay; click navigates active pane; ✕ removes; persisted in `AppConfig.bookmarks` (same `config.toml`); "Open Bookmarks" / "Bookmark This Directory" in command palette; `Bookmark`/`Bookmarks` in `filescout-core/src/bookmarks.rs`; overlay in `filescout-app/src/bookmarks.rs`; 161 unit tests total (54 app + 104 core + 3 ui), all passing, clippy clean
-- **File Watcher** — `watcher.rs` in `filescout-app/src/`; `WatcherRecipe` implements `iced::advanced::subscription::Recipe`; `watch_directories(paths)` returns `Subscription<PathBuf>`; identity derived from sorted+deduped paths so iced restarts watcher on navigation; `iced = { features = ["advanced"] }` required; return type uses `iced::futures::stream::BoxStream<'static, PathBuf>`; `Message::DirectoryChanged(PathBuf)` refreshes all matching tabs; blocked while `copy_move_label.is_some()`
-- **Properties & Permissions** — Alt+Enter or command palette "File Properties"; `properties.rs` in both crates; `FileProperties` struct (name, path, is_dir, size_bytes, created/modified/accessed, read_only/hidden/system/archive); `load_file_properties(path)` blocking; `compute_dir_size(path)` async via walkdir; `format_size(bytes)` helper; Windows attributes via `std::os::windows::fs::MetadataExt::file_attributes()`; `PropertiesState { props, dir_size }` + `PropertiesMessage { DirSizeComputed, Close }`; modal overlay with dimmed backdrop
-- **Archive Support** — `archive.rs` in `filescout-core/src/`; `is_zip(path)`, `list_archive_dir(zip_path, inner_dir)`, `extract_archive(zip_path, dest)`, `extract_entry(zip_path, inner_path, dest)`; `ArchiveContext { zip_path, inner_dir }` in `pane.rs`; `TabState.archive_context: Option<ArchiveContext>`; `PaneMessage::ArchiveDirLoaded`; `load_archive_for` helper; Enter on .zip enters archive; Enter on virtual dir navigates within archive; `..` exits or goes up within archive; `archive_context = None` on all real-navigation paths (Back/Forward/Submit/Breadcrumb/Drive/NavigateToFile); `TabBar::New` opens at zip's parent when in archive; Write ops (rename/delete/copy/move/batch-rename) disabled in archive; `DirectoryChanged` skips archive tabs; F7 / "Extract Archive" in command palette extracts selection or whole archive to other pane; status bar shows `Archive: name.zip[/inner/dir]`; 184 tests total, all passing
+## Slice R1: Native Workspace And Shell Scaffold
+Status: Complete
+Last updated: 2026-03-15
 
-- **Dynamic Window Title** — title bar shows `"C:\current\path — FileScout"`, updates on pane/tab switch and navigation
-- **Keyboard Shortcuts Help** — F1 opens categorized overlay listing all keybindings (7 categories); Esc/F1 closes; "Keyboard Shortcuts" in command palette; dimmed backdrop
-- **Address Bar Dropdown Autocomplete** — as user types in address bar, matching subdirectory suggestions appear in a dropdown below the input; click to navigate; `path_suggestions(partial, max)` in `filescout-core/src/ops.rs`; suggestions clear on navigation
+### What was implemented
+- Added the same-repo WinUI 3 solution under `native/`
+- Added the unpackaged desktop host and initial app/window XAML shell
+- Added thin domain contracts for shell items, commands, operations, clipboard,
+  and selection state
+- Added real directory enumeration via `std::filesystem`
 
-## What's Next (Slice 17: AI Features — Optional)
-- Natural language search, smart organization suggestions, AI-assisted rename
+### What was validated
+- NuGet package restore for `native/FileScout.Native.sln` - pass
+- Manual code review of scaffolded project structure - pass
 
-## Blockers
-None
+### What remains unverified
+- End-to-end native compile in the current local environment
 
-## Session Notes
-- `History` struct lives in `filescout-core/src/navigation.rs` — pure logic, no iced dep
-- `address_bar_view()` in `filescout-ui/src/address_bar.rs` takes `address_text: &str` and the path for breadcrumbs separately
-- History is updated in the message handler (Navigate/Back/Forward), NOT in `DirectoryLoaded`
-- `list_drives()` probes A:\ through Z:\ with `.exists()` — fast enough for startup, no Win32 dep needed
-- `button` without `.on_press()` renders as disabled in iced — used for Back/Forward and × close when last tab
-- `SortColumn` / `SortDirection` live in `filescout-core` to avoid circular deps
-- `tokio::task::spawn_blocking` keeps sync FS calls safe inside async context
-- `PaneId` is `Copy` — safe to capture in move closures for iced's `.map()` calls
-- `Message::Pane(id, msg)` sets `self.active = id` before dispatching
-- `container::bordered_box` used for active pane border in iced 0.14 dark theme
-- `pane.rs` holds `PaneId`, `PaneState`, `PaneMessage`, `TabState` — keeps main.rs focused
-- `PaneMessage::DirectoryLoaded` carries a `tab_idx` so async results land in the correct tab
-- `tab_bar_view()` takes `Vec<String>` by value → `Element<'static, _>` to avoid lifetime issues
-- `TabState::title()` returns last path component, or full path at drive roots
-- `PaneState::close_tab()` adjusts `active_tab`: decrements if active > removed, clamps if at end
-- `keyboard::on_key_press` does NOT exist in iced 0.14 — use `event::listen_with` instead
-- `text_input::Id` and `text_input::focus` do NOT exist in iced 0.14 — use `iced::widget::Id`; auto-focus not available via `Task`
-- `iced::widget::Id::new(str)` is the correct widget ID type in iced 0.14
-- `PaneMessage::RenameDone` carries `old_path` for pushing to undo stack after async success
-- `validate_file_name` in ops.rs guards against empty, invalid chars, and Windows reserved names (CON, PRN, etc.)
-- Enter key routes to CommitRename OR NavigateSelected based on `tab.renaming.is_some()` check in handler
-- `event::listen_with` in iced 0.14 takes a `fn` pointer (no captures) — all key events are forwarded as `Message::KeyPressed(key, modifiers)` and routed in `update()` based on current state
-- `command_palette.rs` in `filescout-app/src/` — self-contained module with `PaletteState`, `CommandId`, `ALL_COMMANDS`, and `command_palette_view()`
-- `iced::widget::stack([base, overlay])` used for the dimmed backdrop overlay
-- `PaletteState::filtered_commands()` uses `SkimMatcherV2` from `fuzzy-matcher` crate
-- Palette query change resets `selected` to 0 in the `handle_palette` update handler
-- `search.rs` in `filescout-app/src/` — `SearchState`, `SearchMessage`, `search_view()` overlays same way as palette
-- `search.rs` in `filescout-core/src/` — `search_files(root, query, ext_filter, max)` using `walkdir` + `SkimMatcherV2`
-- `PaneMessage::NavigateToFile(PathBuf)` navigates to parent dir and sets `tab.selected = Some(path)` so file is highlighted after load
-- `spawn_search_task()` in main.rs — free fn taking `&SearchState`, spawning blocking search and mapping result to `Message::Search(SearchMessage::ResultsLoaded(...))`
-- Search overlay is second priority in `route_key` (palette > search > pane keys)
-- `preview.rs` in `filescout-core/src/` — `PreviewContent` enum, `load_preview(path)`, `is_text_extension()`, `is_image_extension()` helpers
-- `batch_rename.rs` in `filescout-core/src/` — `apply_pattern(pattern, name, ext, index)`, `preview_batch_rename(entries, pattern, ext_filter)`, `BatchRenamePreview` struct
-- `batch_rename.rs` in `filescout-app/src/` — `BatchRenameState`, `BatchRenameMessage`, `batch_rename_view()`; opens via Ctrl+R or command palette; entries snapshot taken at open time; previews recomputed on every keystroke; `valid_renames()` returns only error-free pairs
-- `PaneMessage::BatchRenameDone(tab_idx, refresh_path, Vec<(PathBuf, Result<PathBuf, String>)>)` — each rename result pushed individually to undo stack
-- Pattern tokens: `{name}` (file stem), `{ext}` (extension without dot), `{n}` (1-based counter), `{n:NN}` (zero-padded N digits)
-- `config.rs` in `filescout-core/src/` — `ThemePreference` enum (Dark/Light), `AppConfig { theme }`, `load_config()` (returns default on missing/corrupt file), `save_config(&config)` (creates dirs); config path: `dirs::config_dir().join("filescout/config.toml")`
-- `copy_item(src, dest_dir)` / `move_item(src, dest_dir)` in `filescout-core/src/ops.rs` — recursive dir copy via `walkdir`; move tries `rename` first, falls back to copy+delete for cross-device
-- `SelectionState` in `filescout-app/src/pane.rs` — `items: HashSet<PathBuf>`, `focus: Option<PathBuf>`, `anchor: Option<PathBuf>`; methods: `single_select`, `ctrl_click`, `shift_click`, `select_all`, `extend_to`, `clear`
-- `TabState.selection: SelectionState` replaces `selected: Option<PathBuf>`; `selection.focus()` used for rename/preview/Enter-navigate; `selection.items()` used for batch delete/copy/move
-- `FileScout.current_modifiers: keyboard::Modifiers` updated via `Message::ModifiersChanged`; read in `update_pane` before the mutable borrow to guide click routing (single/ctrl/shift)
-- `file_list_view` accepts `selection: &HashSet<PathBuf>` instead of `selected: Option<&Path>`; rows highlighted when their path is in the set
-- `PaneMessage::SelectAll` / `ExtendSelectionDown` / `ExtendSelectionUp`; `ActiveAction::SelectAll` / `ExtendSelectionUp/Down`; Ctrl+A / Shift+↑↓ in route_key
-- Selection count status bar shown at bottom of pane when ≥1 item selected
-- `PaneId::other()` returns the opposite pane ID
-- `FileScout.copy_move_label: Option<String>` drives the progress overlay during in-flight copy/move
-- `Message::CopyToOtherPane` / `MoveToOtherPane` routed to `start_copy()` / `start_move()`
-- `Message::CopyMoveDone` carries `dest_pane/tab/dir` and optional `src_refresh` (pane/tab/dir) for moves
-- `copy_move_progress_overlay(label)` in main.rs — centered card with dimmed backdrop, same stack pattern as palette/search
-- Copy/move blocked while `copy_move_label.is_some()` to prevent concurrent operations
-- `ThemePreference::toggled()` returns the opposite theme; `is_dark()` helper
-- `FileScout.theme: ThemePreference` drives `fn theme(&self) -> Theme`; `Message::ConfigLoaded(AppConfig)` applies on startup; `Message::ToggleTheme` flips + persists; `Message::Noop` is the fire-and-forget sink
-- `preview_panel.rs` in `filescout-ui/src/` — `preview_panel_view<M>(content)` generic over message type
-- `PaneState.show_preview: bool` per pane; `TabState.preview: PreviewContent` per tab
-- `PaneMessage::TogglePreview` and `PaneMessage::PreviewLoaded(tab_idx, content)` for async results
-- `load_preview_for()` in main.rs — free fn mirroring `load_directory_for` pattern
-- Preview triggered on `FileListMessage::Select` when `show_preview` is true
-- `image` feature added to `iced` in workspace `Cargo.toml`; `Handle::from_path` used (lazy decode at render time)
+### Blockers
+- `MSB8020` during native build
+
+### Next recommended step
+- Continue `R2` on top of the existing shell-backed scaffold while keeping the
+  SDK discovery issue visible in every validation report
+
+## Slice R2a: Selectable Shell Pane Foundation
+Status: Complete
+Last updated: 2026-03-16
+
+### What was implemented
+- Extended `native/FileScout.Native/Domain/ShellItemRef.h` with item kind and
+  size metadata needed for shell-pane presentation
+- Updated `native/FileScout.Native/Shell/ShellInteropService.cpp` to populate
+  file kind labels, file sizes, and folder-first sorting metadata
+- Replaced the placeholder repeater in
+  `native/FileScout.Native/MainWindow.xaml` with a selectable `ListView`
+- Added selection details UI in the left sidebar for selected item name,
+  metadata, and full path
+- Added selection tracking and folder activation logic in
+  `native/FileScout.Native/MainWindow.xaml.cpp` and
+  `native/FileScout.Native/MainWindow.xaml.h`
+
+### What was validated
+- Added explicit `TargetPlatformVersion` and `TargetPlatformMinVersion` to
+  `native/FileScout.Native/FileScout.Native.vcxproj`, which removes the
+  misleading `MSB8036` failure and unlocks normal Windows SDK resolution
+- Added explicit WinAppSDK component imports and WebView2/Runtime metadata
+  wiring in `native/FileScout.Native/FileScout.Native.vcxproj` and
+  `native/FileScout.Native/packages.config`
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Self-review of the native slice diff for selection flow, metadata wiring, and
+  row rendering - pass
+
+### What remains unverified
+- Manual WinUI behavior for single-click selection and double-click folder
+  activation
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R2b`: native icon extraction, richer file-row visuals, and the
+  first pass at the modern File Pilot-style visual system while keeping
+  functionality first
+
+## Slice R2b: Native Icon Extraction And Richer Rows
+Status: Complete
+Last updated: 2026-03-16
+
+### What was implemented
+- Added shell icon bitmap data to
+  `native/FileScout.Native/Domain/ShellItemRef.h`
+- Updated `native/FileScout.Native/Shell/ShellInteropService.cpp` to extract
+  and cache native small shell icons by folder or file extension
+- Upgraded `native/FileScout.Native/MainWindow.xaml.cpp` to render richer row
+  cards with icon tiles, title/detail/path text, and selection detail icons
+- Bound the native list view to an observable row collection and restored the
+  initial current-directory load path
+- Added startup error surfacing in `native/FileScout.Native/App.xaml.cpp` so
+  future WinUI/XAML startup failures are visible instead of collapsing into an
+  opaque `combase.dll` crash
+
+### What was validated
+- Removed the duplicate WinAppSDK auto-initializer registration path in
+  `native/FileScout.Native/FileScout.Native.vcxproj`; native debug builds now
+  complete with `0 Warning(s)` and `0 Error(s)`
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for
+  `native/x64/Debug/FileScout.Native/FileScout.Native.exe` - pass
+
+### What remains unverified
+- Manual WinUI behavior for native-icon rendering, single-click selection, and
+  double-click folder activation
+- Visual polish beyond the first modern File Pilot-style pass
+
+### Blockers
+- None
+
+### Next recommended step
+- Track `native/` in git and begin `R3`: FileScout-owned Windows 11 style
+  context menu with shell-backed overflow
+
+## Slice R3a: FileScout-Owned Context Menu Foundation
+Status: Complete
+Last updated: 2026-03-16
+
+### What was implemented
+- Added a dedicated context-menu builder service in
+  `native/FileScout.Native/Shell/ContextMenuService.h` and
+  `native/FileScout.Native/Shell/ContextMenuService.cpp`
+- Extended `native/FileScout.Native/MainWindow.xaml` and
+  `native/FileScout.Native/MainWindow.xaml.h` with right-click event wiring for
+  the shell-backed list surface
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` to resolve right-clicked
+  items, build grouped menu content, show a WinUI `MenuFlyout`, and dispatch
+  commands through one centralized handler
+- Kept already-supported actions live (`Open` for folders, `Refresh`) and routed
+  future operations to clear status placeholders instead of silently doing
+  nothing
+
+### What was validated
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for
+  `native/x64/Debug/FileScout.Native/FileScout.Native.exe` - pass
+
+### What remains unverified
+- Manual right-click behavior for selected items vs empty list space
+- Manual menu command behavior for placeholder `R4` actions and the visual feel
+  of the WinUI flyout against the current explorer surface
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue `R4` into `R4c`: implement `Copy`, `Cut`, and `Paste` against a
+  coherent native clipboard model
+
+## Slice R3b: Shell-Backed Overflow For More Windows Actions
+Status: Complete
+Last updated: 2026-03-16
+
+### What was implemented
+- Added a dedicated native overflow host in
+  `native/FileScout.Native/Shell/ShellOverflowMenuService.h` and
+  `native/FileScout.Native/Shell/ShellOverflowMenuService.cpp`
+- Updated `native/FileScout.Native/MainWindow.xaml.h` and
+  `native/FileScout.Native/MainWindow.xaml.cpp` to capture the right-click
+  screen position and route `More Windows actions...` through the shell-backed
+  overflow menu
+- Reused the existing FileScout-owned WinUI menu as the primary surface while
+  limiting the native fallback to the explicit overflow path only
+- Filtered shell clipboard verbs from the overflow popup so the future app-owned
+  clipboard model is not pre-empted by partial shell behavior
+- Updated `native/FileScout.Native/MainWindow.xaml`,
+  `native/FileScout.Native/FileScout.Native.vcxproj`, and
+  `native/FileScout.Native/FileScout.Native.vcxproj.filters` so the explorer
+  surface and project metadata reflect the new overflow slice
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for
+  `native/x64/Debug/FileScout.Native/FileScout.Native.exe` - pass
+
+### What remains unverified
+- Manual right-click behavior for `More Windows actions...`
+- Manual shell overflow behavior for extension-owned commands and dismiss paths
+
+### Blockers
+- None
+
+### Next recommended step
+- Begin `R4a`: wire the existing placeholder commands to real shell-backed
+  open/open-with/properties and file activation
+
+## Slice R4a: Shell-Backed Open, Open With, Properties, And File Activation
+Status: Complete
+Last updated: 2026-03-16
+
+### What was implemented
+- Added a dedicated shell verb service in
+  `native/FileScout.Native/Shell/ShellFileOperationService.h` and
+  `native/FileScout.Native/Shell/ShellFileOperationService.cpp`
+- Updated `native/FileScout.Native/MainWindow.xaml.h` and
+  `native/FileScout.Native/MainWindow.xaml.cpp` to inject the new service and
+  route file double-click activation through a real shell `Open`
+- Replaced the `Open`, `Open with...`, and `Properties` context-menu
+  placeholders in `native/FileScout.Native/MainWindow.xaml.cpp` with live
+  shell-backed execution and user-visible success/failure status text
+- Updated `native/FileScout.Native/MainWindow.xaml`,
+  `native/FileScout.Native/FileScout.Native.vcxproj`, and
+  `native/FileScout.Native/FileScout.Native.vcxproj.filters` so the explorer
+  surface and project manifest reflect the active `R4a` slice
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for
+  `native/x64/Debug/FileScout.Native/FileScout.Native.exe` - pass
+
+### What remains unverified
+- Manual double-click activation for files
+- Manual `Open with...` and `Properties` behavior from the native context menu
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R4b`: implement `New folder`, `Rename`, and `Delete` so the
+  alpha GUI can perform its first real in-app file mutations
+
+## Slice R4b: Native New Folder, Rename, And Delete Mutations
+Status: Complete
+Last updated: 2026-03-16
+
+### What was implemented
+- Extended `native/FileScout.Native/Shell/ShellFileOperationService.h` and
+  `native/FileScout.Native/Shell/ShellFileOperationService.cpp` with shell-native
+  `IFileOperation` support for `NewItem`, `RenameItem`, and recycle-bin delete
+- Updated `native/FileScout.Native/MainWindow.xaml.h` and
+  `native/FileScout.Native/MainWindow.xaml.cpp` with WinUI `ContentDialog`
+  flows for folder creation, rename, and delete confirmation
+- Added Windows filename validation, default `New Folder` name generation, and
+  reload-and-reselect behavior after successful mutations in
+  `native/FileScout.Native/MainWindow.xaml.cpp`
+- Updated `native/FileScout.Native/MainWindow.xaml` so the explorer surface
+  reflects the active `R4b` mutation slice
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for
+  `native/x64/Debug/FileScout.Native/FileScout.Native.exe` - pass
+
+### What remains unverified
+- Manual `New Folder` dialog flow and collision handling
+- Manual rename and delete confirmation behavior in the running WinUI app
+- Recycle Bin semantics after delete in the current unpackaged desktop host
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R4c`: wire `Copy`, `Cut`, and `Paste` through a native
+  clipboard model so the alpha explorer can move beyond single-item mutations
+
+## Slice R4c: Native Clipboard-Backed Copy, Cut, And Paste
+Status: Complete
+Last updated: 2026-03-16
+
+### What was implemented
+- Added `native/FileScout.Native/Shell/ShellClipboardService.h` and
+  `native/FileScout.Native/Shell/ShellClipboardService.cpp` to own the native
+  clipboard path through shell `IDataObject`, `CFSTR_PREFERREDDROPEFFECT`, and
+  `OleSetClipboard`/`OleGetClipboard`
+- Extended `native/FileScout.Native/Shell/ShellFileOperationService.h` and
+  `native/FileScout.Native/Shell/ShellFileOperationService.cpp` with a shell
+  paste path that routes clipboard-backed copy or move operations through
+  `IFileOperation`
+- Updated `native/FileScout.Native/MainWindow.xaml.h` and
+  `native/FileScout.Native/MainWindow.xaml.cpp` so right-click menus enable
+  `Paste` when shell items are available on the clipboard and so `Copy`, `Cut`,
+  and `Paste` now perform real native operations instead of placeholder status
+  text
+- Updated `native/FileScout.Native/MainWindow.xaml`,
+  `native/FileScout.Native/pch.h`,
+  `native/FileScout.Native/FileScout.Native.vcxproj`, and
+  `native/FileScout.Native/FileScout.Native.vcxproj.filters` so the live native
+  explorer surface and project metadata reflect the `R4c` clipboard slice
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for `native/x64/Debug/FileScout.Native/FileScout.Native.exe` -
+  pass
+
+### What remains unverified
+- Manual `Copy`, `Cut`, and `Paste` behavior inside the running WinUI app
+- Collision behavior and naming when pasting into a directory that already
+  contains the same item names
+- Clipboard behavior when pasting shell items copied from Explorer into
+  FileScout and vice versa
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R5`: add native drag/drop and broader clipboard interop on top
+  of the now-live shell clipboard model
+
+## Slice R4d: Native Runtime Stability Fix
+Status: Complete
+Last updated: 2026-03-17
+
+### What was implemented
+- Identified root cause via startup log: `Cannot locate resource from
+  'ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml'` — MRT resource
+  resolution was broken because `WindowsAppSDKSelfContained=true` caused
+  `MICROSOFT_WINDOWSAPPSDK_SELFCONTAINED=1` to be defined only for app code but
+  NOT for `WindowsAppRuntimeAutoInitializer.cpp`, creating a mixed-mode
+  initialization where `MddBootstrapInitialize2` was a no-op but the
+  auto-initializer ran in framework-package mode; the MRT namespace mapping for
+  `ms-appx://Microsoft.UI.Xaml/` was never established
+- Fixed by changing `WindowsAppSDKSelfContained` from `true` to `false` in
+  `native/FileScout.Native/FileScout.Native.vcxproj`; `MddBootstrapInitialize2`
+  in `main.cpp` now performs a real framework-package bootstrap against the
+  installed `Microsoft.WindowsAppRuntime.1.8 8000.770.947.0` runtime, which
+  properly establishes the MRT resource namespace
+- Fixed a clean-build compiler failure (`C3859`/`C1076: compiler limit: internal
+  heap limit reached`) by adding `DebugInformationFormat=ProgramDatabase` to
+  the Debug configuration (switches from `/ZI` Edit-and-Continue to `/Zi`, which
+  removes the low-address virtual memory pressure for the PCH) and adding
+  `/Zm200` to `AdditionalOptions` (increases the compiler's internal heap
+  allocation for the large WinUI header set)
+
+### What was validated
+- Clean rebuild (`/t:Rebuild`) with `0 Error(s)` and `0 Warning(s)` — pass
+- Launch smoke: process stays alive for 5+ seconds, no VC++ runtime abort — pass
+- Startup log is empty (no `ms-appx` XAML resource errors) — pass
+
+### What remains unverified
+- Manual exercise of all context menu, clipboard, and file mutation flows after
+  the deployment-mode change; the framework-package path is functionally
+  equivalent but has not been manually re-exercised
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R5`: native drag/drop and clipboard interop

@@ -37,3 +37,12 @@ docs/ai/
 
 # UX/UI test screenshots
 test-img/
+
+# Native rewrite build artifacts
+/native/bin/
+/native/packages/
+/native/x64/
+/native/x86/
+/native/arm64/
+/native/**/obj/
+/native/**/Generated Files/
