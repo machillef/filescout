@@ -71,7 +71,11 @@ shortcuts is recommended before widening into R7
 
 ## R7: Dual-Pane Layout
 **Goal:** Two independent panes with active-pane routing.
-**Status:** Not Started
+**Status:** Complete
+**Completed sub-slices:** `R7` two `TabView` columns, `PaneContext` per-pane state,
+active-pane indicator border, `SetActivePaneIndex`/`Ctrl+Tab` routing
+**Follow-up note:** manual validation of two-pane browsing, pane focus switching,
+and cross-pane drag-and-drop is recommended before widening into R8
 **Depends on:** `R6`
 
 ## R8: Favorites, Sidebar Tree, And Pinned Locations

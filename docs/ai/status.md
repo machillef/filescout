@@ -430,3 +430,46 @@ Last updated: 2026-03-17
 
 ### Next recommended step
 - Continue with `R7`: dual-pane layout with two independent panes and active-pane routing
+
+## Slice R7: Dual-Pane Layout
+Status: Complete
+Last updated: 2026-03-17
+
+### What was implemented
+- Added `PaneContext` struct in `MainWindow.xaml.h` holding all per-pane browse state:
+  `current_path`, `items`, `selection`, `tabs`, `tab_rows`, `active_list_view`,
+  `active_tab_index`, `tab_switching`
+- Rewrote `MainWindow.xaml` to a three-column layout: sidebar (260 px) + two pane
+  columns each wrapping a `TabView` (`LeftPaneTabView` / `RightPaneTabView`) inside
+  named `Border` elements (`LeftPaneBorder` / `RightPaneBorder`) for the active-pane
+  highlight
+- Refactored `MainWindow.xaml.h` private members: replaced the seven individual pane
+  fields with `std::array<PaneContext, 2> m_panes` and `int32_t m_activePaneIndex`;
+  added `ActivePane()`, `ActiveTabView()`, `TabViewForPane()`, `PaneIndexForTabView()`,
+  `SetActivePaneIndex()`, `UpdateActivePaneIndicator()`, and `InitPane()`
+- Rewrote `MainWindow.xaml.cpp` to route all operations through `ActivePane()` and
+  `ActiveTabView()`; both panes share the same XAML event handler names and are
+  disambiguated in the handler bodies via `PaneIndexForTabView(sender)`; `CreateTabListView`
+  now takes `paneIndex` and captures it in lambdas that call `SetActivePaneIndex`
+  before dispatching, so clicking in an inactive pane activates it automatically
+- Added `InitPane(paneIndex, startPath)` to bootstrap a pane's first tab and run
+  `LoadDirectory` through the pane-local context without clobbering the other pane
+- Added `switchPane` command (`Ctrl+Tab`) to toggle the active pane from the keyboard
+- `UpdateActivePaneIndicator()` sets a `#0078D4` accent-blue 2px border on the active
+  pane and transparent on the inactive one
+- Both panes load `std::filesystem::current_path()` at startup
+
+### What was validated
+- Clean build (`0 Error(s)`, `0 Warning(s)`) after fixing WinRT value-type binding
+  (`auto& tabView` → `auto tabView`) — pass
+
+### What remains unverified
+- Launch smoke and manual two-pane browse, pane focus switching (click + Ctrl+Tab)
+- Per-pane tab management (Ctrl+T, Ctrl+W) in both panes
+- Drag-and-drop between the two panes
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R8`: favorites, sidebar tree, and pinned locations

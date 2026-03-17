@@ -78,6 +78,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="260" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
             <Border Padding="18"
@@ -118,14 +119,35 @@
                 </StackPanel>
             </Border>
 
-            <TabView Grid.Column="1"
-                     x:Name="PaneTabView"
-                     TabWidthMode="SizeToContent"
-                     CloseButtonOverlayMode="OnPointerOver"
-                     Background="#FDFEFEF0"
-                     AddTabButtonClick="PaneTabView_AddTabButtonClick"
-                     TabCloseRequested="PaneTabView_TabCloseRequested"
-                     SelectionChanged="PaneTabView_SelectionChanged" />
+            <!-- Left pane — active indicator applied as a 2-px border -->
+            <Border Grid.Column="1"
+                    x:Name="LeftPaneBorder"
+                    CornerRadius="8"
+                    BorderThickness="2"
+                    BorderBrush="#FF0078D4">
+                <TabView x:Name="LeftPaneTabView"
+                         TabWidthMode="SizeToContent"
+                         CloseButtonOverlayMode="OnPointerOver"
+                         Background="#FDFEFEF0"
+                         AddTabButtonClick="PaneTabView_AddTabButtonClick"
+                         TabCloseRequested="PaneTabView_TabCloseRequested"
+                         SelectionChanged="PaneTabView_SelectionChanged" />
+            </Border>
+
+            <!-- Right pane — inactive by default -->
+            <Border Grid.Column="2"
+                    x:Name="RightPaneBorder"
+                    CornerRadius="8"
+                    BorderThickness="2"
+                    BorderBrush="Transparent">
+                <TabView x:Name="RightPaneTabView"
+                         TabWidthMode="SizeToContent"
+                         CloseButtonOverlayMode="OnPointerOver"
+                         Background="#FDFEFEF0"
+                         AddTabButtonClick="PaneTabView_AddTabButtonClick"
+                         TabCloseRequested="PaneTabView_TabCloseRequested"
+                         SelectionChanged="PaneTabView_SelectionChanged" />
+            </Border>
         </Grid>
 
         <Border Grid.Row="3"

@@ -13,6 +13,20 @@
 
 namespace winrt::FileScoutNative::implementation
 {
+    // Per-pane UI and browse state. One instance per visible pane.
+    struct PaneContext
+    {
+        std::filesystem::path current_path;
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items;
+        ::FileScoutNative::Domain::PaneSelectionState selection;
+        std::vector<::FileScoutNative::Domain::TabState> tabs;
+        std::vector<winrt::Windows::Foundation::Collections::IObservableVector<
+            winrt::Windows::Foundation::IInspectable>> tab_rows;
+        winrt::Microsoft::UI::Xaml::Controls::ListView active_list_view{ nullptr };
+        int32_t active_tab_index{ 0 };
+        bool tab_switching{ false };
+    };
+
     struct MainWindow : MainWindowT<MainWindow>
     {
         MainWindow();
@@ -54,16 +68,10 @@ namespace winrt::FileScoutNative::implementation
 
     private:
         HWND m_hwnd{ nullptr };
-        std::filesystem::path m_currentPath;
-        std::vector<::FileScoutNative::Domain::ShellItemRef> m_items;
-        ::FileScoutNative::Domain::PaneSelectionState m_selection;
 
-        std::vector<::FileScoutNative::Domain::TabState> m_tabs;
-        std::vector<winrt::Windows::Foundation::Collections::IObservableVector<
-            winrt::Windows::Foundation::IInspectable>> m_tabRows;
-        winrt::Microsoft::UI::Xaml::Controls::ListView m_activeListView{ nullptr };
-        int32_t m_activeTabIndex{ 0 };
-        bool m_tabSwitching{ false };
+        // Dual-pane state: index 0 = left, index 1 = right.
+        std::array<PaneContext, 2> m_panes{};
+        int32_t m_activePaneIndex{ 0 };
 
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;
@@ -73,6 +81,16 @@ namespace winrt::FileScoutNative::implementation
         ::FileScoutNative::Shell::ShellInteropService m_shellInterop;
         POINT m_lastContextMenuPoint{};
         bool m_hasLastContextMenuPoint{ false };
+
+        // Active-pane accessors.
+        [[nodiscard]] PaneContext& ActivePane() noexcept { return m_panes[m_activePaneIndex]; }
+        [[nodiscard]] PaneContext const& ActivePane() const noexcept { return m_panes[m_activePaneIndex]; }
+        [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::TabView ActiveTabView();
+        [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::TabView TabViewForPane(int32_t paneIndex);
+        [[nodiscard]] int32_t PaneIndexForTabView(
+            winrt::Microsoft::UI::Xaml::Controls::TabView const& tv);
+        void SetActivePaneIndex(int32_t paneIndex);
+        void UpdateActivePaneIndicator();
 
         HWND GetWindowHandle();
         void ConfigureWindow();
@@ -103,12 +121,14 @@ namespace winrt::FileScoutNative::implementation
 
         winrt::Microsoft::UI::Xaml::Controls::ListView CreateTabListView(
             winrt::Windows::Foundation::Collections::IObservableVector<
-                winrt::Windows::Foundation::IInspectable> const& source);
+                winrt::Windows::Foundation::IInspectable> const& source,
+            int32_t paneIndex);
         void AddTab(std::filesystem::path const& startPath);
         void CloseTab(int32_t index);
         void RestoreActiveTab();
         void UpdateTabHeader(int32_t index);
         void UpdateTabCloseability();
+        void InitPane(int32_t paneIndex, std::filesystem::path const& startPath);
     };
 }
 
