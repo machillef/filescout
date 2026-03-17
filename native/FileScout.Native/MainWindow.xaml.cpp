@@ -36,16 +36,31 @@ namespace
             return nullptr;
         }
 
-        auto bitmap = winrt::Windows::Graphics::Imaging::SoftwareBitmap::CreateCopyFromBuffer(
-            winrt::Windows::Security::Cryptography::CryptographicBuffer::CreateFromByteArray(icon.rgba),
-            winrt::Windows::Graphics::Imaging::BitmapPixelFormat::Rgba8,
-            static_cast<int32_t>(icon.width),
-            static_cast<int32_t>(icon.height),
-            winrt::Windows::Graphics::Imaging::BitmapAlphaMode::Straight);
+        try
+        {
+            // icon.rgba holds RGBA8/Straight pixel data from GetDIBits (B↔R swapped).
+            // SoftwareBitmapSource requires Bgra8/Premultiplied; Convert() handles both
+            // the channel swap and alpha premultiplication.
+            auto staging = winrt::Windows::Graphics::Imaging::SoftwareBitmap::CreateCopyFromBuffer(
+                winrt::Windows::Security::Cryptography::CryptographicBuffer::CreateFromByteArray(icon.rgba),
+                winrt::Windows::Graphics::Imaging::BitmapPixelFormat::Rgba8,
+                static_cast<int32_t>(icon.width),
+                static_cast<int32_t>(icon.height),
+                winrt::Windows::Graphics::Imaging::BitmapAlphaMode::Straight);
 
-        auto source = winrt::Microsoft::UI::Xaml::Media::Imaging::SoftwareBitmapSource{};
-        source.SetBitmapAsync(bitmap).get();
-        return source;
+            auto compatible = winrt::Windows::Graphics::Imaging::SoftwareBitmap::Convert(
+                staging,
+                winrt::Windows::Graphics::Imaging::BitmapPixelFormat::Bgra8,
+                winrt::Windows::Graphics::Imaging::BitmapAlphaMode::Premultiplied);
+
+            auto source = winrt::Microsoft::UI::Xaml::Media::Imaging::SoftwareBitmapSource{};
+            source.SetBitmapAsync(compatible).get();
+            return source;
+        }
+        catch (...)
+        {
+            return nullptr;
+        }
     }
 
     std::wstring FormatSize(std::uintmax_t const sizeBytes)
