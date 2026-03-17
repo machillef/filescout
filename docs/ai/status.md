@@ -385,3 +385,48 @@ Last updated: 2026-03-17
 
 ### Next recommended step
 - Continue with `R6`: multiple tabs per pane in the native shell
+
+## Slice R6: Tabs
+Status: Complete
+Last updated: 2026-03-17
+
+### What was implemented
+- Added `native/FileScout.Native/Domain/TabState.h` — domain struct holding per-tab
+  path, item list, selection state, and selected-item index; exposes a `display_name()`
+  helper that returns the directory basename or `"New Tab"` for empty tabs
+- Rewrote `native/FileScout.Native/MainWindow.xaml`: replaced the static `ListView`
+  in the right panel with a WinUI `TabView` (`PaneTabView`); moved
+  `FileRowItemStyle` into a `Grid.Resources` keyed resource so it can be
+  looked up at runtime when programmatically creating per-tab `ListView` instances
+- Updated `native/FileScout.Native/MainWindow.xaml.h`: added `m_tabs`,
+  `m_tabRows`, `m_activeListView`, `m_activeTabIndex`, and `m_tabSwitching`
+  members; added `AddTabButtonClick`, `TabCloseRequested`, and
+  `PaneTabView_SelectionChanged` event handler declarations; added private
+  helpers `CreateTabListView`, `AddTab`, `CloseTab`, `RestoreActiveTab`,
+  `UpdateTabHeader`, and `UpdateTabCloseability`
+- Rewrote `native/FileScout.Native/MainWindow.xaml.cpp`: constructor creates the
+  initial tab rows/ListView/TabViewItem; `CreateTabListView` builds a fully-wired
+  `ListView` with item style and all event handlers; `AddTab` persists current
+  state, creates new rows/ListView/TabViewItem, and loads the new tab's directory;
+  `CloseTab` guards last-tab closure, erases from `m_tabs`/`m_tabRows`/`TabItems`,
+  clamps `m_activeTabIndex`, and triggers `RestoreActiveTab` via
+  `SelectedIndex`; `RestoreActiveTab` switches `m_activeListView`, restores
+  path/items/selection from the cached `TabState`; `UpdateTabHeader` sets the
+  `TabViewItem.Header`; `UpdateTabCloseability` toggles `IsClosable` based on
+  tab count; keyboard accelerators Ctrl+T and Ctrl+W added for new/close tab
+- Updated `native/FileScout.Native/FileScout.Native.vcxproj.filters` with
+  `Domain\TabState.h` entry
+
+### What was validated
+- Clean build (`0 Error(s)`, `0 Warning(s)`) after fixing `IVector::IndexOf`
+  two-argument WinRT signature — pass
+
+### What remains unverified
+- Launch smoke and manual tab open/close/switch behavior in the running WinUI app
+- Ctrl+T / Ctrl+W keyboard shortcuts in the live WinUI shell
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R7`: dual-pane layout with two independent panes and active-pane routing

@@ -62,7 +62,11 @@ Explorer interop is recommended before widening into R6
 
 ## R6: Tabs
 **Goal:** Multiple tabs per pane in the native shell.
-**Status:** Not Started
+**Status:** Complete
+**Completed sub-slices:** `R6` TabView with per-tab ListViews, state persistence,
+Ctrl+T / Ctrl+W shortcuts, and last-tab close protection
+**Follow-up note:** manual validation of tab open/close/switch and keyboard
+shortcuts is recommended before widening into R7
 **Depends on:** `R5`
 
 ## R7: Dual-Pane Layout

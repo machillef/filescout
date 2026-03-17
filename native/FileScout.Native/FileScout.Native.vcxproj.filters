@@ -18,6 +18,9 @@
     <ClCompile Include="pch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="App.xaml.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -28,6 +31,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Shell\ContextMenuService.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Shell\ShellClipboardService.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Shell\ShellFileOperationService.cpp">
@@ -65,10 +71,16 @@
     <ClInclude Include="Domain\ShellItemRef.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Domain\TabState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Shell\ShellInteropService.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shell\ContextMenuService.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Shell\ShellClipboardService.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shell\ShellFileOperationService.h">

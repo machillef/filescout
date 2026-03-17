@@ -192,7 +192,26 @@ namespace winrt::FileScoutNative::implementation
         InitializeComponent();
         ConfigureWindow();
         SetupKeyboardAccelerators();
-        FileRowsListView().ItemsSource(m_rows);
+
+        // Guard against SelectionChanged firing during initial tab setup.
+        m_tabSwitching = true;
+
+        auto rows0 = winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>();
+        m_tabRows.push_back(rows0);
+        m_tabs.push_back({});
+
+        auto listView0 = CreateTabListView(rows0);
+        m_activeListView = listView0;
+
+        auto tabItem0 = winrt::Microsoft::UI::Xaml::Controls::TabViewItem{};
+        tabItem0.Header(winrt::box_value(winrt::hstring{ L"New Tab" }));
+        tabItem0.IsClosable(false);
+        tabItem0.Content(listView0);
+        PaneTabView().TabItems().Append(tabItem0);
+        PaneTabView().SelectedIndex(0);
+
+        m_tabSwitching = false;
+
         LoadDirectory(std::filesystem::current_path());
     }
 
@@ -220,7 +239,12 @@ namespace winrt::FileScoutNative::implementation
         winrt::Windows::Foundation::IInspectable const&,
         Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&)
     {
-        SelectItemByIndex(FileRowsListView().SelectedIndex());
+        if (m_tabSwitching || !m_activeListView)
+        {
+            return;
+        }
+
+        SelectItemByIndex(m_activeListView.SelectedIndex());
     }
 
     void MainWindow::FileRowsListView_DoubleTapped(
@@ -229,7 +253,12 @@ namespace winrt::FileScoutNative::implementation
     {
         args.Handled(true);
 
-        const auto index = FileRowsListView().SelectedIndex();
+        if (!m_activeListView)
+        {
+            return;
+        }
+
+        const auto index = m_activeListView.SelectedIndex();
         if (index < 0 || index >= static_cast<int32_t>(m_items.size()))
         {
             return;
@@ -264,14 +293,14 @@ namespace winrt::FileScoutNative::implementation
         }
 
         auto const itemIndex = ResolveItemIndexFromSource(args.OriginalSource());
-        if (itemIndex.has_value())
+        if (itemIndex.has_value() && m_activeListView)
         {
-            FileRowsListView().SelectedIndex(*itemIndex);
+            m_activeListView.SelectedIndex(*itemIndex);
             SelectItemByIndex(*itemIndex);
         }
-        else
+        else if (m_activeListView)
         {
-            FileRowsListView().SelectedIndex(-1);
+            m_activeListView.SelectedIndex(-1);
             SelectItemByIndex(-1);
         }
 
@@ -282,11 +311,189 @@ namespace winrt::FileScoutNative::implementation
             scenario.focused_item = m_items[static_cast<std::size_t>(*itemIndex)];
         }
 
-        ShowContextMenu(
-            m_contextMenuService.BuildMenu(scenario),
-            itemIndex,
-            FileRowsListView());
+        if (m_activeListView)
+        {
+            ShowContextMenu(
+                m_contextMenuService.BuildMenu(scenario),
+                itemIndex,
+                m_activeListView);
+        }
+
         args.Handled(true);
+    }
+
+    void MainWindow::FileRowsListView_DragItemsStarting(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::DragItemsStartingEventArgs const& e)
+    {
+        if (!m_activeListView)
+        {
+            e.Cancel(true);
+            return;
+        }
+
+        auto const selectedIndex = m_activeListView.SelectedIndex();
+        if (selectedIndex < 0 || selectedIndex >= static_cast<int32_t>(m_items.size()))
+        {
+            e.Cancel(true);
+            return;
+        }
+
+        auto const& item = m_items[static_cast<std::size_t>(selectedIndex)];
+
+        try
+        {
+            winrt::Windows::Foundation::Collections::IVector<winrt::Windows::Storage::IStorageItem> storageItems =
+                winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
+
+            auto const pathStr = winrt::hstring{ item.path.wstring() };
+            if (item.is_folder)
+            {
+                auto storageFolder =
+                    winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(pathStr).get();
+                storageItems.Append(storageFolder);
+            }
+            else
+            {
+                auto storageFile =
+                    winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(pathStr).get();
+                storageItems.Append(storageFile);
+            }
+
+            e.Data().SetStorageItems(storageItems, false);
+            e.Data().RequestedOperation(
+                winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy |
+                winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+        }
+        catch (...)
+        {
+            e.Cancel(true);
+        }
+    }
+
+    void MainWindow::FileRowsListView_DragOver(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::DragEventArgs const& args)
+    {
+        if (!args.DataView().Contains(
+            winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems()))
+        {
+            return;
+        }
+
+        bool const isMove =
+            (args.Modifiers() &
+             winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::Shift) !=
+            winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::None;
+
+        args.AcceptedOperation(
+            isMove
+                ? winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move
+                : winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy);
+
+        auto const& uiOverride = args.DragUIOverride();
+        uiOverride.Caption(isMove ? L"Move here" : L"Copy here");
+        uiOverride.IsGlyphVisible(true);
+        uiOverride.IsContentVisible(true);
+        uiOverride.IsCaptionVisible(true);
+    }
+
+    winrt::fire_and_forget MainWindow::FileRowsListView_Drop(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::DragEventArgs const& args)
+    {
+        auto lifetime = get_strong();
+        auto const deferral = args.GetDeferral();
+
+        // Capture state before the co_await suspension point.
+        auto const destinationPath = m_currentPath;
+        bool const isMove =
+            (args.Modifiers() &
+             winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::Shift) !=
+            winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::None;
+
+        try
+        {
+            auto const storageItems = co_await args.DataView().GetStorageItemsAsync();
+
+            std::vector<std::filesystem::path> sourcePaths;
+            sourcePaths.reserve(storageItems.Size());
+            for (auto const& storageItem : storageItems)
+            {
+                sourcePaths.emplace_back(storageItem.Path().c_str());
+            }
+
+            if (sourcePaths.empty())
+            {
+                deferral.Complete();
+                co_return;
+            }
+
+            m_shellFileOperationService.CopyItemsFromPaths(
+                GetWindowHandle(), sourcePaths, destinationPath, isMove);
+            LoadDirectory(destinationPath);
+
+            StatusTextBlock().Text(ToHString(
+                (isMove ? L"Moved " : L"Copied ") +
+                std::to_wstring(sourcePaths.size()) +
+                (sourcePaths.size() == 1 ? L" item into " : L" items into ") +
+                destinationPath.wstring()));
+        }
+        catch (...)
+        {
+            StatusTextBlock().Text(L"Drop failed.");
+        }
+
+        deferral.Complete();
+    }
+
+    void MainWindow::PaneTabView_AddTabButtonClick(
+        winrt::Microsoft::UI::Xaml::Controls::TabView const&,
+        winrt::Windows::Foundation::IInspectable const&)
+    {
+        AddTab(m_currentPath);
+    }
+
+    void MainWindow::PaneTabView_TabCloseRequested(
+        winrt::Microsoft::UI::Xaml::Controls::TabView const&,
+        winrt::Microsoft::UI::Xaml::Controls::TabViewTabCloseRequestedEventArgs const& args)
+    {
+        uint32_t foundAt{};
+        if (!PaneTabView().TabItems().IndexOf(args.Tab(), foundAt))
+        {
+            return;
+        }
+        auto const closeIndex = static_cast<int32_t>(foundAt);
+        CloseTab(closeIndex);
+    }
+
+    void MainWindow::PaneTabView_SelectionChanged(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&)
+    {
+        if (m_tabSwitching || m_tabs.empty())
+        {
+            return;
+        }
+
+        auto const newIndex = PaneTabView().SelectedIndex();
+        if (newIndex < 0 || newIndex >= static_cast<int32_t>(m_tabs.size()))
+        {
+            return;
+        }
+
+        // Persist current UI state to the active tab before leaving it.
+        if (m_activeListView && m_activeTabIndex >= 0 &&
+            m_activeTabIndex < static_cast<int32_t>(m_tabs.size()))
+        {
+            m_tabs[m_activeTabIndex].path = m_currentPath;
+            m_tabs[m_activeTabIndex].items = m_items;
+            m_tabs[m_activeTabIndex].selection = m_selection;
+            m_tabs[m_activeTabIndex].selected_item_index = m_activeListView.SelectedIndex();
+        }
+
+        m_activeTabIndex = newIndex;
+        RestoreActiveTab();
     }
 
     HWND MainWindow::GetWindowHandle()
@@ -323,9 +530,24 @@ namespace winrt::FileScoutNative::implementation
             m_currentPath = absolute;
             m_items = items;
             m_selection.Clear();
+
+            // Persist the newly loaded state to the active tab.
+            m_tabs[m_activeTabIndex].path = absolute;
+            m_tabs[m_activeTabIndex].items = items;
+            m_tabs[m_activeTabIndex].selection = {};
+            m_tabs[m_activeTabIndex].selected_item_index = -1;
+            UpdateTabHeader(m_activeTabIndex);
+
             AddressTextBox().Text(ToHString(absolute.wstring()));
             UpdateRows(items);
-            FileRowsListView().SelectedIndex(-1);
+
+            if (m_activeListView)
+            {
+                m_tabSwitching = true;
+                m_activeListView.SelectedIndex(-1);
+                m_tabSwitching = false;
+            }
+
             ResetSelectionDetails();
 
             StatusTextBlock().Text(
@@ -339,11 +561,11 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::UpdateRows(std::vector<::FileScoutNative::Domain::ShellItemRef> const& items)
     {
-        m_rows.Clear();
+        m_tabRows[m_activeTabIndex].Clear();
 
         for (auto const& item : items)
         {
-            m_rows.Append(CreateRowView(item));
+            m_tabRows[m_activeTabIndex].Append(CreateRowView(item));
         }
     }
 
@@ -399,13 +621,18 @@ namespace winrt::FileScoutNative::implementation
     std::optional<int32_t> MainWindow::ResolveItemIndexFromSource(
         winrt::Windows::Foundation::IInspectable const& source)
     {
+        if (!m_activeListView)
+        {
+            return std::nullopt;
+        }
+
         auto dependencyObject = source.try_as<winrt::Microsoft::UI::Xaml::DependencyObject>();
         while (dependencyObject)
         {
             auto const itemContainer = dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>();
             if (itemContainer)
             {
-                const auto index = FileRowsListView().IndexFromContainer(itemContainer);
+                const auto index = m_activeListView.IndexFromContainer(itemContainer);
                 if (index >= 0)
                 {
                     return index;
@@ -826,12 +1053,12 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::SelectItemByPath(std::filesystem::path const& path)
     {
         auto const itemIndex = FindItemIndexByPath(path);
-        if (!itemIndex.has_value())
+        if (!itemIndex.has_value() || !m_activeListView)
         {
             return;
         }
 
-        FileRowsListView().SelectedIndex(*itemIndex);
+        m_activeListView.SelectedIndex(*itemIndex);
         SelectItemByIndex(*itemIndex);
     }
 
@@ -886,7 +1113,19 @@ namespace winrt::FileScoutNative::implementation
             accel.Modifiers(modifiers);
             accel.Invoked([this, commandId](winrt::Windows::Foundation::IInspectable const&, KAArgs const& e)
             {
-                auto const index = FileRowsListView().SelectedIndex();
+                if (commandId == L"newTab")
+                {
+                    AddTab(m_currentPath);
+                    e.Handled(true);
+                    return;
+                }
+                if (commandId == L"closeTab")
+                {
+                    CloseTab(m_activeTabIndex);
+                    e.Handled(true);
+                    return;
+                }
+                auto const index = m_activeListView ? m_activeListView.SelectedIndex() : -1;
                 std::optional<int32_t> const itemIndex =
                     index >= 0 ? std::optional<int32_t>{ index } : std::nullopt;
                 ExecuteContextCommand(commandId, itemIndex);
@@ -901,125 +1140,8 @@ namespace winrt::FileScoutNative::implementation
         AddAccelerator(VK::Delete, VKM::None, L"delete");
         AddAccelerator(VK::F2, VKM::None, L"rename");
         AddAccelerator(VK::F5, VKM::None, L"refresh");
-    }
-
-    void MainWindow::FileRowsListView_DragItemsStarting(
-        winrt::Windows::Foundation::IInspectable const&,
-        winrt::Microsoft::UI::Xaml::Controls::DragItemsStartingEventArgs const& e)
-    {
-        auto const selectedIndex = FileRowsListView().SelectedIndex();
-        if (selectedIndex < 0 || selectedIndex >= static_cast<int32_t>(m_items.size()))
-        {
-            e.Cancel(true);
-            return;
-        }
-
-        auto const& item = m_items[static_cast<std::size_t>(selectedIndex)];
-
-        try
-        {
-            winrt::Windows::Foundation::Collections::IVector<winrt::Windows::Storage::IStorageItem> storageItems =
-                winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
-
-            auto const pathStr = winrt::hstring{ item.path.wstring() };
-            if (item.is_folder)
-            {
-                auto storageFolder =
-                    winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(pathStr).get();
-                storageItems.Append(storageFolder);
-            }
-            else
-            {
-                auto storageFile =
-                    winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(pathStr).get();
-                storageItems.Append(storageFile);
-            }
-
-            e.Data().SetStorageItems(storageItems, false);
-            e.Data().RequestedOperation(
-                winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy |
-                winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
-        }
-        catch (...)
-        {
-            e.Cancel(true);
-        }
-    }
-
-    void MainWindow::FileRowsListView_DragOver(
-        winrt::Windows::Foundation::IInspectable const&,
-        winrt::Microsoft::UI::Xaml::DragEventArgs const& args)
-    {
-        if (!args.DataView().Contains(
-            winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems()))
-        {
-            return;
-        }
-
-        bool const isMove =
-            (args.Modifiers() &
-             winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::Shift) !=
-            winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::None;
-
-        args.AcceptedOperation(
-            isMove
-                ? winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move
-                : winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy);
-
-        auto const& uiOverride = args.DragUIOverride();
-        uiOverride.Caption(isMove ? L"Move here" : L"Copy here");
-        uiOverride.IsGlyphVisible(true);
-        uiOverride.IsContentVisible(true);
-        uiOverride.IsCaptionVisible(true);
-    }
-
-    winrt::fire_and_forget MainWindow::FileRowsListView_Drop(
-        winrt::Windows::Foundation::IInspectable const&,
-        winrt::Microsoft::UI::Xaml::DragEventArgs const& args)
-    {
-        auto lifetime = get_strong();
-        auto const deferral = args.GetDeferral();
-
-        // Capture state before the co_await suspension point.
-        auto const destinationPath = m_currentPath;
-        bool const isMove =
-            (args.Modifiers() &
-             winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::Shift) !=
-            winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::None;
-
-        try
-        {
-            auto const storageItems = co_await args.DataView().GetStorageItemsAsync();
-
-            std::vector<std::filesystem::path> sourcePaths;
-            sourcePaths.reserve(storageItems.Size());
-            for (auto const& storageItem : storageItems)
-            {
-                sourcePaths.emplace_back(storageItem.Path().c_str());
-            }
-
-            if (sourcePaths.empty())
-            {
-                deferral.Complete();
-                co_return;
-            }
-
-            m_shellFileOperationService.CopyItemsFromPaths(
-                GetWindowHandle(), sourcePaths, destinationPath, isMove);
-            LoadDirectory(destinationPath);
-
-            StatusTextBlock().Text(ToHString(
-                (isMove ? L"Moved " : L"Copied ") +
-                std::to_wstring(sourcePaths.size()) +
-                (sourcePaths.size() == 1 ? L" item into " : L" items into ") +
-                destinationPath.wstring()));
-        }
-        catch (...)
-        {
-            StatusTextBlock().Text(L"Drop failed.");
-        }
-
-        deferral.Complete();
+        AddAccelerator(VK::T, VKM::Control, L"newTab");
+        AddAccelerator(VK::W, VKM::Control, L"closeTab");
     }
 
     std::optional<std::wstring> MainWindow::ValidateFileName(std::wstring const& name)
@@ -1078,5 +1200,168 @@ namespace winrt::FileScoutNative::implementation
         }
 
         return std::nullopt;
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::ListView MainWindow::CreateTabListView(
+        winrt::Windows::Foundation::Collections::IObservableVector<
+            winrt::Windows::Foundation::IInspectable> const& source)
+    {
+        auto listView = winrt::Microsoft::UI::Xaml::Controls::ListView{};
+        listView.Margin({ 12, 0, 12, 12 });
+        listView.AllowDrop(true);
+        listView.CanDrag(true);
+        listView.SelectionMode(winrt::Microsoft::UI::Xaml::Controls::ListViewSelectionMode::Single);
+        listView.ItemsSource(source);
+
+        // Apply item container style from the root Grid's resources.
+        try
+        {
+            auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
+            auto const style = rootGrid.Resources()
+                .Lookup(winrt::box_value(winrt::hstring{ L"FileRowItemStyle" }))
+                .as<winrt::Microsoft::UI::Xaml::Style>();
+            listView.ItemContainerStyle(style);
+        }
+        catch (...) {}
+
+        listView.SelectionChanged({ this, &MainWindow::FileRowsListView_SelectionChanged });
+        listView.DoubleTapped({ this, &MainWindow::FileRowsListView_DoubleTapped });
+        listView.RightTapped({ this, &MainWindow::FileRowsListView_RightTapped });
+        listView.DragItemsStarting({ this, &MainWindow::FileRowsListView_DragItemsStarting });
+        listView.DragOver({ this, &MainWindow::FileRowsListView_DragOver });
+        listView.Drop([this](auto const& sender, auto const& args)
+            {
+                FileRowsListView_Drop(sender, args);
+            });
+
+        return listView;
+    }
+
+    void MainWindow::AddTab(std::filesystem::path const& startPath)
+    {
+        // Persist current state before adding the new tab.
+        if (m_activeListView && m_activeTabIndex >= 0 &&
+            m_activeTabIndex < static_cast<int32_t>(m_tabs.size()))
+        {
+            m_tabs[m_activeTabIndex].path = m_currentPath;
+            m_tabs[m_activeTabIndex].items = m_items;
+            m_tabs[m_activeTabIndex].selection = m_selection;
+            m_tabs[m_activeTabIndex].selected_item_index = m_activeListView.SelectedIndex();
+        }
+
+        auto newRows = winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>();
+        m_tabRows.push_back(newRows);
+        m_tabs.push_back({});
+
+        auto const newIndex = static_cast<int32_t>(m_tabs.size()) - 1;
+        auto newListView = CreateTabListView(newRows);
+
+        auto tabItem = winrt::Microsoft::UI::Xaml::Controls::TabViewItem{};
+        tabItem.Header(winrt::box_value(winrt::hstring{ L"New Tab" }));
+        tabItem.Content(newListView);
+        PaneTabView().TabItems().Append(tabItem);
+
+        m_activeTabIndex = newIndex;
+        m_activeListView = newListView;
+
+        m_tabSwitching = true;
+        PaneTabView().SelectedIndex(m_activeTabIndex);
+        m_tabSwitching = false;
+
+        UpdateTabCloseability();
+        LoadDirectory(startPath);
+    }
+
+    void MainWindow::CloseTab(int32_t const index)
+    {
+        if (m_tabs.size() <= 1 || index < 0 || index >= static_cast<int32_t>(m_tabs.size()))
+        {
+            return;
+        }
+
+        m_tabSwitching = true;
+        m_tabs.erase(m_tabs.begin() + index);
+        m_tabRows.erase(m_tabRows.begin() + index);
+        PaneTabView().TabItems().RemoveAt(static_cast<uint32_t>(index));
+        m_tabSwitching = false;
+
+        // Clamp active index after removal.
+        if (m_activeTabIndex >= static_cast<int32_t>(m_tabs.size()))
+        {
+            m_activeTabIndex = static_cast<int32_t>(m_tabs.size()) - 1;
+        }
+
+        PaneTabView().SelectedIndex(m_activeTabIndex);
+        // SelectionChanged fires here with m_tabSwitching = false, which calls RestoreActiveTab.
+
+        UpdateTabCloseability();
+    }
+
+    void MainWindow::RestoreActiveTab()
+    {
+        if (m_activeTabIndex < 0 || m_activeTabIndex >= static_cast<int32_t>(m_tabs.size()))
+        {
+            return;
+        }
+
+        // Get the ListView for the newly active tab.
+        auto const tabItemObj = PaneTabView().TabItems().GetAt(static_cast<uint32_t>(m_activeTabIndex));
+        auto const tabItem = tabItemObj.as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>();
+        m_activeListView = tabItem.Content().as<winrt::Microsoft::UI::Xaml::Controls::ListView>();
+
+        auto const& tab = m_tabs[m_activeTabIndex];
+        m_currentPath = tab.path;
+        m_items = tab.items;
+        m_selection = tab.selection;
+
+        AddressTextBox().Text(ToHString(m_currentPath.wstring()));
+
+        if (m_items.empty() && !tab.path.empty())
+        {
+            // Tab hasn't loaded yet — navigate to its path now.
+            LoadDirectory(tab.path);
+            return;
+        }
+
+        // Restore the cached rows and selection without re-scanning the disk.
+        m_tabSwitching = true;
+        m_activeListView.SelectedIndex(tab.selected_item_index);
+        m_tabSwitching = false;
+
+        if (tab.selected_item_index >= 0 &&
+            tab.selected_item_index < static_cast<int32_t>(m_items.size()))
+        {
+            SelectItemByIndex(tab.selected_item_index);
+        }
+        else
+        {
+            ResetSelectionDetails();
+        }
+
+        StatusTextBlock().Text(
+            ToHString(std::to_wstring(m_items.size()) + L" shell-backed entries loaded from " + m_currentPath.wstring()));
+    }
+
+    void MainWindow::UpdateTabHeader(int32_t const index)
+    {
+        if (index < 0 || index >= static_cast<int32_t>(m_tabs.size()))
+        {
+            return;
+        }
+
+        auto const tabItemObj = PaneTabView().TabItems().GetAt(static_cast<uint32_t>(index));
+        auto const tabItem = tabItemObj.as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>();
+        tabItem.Header(winrt::box_value(ToHString(m_tabs[index].display_name())));
+    }
+
+    void MainWindow::UpdateTabCloseability()
+    {
+        bool const canClose = m_tabs.size() > 1;
+        for (uint32_t i = 0; i < PaneTabView().TabItems().Size(); ++i)
+        {
+            PaneTabView().TabItems().GetAt(i)
+                .as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>()
+                .IsClosable(canClose);
+        }
     }
 }

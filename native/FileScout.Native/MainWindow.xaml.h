@@ -4,6 +4,7 @@
 #include "Domain\ContextMenuModel.h"
 #include "Domain\PaneSelectionState.h"
 #include "Domain\ShellItemRef.h"
+#include "Domain\TabState.h"
 #include "Shell\ContextMenuService.h"
 #include "Shell\ShellClipboardService.h"
 #include "Shell\ShellFileOperationService.h"
@@ -41,13 +42,29 @@ namespace winrt::FileScoutNative::implementation
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::DragEventArgs const&);
 
+        void PaneTabView_AddTabButtonClick(
+            winrt::Microsoft::UI::Xaml::Controls::TabView const&,
+            winrt::Windows::Foundation::IInspectable const&);
+        void PaneTabView_TabCloseRequested(
+            winrt::Microsoft::UI::Xaml::Controls::TabView const&,
+            winrt::Microsoft::UI::Xaml::Controls::TabViewTabCloseRequestedEventArgs const&);
+        void PaneTabView_SelectionChanged(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
+
     private:
         HWND m_hwnd{ nullptr };
         std::filesystem::path m_currentPath;
         std::vector<::FileScoutNative::Domain::ShellItemRef> m_items;
-        winrt::Windows::Foundation::Collections::IObservableVector<winrt::Windows::Foundation::IInspectable> m_rows{
-            winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>() };
         ::FileScoutNative::Domain::PaneSelectionState m_selection;
+
+        std::vector<::FileScoutNative::Domain::TabState> m_tabs;
+        std::vector<winrt::Windows::Foundation::Collections::IObservableVector<
+            winrt::Windows::Foundation::IInspectable>> m_tabRows;
+        winrt::Microsoft::UI::Xaml::Controls::ListView m_activeListView{ nullptr };
+        int32_t m_activeTabIndex{ 0 };
+        bool m_tabSwitching{ false };
+
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;
         ::FileScoutNative::Shell::ShellClipboardService m_shellClipboardService;
@@ -83,6 +100,15 @@ namespace winrt::FileScoutNative::implementation
         [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;
         [[nodiscard]] std::wstring SuggestNewFolderName() const;
         [[nodiscard]] static std::optional<std::wstring> ValidateFileName(std::wstring const& name);
+
+        winrt::Microsoft::UI::Xaml::Controls::ListView CreateTabListView(
+            winrt::Windows::Foundation::Collections::IObservableVector<
+                winrt::Windows::Foundation::IInspectable> const& source);
+        void AddTab(std::filesystem::path const& startPath);
+        void CloseTab(int32_t index);
+        void RestoreActiveTab();
+        void UpdateTabHeader(int32_t index);
+        void UpdateTabCloseability();
     };
 }
 

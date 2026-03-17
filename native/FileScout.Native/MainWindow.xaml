@@ -10,6 +10,14 @@
     Title="FileScout Native">
 
     <Grid>
+        <Grid.Resources>
+            <Style x:Key="FileRowItemStyle" TargetType="ListViewItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0,0,0,8" />
+                <Setter Property="MinHeight" Value="0" />
+            </Style>
+        </Grid.Resources>
         <Grid.Background>
             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                 <GradientStop Color="#FFF5F1E8" Offset="0" />
@@ -110,48 +118,14 @@
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="1"
-                    Padding="0"
-                    CornerRadius="12"
-                    Background="#FDFEFEF0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <Grid Padding="16,12" ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Shell-backed items" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="1" Text="Explorer actions + live shell verbs" Opacity="0.72" />
-                    </Grid>
-
-                    <ListView Grid.Row="1"
-                              x:Name="FileRowsListView"
-                              Margin="12,0,12,12"
-                              AllowDrop="True"
-                              CanDrag="True"
-                              DragItemsStarting="FileRowsListView_DragItemsStarting"
-                              DragOver="FileRowsListView_DragOver"
-                              Drop="FileRowsListView_Drop"
-                              DoubleTapped="FileRowsListView_DoubleTapped"
-                              RightTapped="FileRowsListView_RightTapped"
-                              SelectionChanged="FileRowsListView_SelectionChanged"
-                              SelectionMode="Single">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Padding" Value="0" />
-                                <Setter Property="Margin" Value="0,0,0,8" />
-                                <Setter Property="MinHeight" Value="0" />
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                    </ListView>
-                </Grid>
-            </Border>
+            <TabView Grid.Column="1"
+                     x:Name="PaneTabView"
+                     TabWidthMode="SizeToContent"
+                     CloseButtonOverlayMode="OnPointerOver"
+                     Background="#FDFEFEF0"
+                     AddTabButtonClick="PaneTabView_AddTabButtonClick"
+                     TabCloseRequested="PaneTabView_TabCloseRequested"
+                     SelectionChanged="PaneTabView_SelectionChanged" />
         </Grid>
 
         <Border Grid.Row="3"
