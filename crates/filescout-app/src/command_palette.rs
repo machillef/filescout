@@ -1,7 +1,7 @@
 //! Command palette — fuzzy-searchable list of app actions (Ctrl+Shift+P).
 
-use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-use iced::widget::{button, column, container, scrollable, text, text_input, Id};
+use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
+use iced::widget::{Id, button, column, container, scrollable, text, text_input};
 use iced::{Background, Color, Element, Length, Theme};
 
 /// Widget ID for the palette scrollable (used for programmatic scroll).

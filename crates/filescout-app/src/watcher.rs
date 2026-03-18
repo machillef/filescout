@@ -11,8 +11,8 @@ use std::hash::Hash;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use iced::advanced::subscription::{from_recipe, EventStream, Hasher, Recipe};
 use iced::Subscription;
+use iced::advanced::subscription::{EventStream, Hasher, Recipe, from_recipe};
 use notify::{EventKind, RecursiveMode, Watcher};
 use tokio::sync::mpsc as async_mpsc;
 
@@ -31,7 +31,10 @@ impl Recipe for WatcherRecipe {
         self.paths.hash(state);
     }
 
-    fn stream(self: Box<Self>, _input: EventStream) -> iced::futures::stream::BoxStream<'static, PathBuf> {
+    fn stream(
+        self: Box<Self>,
+        _input: EventStream,
+    ) -> iced::futures::stream::BoxStream<'static, PathBuf> {
         let paths = self.paths;
 
         let s = iced::stream::channel(16, async move |mut sender| {
@@ -44,18 +47,14 @@ impl Recipe for WatcherRecipe {
                 notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
                     if let Ok(event) = res {
                         match event.kind {
-                            EventKind::Create(_)
-                            | EventKind::Modify(_)
-                            | EventKind::Remove(_) => {
+                            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
                                 for path in event.paths {
                                     // Normalise to parent dir so callers can
                                     // compare directly to `current_path`.
                                     let dir = if path.is_dir() {
                                         path
                                     } else {
-                                        path.parent()
-                                            .map(|p| p.to_path_buf())
-                                            .unwrap_or(path)
+                                        path.parent().map(|p| p.to_path_buf()).unwrap_or(path)
                                     };
                                     let _ = cb_tx.send(dir);
                                 }

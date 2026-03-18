@@ -37,9 +37,11 @@ pub fn bookmarks_view<'a>(
 ) -> Element<'a, BookmarkMessage> {
     let items: Vec<Element<'_, BookmarkMessage>> = if bookmarks.is_empty() {
         vec![
-            container(text("No bookmarks yet.  Press Ctrl+D to bookmark the current directory.").size(13))
-                .padding([8, 12])
-                .into(),
+            container(
+                text("No bookmarks yet.  Press Ctrl+D to bookmark the current directory.").size(13),
+            )
+            .padding([8, 12])
+            .into(),
         ]
     } else {
         bookmarks
@@ -58,13 +60,12 @@ pub fn bookmarks_view<'a>(
 
                 let path_label = text(path_display).size(11);
 
-                let navigate_btn = button(
-                    column![name_label, path_label].spacing(2).padding([0, 4]),
-                )
-                .on_press(BookmarkMessage::Navigate(bm.path.clone()))
-                .style(button::text)
-                .width(Length::Fill)
-                .padding([6, 12]);
+                let navigate_btn =
+                    button(column![name_label, path_label].spacing(2).padding([0, 4]))
+                        .on_press(BookmarkMessage::Navigate(bm.path.clone()))
+                        .style(button::text)
+                        .width(Length::Fill)
+                        .padding([6, 12]);
 
                 let remove_btn = button(text("✕").size(12))
                     .on_press(BookmarkMessage::Remove(i))

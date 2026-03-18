@@ -77,6 +77,17 @@ impl SelectionState {
         self.anchor = Some(path);
     }
 
+    /// Right-click — preserve an existing selection when clicking a selected item,
+    /// otherwise retarget selection to the clicked item.
+    pub fn right_click(&mut self, path: PathBuf) {
+        if self.items.contains(&path) {
+            self.focus = Some(path.clone());
+            self.anchor = Some(path);
+        } else {
+            self.single_select(path);
+        }
+    }
+
     /// Shift+click — range-select from anchor to `path` using the given ordered entry list.
     ///
     /// The anchor does NOT change on shift-click.
@@ -118,7 +129,11 @@ impl SelectionState {
 
         if let Some(new_entry) = entries.get(new_focus_idx) {
             if let Some(a) = anchor_idx {
-                let (lo, hi) = if a <= new_focus_idx { (a, new_focus_idx) } else { (new_focus_idx, a) };
+                let (lo, hi) = if a <= new_focus_idx {
+                    (a, new_focus_idx)
+                } else {
+                    (new_focus_idx, a)
+                };
                 for entry in &entries[lo..=hi] {
                     self.items.insert(entry.path.clone());
                 }
@@ -208,7 +223,6 @@ impl TabState {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.current_path.display().to_string())
     }
-
 }
 
 /// Identifies which of the two panes a message belongs to.
@@ -642,6 +656,28 @@ mod tests {
         assert!(s.items().contains(Path::new("c")));
         assert!(s.items().contains(Path::new("d")));
         assert_eq!(s.focus(), Some(Path::new("d")));
+    }
+
+    #[test]
+    fn right_click_on_unselected_item_retargets_selection() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        s.right_click(p("b.txt"));
+        assert_eq!(s.len(), 1);
+        assert!(s.items().contains(Path::new("b.txt")));
+        assert_eq!(s.focus(), Some(Path::new("b.txt")));
+    }
+
+    #[test]
+    fn right_click_on_selected_item_preserves_multi_selection() {
+        let mut s = SelectionState::new();
+        s.single_select(p("a.txt"));
+        s.ctrl_click(p("b.txt"));
+        s.right_click(p("a.txt"));
+        assert_eq!(s.len(), 2);
+        assert!(s.items().contains(Path::new("a.txt")));
+        assert!(s.items().contains(Path::new("b.txt")));
+        assert_eq!(s.focus(), Some(Path::new("a.txt")));
     }
 
     #[test]

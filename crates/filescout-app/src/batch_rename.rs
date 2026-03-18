@@ -4,8 +4,8 @@
 
 use std::path::PathBuf;
 
-use filescout_core::batch_rename::{preview_batch_rename, BatchRenamePreview};
 use filescout_core::FileEntry;
+use filescout_core::batch_rename::{BatchRenamePreview, preview_batch_rename};
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
 use iced::{Background, Color, Element, Length, Theme};
 
@@ -88,11 +88,15 @@ fn backdrop_style(_theme: &Theme) -> container::Style {
 }
 
 fn error_text_style(_theme: &Theme) -> iced::widget::text::Style {
-    iced::widget::text::Style { color: Some(Color::from_rgb(1.0, 0.45, 0.45)) }
+    iced::widget::text::Style {
+        color: Some(Color::from_rgb(1.0, 0.45, 0.45)),
+    }
 }
 
 fn muted_text_style(_theme: &Theme) -> iced::widget::text::Style {
-    iced::widget::text::Style { color: Some(Color::from_rgb(0.6, 0.6, 0.6)) }
+    iced::widget::text::Style {
+        color: Some(Color::from_rgb(0.6, 0.6, 0.6)),
+    }
 }
 
 /// Renders the batch rename overlay as a full-screen dimmed backdrop.
@@ -110,21 +114,24 @@ pub fn batch_rename_view(state: &BatchRenameState) -> Element<'_, BatchRenameMes
 
     let inputs = row![pattern_input, ext_input].spacing(8);
 
-    let help = text("Tokens:  {name}  {ext}  {n}  {n:03}").size(11).style(muted_text_style);
+    let help = text("Tokens:  {name}  {ext}  {n}  {n:03}")
+        .size(11)
+        .style(muted_text_style);
 
     // Column headers
     let col_header = row![
-        container(text("Original Name").size(12)).width(Length::FillPortion(1)).padding([0, 4]),
-        container(text("New Name").size(12)).width(Length::FillPortion(1)).padding([0, 4]),
+        container(text("Original Name").size(12))
+            .width(Length::FillPortion(1))
+            .padding([0, 4]),
+        container(text("New Name").size(12))
+            .width(Length::FillPortion(1))
+            .padding([0, 4]),
     ]
     .spacing(4);
 
     // Preview rows
-    let preview_rows: Vec<Element<'_, BatchRenameMessage>> = state
-        .previews
-        .iter()
-        .map(|p| preview_row(p))
-        .collect();
+    let preview_rows: Vec<Element<'_, BatchRenameMessage>> =
+        state.previews.iter().map(|p| preview_row(p)).collect();
 
     let list = scrollable(column(preview_rows).spacing(1).width(Length::Fill)).height(280);
 
@@ -180,7 +187,10 @@ pub fn batch_rename_view(state: &BatchRenameState) -> Element<'_, BatchRenameMes
     .padding(16)
     .style(container::rounded_box);
 
-    container(panel).center(Length::Fill).style(backdrop_style).into()
+    container(panel)
+        .center(Length::Fill)
+        .style(backdrop_style)
+        .into()
 }
 
 fn preview_row(p: &BatchRenamePreview) -> Element<'_, BatchRenameMessage> {
@@ -191,14 +201,21 @@ fn preview_row(p: &BatchRenamePreview) -> Element<'_, BatchRenameMessage> {
         .unwrap_or_default();
 
     let new_name_widget: Element<'_, BatchRenameMessage> = if let Some(ref err) = p.error {
-        text(format!("⚠ {err}")).size(13).style(error_text_style).into()
+        text(format!("⚠ {err}"))
+            .size(13)
+            .style(error_text_style)
+            .into()
     } else {
         text(&p.new_name).size(13).into()
     };
 
     row![
-        container(text(orig_name).size(13)).width(Length::FillPortion(1)).padding([2, 4]),
-        container(new_name_widget).width(Length::FillPortion(1)).padding([2, 4]),
+        container(text(orig_name).size(13))
+            .width(Length::FillPortion(1))
+            .padding([2, 4]),
+        container(new_name_widget)
+            .width(Length::FillPortion(1))
+            .padding([2, 4]),
     ]
     .spacing(4)
     .into()

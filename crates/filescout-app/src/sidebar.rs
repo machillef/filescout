@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use filescout_core::bookmarks::Bookmarks;
 use filescout_ui::theme;
-use iced::widget::{button, column, container, row, text, Space};
+use iced::widget::{Space, button, column, container, row, text};
 use iced::{Alignment, Element, Length};
 
 /// Sidebar sections that can be independently collapsed.
@@ -70,7 +70,11 @@ pub fn sidebar_view(
     let mut sections: Vec<Element<'static, SidebarMessage>> = Vec::new();
 
     // --- Places section ---
-    sections.push(section_header("Places", state.places_expanded, SidebarSection::Places));
+    sections.push(section_header(
+        "Places",
+        state.places_expanded,
+        SidebarSection::Places,
+    ));
     if state.places_expanded {
         let places: Vec<(&str, &str, Option<PathBuf>)> = vec![
             ("🏠", "Home", dirs::home_dir()),
@@ -110,7 +114,11 @@ pub fn sidebar_view(
     }
 
     // --- Drives section ---
-    sections.push(section_header("Drives", state.drives_expanded, SidebarSection::Drives));
+    sections.push(section_header(
+        "Drives",
+        state.drives_expanded,
+        SidebarSection::Drives,
+    ));
     if state.drives_expanded {
         for drive in drives {
             let label = drive
@@ -142,15 +150,12 @@ fn section_header(
 ) -> Element<'static, SidebarMessage> {
     let arrow = if expanded { "▼" } else { "▶" };
     let display = format!("{arrow} {label}");
-    button(
-        row![text(display).size(12)]
-            .align_y(Alignment::Center),
-    )
-    .on_press(SidebarMessage::ToggleSection(section))
-    .style(button::text)
-    .width(Length::Fill)
-    .padding([4, 4])
-    .into()
+    button(row![text(display).size(12)].align_y(Alignment::Center))
+        .on_press(SidebarMessage::ToggleSection(section))
+        .style(button::text)
+        .width(Length::Fill)
+        .padding([4, 4])
+        .into()
 }
 
 fn sidebar_item(
@@ -160,7 +165,11 @@ fn sidebar_item(
     is_active: bool,
 ) -> Element<'static, SidebarMessage> {
     let display = format!("{icon} {label}");
-    let style = if is_active { button::primary } else { button::text };
+    let style = if is_active {
+        button::primary
+    } else {
+        button::text
+    };
     button(
         row![text(display).size(13)]
             .align_y(Alignment::Center)
@@ -180,7 +189,11 @@ fn bookmark_item(
     is_active: bool,
 ) -> Element<'static, SidebarMessage> {
     let display = format!("⭐ {name}");
-    let style = if is_active { button::primary } else { button::text };
+    let style = if is_active {
+        button::primary
+    } else {
+        button::text
+    };
     button(
         row![text(display).size(13)]
             .align_y(Alignment::Center)

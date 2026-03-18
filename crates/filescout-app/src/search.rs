@@ -75,7 +75,11 @@ impl SearchState {
 
     /// Returns the extension filter as `Some(&str)` when non-empty, else `None`.
     pub fn ext_filter_opt(&self) -> Option<&str> {
-        if self.ext_filter.is_empty() { None } else { Some(&self.ext_filter) }
+        if self.ext_filter.is_empty() {
+            None
+        } else {
+            Some(&self.ext_filter)
+        }
     }
 }
 
@@ -104,11 +108,15 @@ pub fn search_view(state: &SearchState) -> Element<'_, SearchMessage> {
     let status: Element<'_, SearchMessage> = if state.loading {
         text("Searching…").size(12).into()
     } else if state.query.is_empty() {
-        text("Type to search from the current directory").size(12).into()
+        text("Type to search from the current directory")
+            .size(12)
+            .into()
     } else if state.results.is_empty() {
         text("No results").size(12).into()
     } else {
-        text(format!("{} result(s)", state.results.len())).size(12).into()
+        text(format!("{} result(s)", state.results.len()))
+            .size(12)
+            .into()
     };
 
     let items: Vec<Element<'_, SearchMessage>> = state
@@ -116,7 +124,11 @@ pub fn search_view(state: &SearchState) -> Element<'_, SearchMessage> {
         .iter()
         .enumerate()
         .map(|(i, result)| {
-            let style = if i == state.selected { button::primary } else { button::text };
+            let style = if i == state.selected {
+                button::primary
+            } else {
+                button::text
+            };
             let display = result.path.display().to_string();
             let path = result.path.clone();
             button(text(display).size(13))
@@ -135,7 +147,10 @@ pub fn search_view(state: &SearchState) -> Element<'_, SearchMessage> {
         .padding(12)
         .style(container::rounded_box);
 
-    container(panel).center(Length::Fill).style(backdrop_style).into()
+    container(panel)
+        .center(Length::Fill)
+        .style(backdrop_style)
+        .into()
 }
 
 #[cfg(test)]
@@ -145,7 +160,10 @@ mod tests {
     fn state_with_results(n: usize) -> SearchState {
         let mut s = SearchState::new(PathBuf::from("C:\\"));
         s.results = (0..n)
-            .map(|i| SearchResult { path: PathBuf::from(format!("C:\\file{}.rs", i)), score: (n - i) as i64 })
+            .map(|i| SearchResult {
+                path: PathBuf::from(format!("C:\\file{}.rs", i)),
+                score: (n - i) as i64,
+            })
             .collect();
         s
     }

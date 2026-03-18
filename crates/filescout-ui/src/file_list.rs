@@ -2,10 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use filescout_core::{FileEntry, SortColumn, SortDirection, ViewMode};
-use iced::widget::scrollable::Viewport;
-use iced::widget::{button, column, container, image, row, scrollable, text, text_input, Space};
-use iced::{Element, Length};
 use iced::widget::Id;
+use iced::widget::scrollable::Viewport;
+use iced::widget::{
+    Space, button, column, container, image, mouse_area, row, scrollable, text, text_input,
+};
+use iced::{Element, Length};
 
 use crate::theme;
 
@@ -27,6 +29,10 @@ pub enum FileListMessage {
     Sort(SortColumn),
     /// A file or directory row was clicked for selection.
     Select(PathBuf),
+    /// A file or directory row was right-clicked.
+    RightClick(PathBuf),
+    /// Empty space in the file list was right-clicked.
+    RightClickBackground,
     /// The inline rename text input changed.
     RenameEdit(String),
     /// The scrollable viewport changed (scroll or resize).
@@ -88,7 +94,12 @@ pub fn file_list_view<'a>(
     // Top spacer
     let top_spacer_height = first_visible as f32 * row_with_spacing;
     if top_spacer_height > 0.0 {
-        rows.push(Space::new().width(Length::Fill).height(top_spacer_height).into());
+        rows.push(
+            Space::new()
+                .width(Length::Fill)
+                .height(top_spacer_height)
+                .into(),
+        );
     }
 
     for idx in first_visible..last_visible {
@@ -107,7 +118,13 @@ pub fn file_list_view<'a>(
                     let (_, rename_text) = renaming.unwrap();
                     rows.push(build_rename_row(entry, rename_text, is_details));
                 } else {
-                    rows.push(build_entry_row(entry, is_selected, is_details, idx, icon_cache));
+                    rows.push(build_entry_row(
+                        entry,
+                        is_selected,
+                        is_details,
+                        idx,
+                        icon_cache,
+                    ));
                 }
             }
         }
@@ -116,17 +133,33 @@ pub fn file_list_view<'a>(
     // Bottom spacer
     let bottom_spacer_height = (total_rows.saturating_sub(last_visible)) as f32 * row_with_spacing;
     if bottom_spacer_height > 0.0 {
-        rows.push(Space::new().width(Length::Fill).height(bottom_spacer_height).into());
+        rows.push(
+            Space::new()
+                .width(Length::Fill)
+                .height(bottom_spacer_height)
+                .into(),
+        );
     }
 
-    let list = column(rows).spacing(1);
+    let list = column(rows).spacing(1).width(Length::Fill);
 
-    let scrollable_list = scrollable(list)
+    let scrollable_list = scrollable(container(list).width(Length::Fill).height(Length::Fill))
         .id(Id::new(pane_id))
+        .width(Length::Fill)
+        .height(Length::Fill)
         .on_scroll(FileListMessage::ScrollChanged);
 
-    column![header, scrollable_list]
+    let body = mouse_area(
+        container(scrollable_list)
+            .width(Length::Fill)
+            .height(Length::Fill),
+    )
+    .on_right_press(FileListMessage::RightClickBackground);
+
+    column![header, body]
         .spacing(5)
+        .width(Length::Fill)
+        .height(Length::Fill)
         .into()
 }
 
@@ -144,37 +177,38 @@ fn build_header<'a>(
     is_details: bool,
 ) -> Element<'a, FileListMessage> {
     let mut header_items: Vec<Element<'a, FileListMessage>> = vec![
-        button(text(format!("Name{}", sort_indicator(sort_col, sort_dir, &SortColumn::Name))))
-            .on_press(FileListMessage::Sort(SortColumn::Name))
-            .style(button::text)
-            .width(Length::FillPortion(NAME_PORTION))
-            .into(),
+        button(text(format!(
+            "Name{}",
+            sort_indicator(sort_col, sort_dir, &SortColumn::Name)
+        )))
+        .on_press(FileListMessage::Sort(SortColumn::Name))
+        .style(button::text)
+        .width(Length::FillPortion(NAME_PORTION))
+        .into(),
     ];
     if is_details {
-        header_items.push(
-            text("Ext")
-                .width(Length::FillPortion(EXT_PORTION))
-                .into(),
-        );
-        header_items.push(
-            text("Type")
-                .width(Length::FillPortion(TYPE_PORTION))
-                .into(),
-        );
+        header_items.push(text("Ext").width(Length::FillPortion(EXT_PORTION)).into());
+        header_items.push(text("Type").width(Length::FillPortion(TYPE_PORTION)).into());
     }
     header_items.push(
-        button(text(format!("Size{}", sort_indicator(sort_col, sort_dir, &SortColumn::Size))))
-            .on_press(FileListMessage::Sort(SortColumn::Size))
-            .style(button::text)
-            .width(Length::FillPortion(SIZE_PORTION))
-            .into(),
+        button(text(format!(
+            "Size{}",
+            sort_indicator(sort_col, sort_dir, &SortColumn::Size)
+        )))
+        .on_press(FileListMessage::Sort(SortColumn::Size))
+        .style(button::text)
+        .width(Length::FillPortion(SIZE_PORTION))
+        .into(),
     );
     header_items.push(
-        button(text(format!("Modified{}", sort_indicator(sort_col, sort_dir, &SortColumn::Modified))))
-            .on_press(FileListMessage::Sort(SortColumn::Modified))
-            .style(button::text)
-            .width(Length::FillPortion(MODIFIED_PORTION))
-            .into(),
+        button(text(format!(
+            "Modified{}",
+            sort_indicator(sort_col, sort_dir, &SortColumn::Modified)
+        )))
+        .on_press(FileListMessage::Sort(SortColumn::Modified))
+        .style(button::text)
+        .width(Length::FillPortion(MODIFIED_PORTION))
+        .into(),
     );
 
     container(row(header_items).spacing(10).padding(5))
@@ -196,7 +230,7 @@ fn build_parent_row(parent: PathBuf, is_details: bool) -> Element<'static, FileL
     up_items.push(text("").width(Length::FillPortion(SIZE_PORTION)).into());
     up_items.push(text("").width(Length::FillPortion(MODIFIED_PORTION)).into());
 
-    button(row(up_items).spacing(10).padding(2))
+    button(row(up_items).spacing(10).padding(2).width(Length::Fill))
         .on_press(FileListMessage::Navigate(parent))
         .style(button::text)
         .width(Length::Fill)
@@ -210,8 +244,16 @@ fn build_rename_row<'a>(
 ) -> Element<'a, FileListMessage> {
     let size_text = format_size_for(entry);
     let modified_text = format_modified(entry);
-    let ext_text = if is_details { extract_extension(&entry.name) } else { String::new() };
-    let type_text = if is_details { file_type_description(entry) } else { String::new() };
+    let ext_text = if is_details {
+        extract_extension(&entry.name)
+    } else {
+        String::new()
+    };
+    let type_text = if is_details {
+        file_type_description(entry)
+    } else {
+        String::new()
+    };
 
     let mut rename_items: Vec<Element<'a, FileListMessage>> = vec![
         text_input("New name…", rename_text)
@@ -221,13 +263,29 @@ fn build_rename_row<'a>(
             .into(),
     ];
     if is_details {
-        rename_items.push(text(ext_text).width(Length::FillPortion(EXT_PORTION)).into());
-        rename_items.push(text(type_text).width(Length::FillPortion(TYPE_PORTION)).into());
+        rename_items.push(
+            text(ext_text)
+                .width(Length::FillPortion(EXT_PORTION))
+                .into(),
+        );
+        rename_items.push(
+            text(type_text)
+                .width(Length::FillPortion(TYPE_PORTION))
+                .into(),
+        );
     }
-    rename_items.push(text(size_text).width(Length::FillPortion(SIZE_PORTION)).into());
-    rename_items.push(text(modified_text).width(Length::FillPortion(MODIFIED_PORTION)).into());
+    rename_items.push(
+        text(size_text)
+            .width(Length::FillPortion(SIZE_PORTION))
+            .into(),
+    );
+    rename_items.push(
+        text(modified_text)
+            .width(Length::FillPortion(MODIFIED_PORTION))
+            .into(),
+    );
 
-    container(row(rename_items).spacing(10).padding(2))
+    container(row(rename_items).spacing(10).padding(2).width(Length::Fill))
         .style(container::bordered_box)
         .width(Length::Fill)
         .into()
@@ -242,8 +300,16 @@ fn build_entry_row<'a>(
 ) -> Element<'a, FileListMessage> {
     let size_text = format_size_for(entry);
     let modified_text = format_modified(entry);
-    let ext_text = if is_details { extract_extension(&entry.name) } else { String::new() };
-    let type_text = if is_details { file_type_description(entry) } else { String::new() };
+    let ext_text = if is_details {
+        extract_extension(&entry.name)
+    } else {
+        String::new()
+    };
+    let type_text = if is_details {
+        file_type_description(entry)
+    } else {
+        String::new()
+    };
 
     // Look up native icon: directories use DIR_ICON_KEY, files use their extension
     let icon_key = if entry.is_dir {
@@ -272,48 +338,76 @@ fn build_entry_row<'a>(
 
     let mut row_items: Vec<Element<'a, FileListMessage>> = vec![name_cell];
     if is_details {
-        row_items.push(text(ext_text).width(Length::FillPortion(EXT_PORTION)).into());
-        row_items.push(text(type_text).width(Length::FillPortion(TYPE_PORTION)).into());
+        row_items.push(
+            text(ext_text)
+                .width(Length::FillPortion(EXT_PORTION))
+                .into(),
+        );
+        row_items.push(
+            text(type_text)
+                .width(Length::FillPortion(TYPE_PORTION))
+                .into(),
+        );
     }
-    row_items.push(text(size_text).width(Length::FillPortion(SIZE_PORTION)).into());
-    row_items.push(text(modified_text).width(Length::FillPortion(MODIFIED_PORTION)).into());
+    row_items.push(
+        text(size_text)
+            .width(Length::FillPortion(SIZE_PORTION))
+            .into(),
+    );
+    row_items.push(
+        text(modified_text)
+            .width(Length::FillPortion(MODIFIED_PORTION))
+            .into(),
+    );
 
-    let row_content = row(row_items).spacing(10).padding(2);
-    let path_clone = entry.path.clone();
+    let row_content = row(row_items).spacing(10).padding(2).width(Length::Fill);
+    let left_click_path = entry.path.clone();
+    let right_click_path = entry.path.clone();
 
     if is_selected {
         // Selected row: accent background via theme style
-        let btn: Element<'a, FileListMessage> = button(row_content)
-            .on_press(FileListMessage::Select(path_clone))
-            .style(|theme, status| {
-                let mut style = theme::file_row_selected_style(theme);
-                if matches!(status, button::Status::Hovered) {
-                    style.background = Some(iced::Background::Color(
-                        if theme::is_dark_theme(theme) { theme::dark::ACCENT_HOVER } else { theme::light::ACCENT_HOVER }
-                    ));
-                }
-                style
-            })
-            .width(Length::Fill)
-            .into();
-        btn
+        mouse_area(
+            button(row_content)
+                .on_press(FileListMessage::Select(left_click_path))
+                .style(|theme, status| {
+                    let mut style = theme::file_row_selected_style(theme);
+                    if matches!(status, button::Status::Hovered) {
+                        style.background =
+                            Some(iced::Background::Color(if theme::is_dark_theme(theme) {
+                                theme::dark::ACCENT_HOVER
+                            } else {
+                                theme::light::ACCENT_HOVER
+                            }));
+                    }
+                    style
+                })
+                .width(Length::Fill),
+        )
+        .on_right_press(FileListMessage::RightClick(right_click_path))
+        .into()
     } else if row_idx % 2 == 1 {
         // Alternating row: subtle zebra background
-        container(
+        mouse_area(
+            container(
+                button(row_content)
+                    .on_press(FileListMessage::Select(left_click_path))
+                    .style(button::text)
+                    .width(Length::Fill),
+            )
+            .style(theme::file_row_alt_style)
+            .width(Length::Fill),
+        )
+        .on_right_press(FileListMessage::RightClick(right_click_path))
+        .into()
+    } else {
+        mouse_area(
             button(row_content)
-                .on_press(FileListMessage::Select(path_clone))
+                .on_press(FileListMessage::Select(left_click_path))
                 .style(button::text)
                 .width(Length::Fill),
         )
-        .style(theme::file_row_alt_style)
-        .width(Length::Fill)
+        .on_right_press(FileListMessage::RightClick(right_click_path))
         .into()
-    } else {
-        button(row_content)
-            .on_press(FileListMessage::Select(path_clone))
-            .style(button::text)
-            .width(Length::Fill)
-            .into()
     }
 }
 
@@ -334,7 +428,11 @@ fn format_modified(entry: &FileEntry) -> String {
 
 fn sort_indicator<'a>(current: &SortColumn, dir: &SortDirection, col: &SortColumn) -> &'a str {
     if current == col {
-        if *dir == SortDirection::Asc { " ▲" } else { " ▼" }
+        if *dir == SortDirection::Asc {
+            " ▲"
+        } else {
+            " ▼"
+        }
     } else {
         ""
     }

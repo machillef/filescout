@@ -5,7 +5,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use filescout_core::properties::{format_size, FileProperties};
+use filescout_core::properties::{FileProperties, format_size};
 use iced::widget::{button, column, container, row, text};
 use iced::{Background, Color, Element, Length, Theme};
 
@@ -39,7 +39,11 @@ pub struct MultiSelectionInfo {
 
 impl PropertiesState {
     pub fn new(props: FileProperties) -> Self {
-        Self { props, dir_size: None, multi_info: None }
+        Self {
+            props,
+            dir_size: None,
+            multi_info: None,
+        }
     }
 
     pub fn new_multi(file_count: usize, dir_count: usize) -> Self {
@@ -126,12 +130,9 @@ fn backdrop_style(_theme: &Theme) -> container::Style {
 
 /// A single label-value row inside the properties card.
 fn prop_row<'a>(label: &'a str, value: String) -> Element<'a, PropertiesMessage> {
-    row![
-        text(label).size(12).width(110),
-        text(value).size(13),
-    ]
-    .spacing(8)
-    .into()
+    row![text(label).size(12).width(110), text(value).size(13),]
+        .spacing(8)
+        .into()
 }
 
 fn checkbox_label(checked: bool, label: &str) -> String {
@@ -147,10 +148,7 @@ pub fn properties_view(state: &PropertiesState) -> Element<'_, PropertiesMessage
     let rows: Element<'_, PropertiesMessage> = if let Some(ref multi) = state.multi_info {
         // Multi-selection view: summary with total size.
         let total = multi.file_count + multi.dir_count;
-        let contains = format!(
-            "{} files, {} folders",
-            multi.file_count, multi.dir_count,
-        );
+        let contains = format!("{} files, {} folders", multi.file_count, multi.dir_count,);
         let size_str = match multi.total_size {
             Some(n) => format!("{} ({n} bytes)", format_size(n)),
             None => "Computing…".into(),

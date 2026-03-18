@@ -1,37 +1,46 @@
 # FileScout
 
-A high-performance, open-source file explorer for Windows built with Rust and iced.
+FileScout is a Windows file explorer project currently in transition.
 
-## Features (Planned)
+## Current State
 
-- Dual-pane file management with tabs
-- Command palette with fuzzy search
-- Batch rename with pattern support
-- File preview (images, text, PDF)
-- AI-powered features (natural language search, smart organization)
-- GPU-rendered UI via wgpu
-- Dark and light themes
+- `crates/` contains the original Rust + `iced` prototype
+- `native/` contains the active Windows 11 native rewrite in C++/WinRT + WinUI 3
 
-## Tech Stack
+The Rust prototype proved that FileScout can be fast. It did **not** meet the
+product bar for Explorer-class Windows parity, especially around shell
+integration and context-menu fidelity. The native rewrite is now the primary
+implementation track.
 
-- **Language:** Rust
-- **GUI:** iced (Elm-inspired, GPU-rendered)
-- **Async:** tokio
-- **Target:** Windows 10+ (x86-64)
+## Native Rewrite Goals
 
-## Building
+- Windows 11 native windowing and focus behavior
+- Explorer-parity shell semantics for filesystem-backed views
+- Win11-style context menu with shell-backed command overflow
+- Native clipboard, drag/drop, icons, and properties integration
+- Tabs, dual-pane workflows, and FileScout-specific power features after parity
+
+## Repo Layout
+
+- [native/README.md](/Users/machi/source/repos/filescout/native/README.md): native rewrite overview and build commands
+- `crates/`: legacy Rust prototype
+- `docs/ai/`: initiative history, learnings, and pivot notes
+
+## Legacy Prototype Commands
 
 ```powershell
 cargo build
 cargo run
+cargo test
+cargo clippy -- -D warnings
+cargo fmt -- --check
 ```
 
-## Quality Gates
+## Native Rewrite Commands
 
 ```powershell
-cargo clippy -- -D warnings
-cargo test
-cargo fmt -- --check
+cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /restore /p:RestorePackagesConfig=true"
+cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"
 ```
 
 ## License
