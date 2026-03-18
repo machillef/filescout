@@ -258,4 +258,59 @@ namespace FileScoutNative::Shell
 
         return items;
     }
+
+    std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateDrives()
+    {
+        std::vector<FileScoutNative::Domain::ShellItemRef> drives;
+
+        wchar_t driveBuf[MAX_PATH]{};
+        const DWORD length = GetLogicalDriveStringsW(MAX_PATH - 1, driveBuf);
+        if (length == 0 || length > MAX_PATH)
+        {
+            return drives;
+        }
+
+        for (wchar_t const* cursor = driveBuf; *cursor != L'\0'; cursor += wcslen(cursor) + 1)
+        {
+            std::filesystem::path drivePath{ cursor };
+
+            const UINT driveType = GetDriveTypeW(cursor);
+
+            std::wstring kindLabel;
+            switch (driveType)
+            {
+            case DRIVE_REMOVABLE: kindLabel = L"Removable Drive"; break;
+            case DRIVE_CDROM:     kindLabel = L"CD/DVD Drive";     break;
+            case DRIVE_REMOTE:    kindLabel = L"Network Drive";    break;
+            case DRIVE_RAMDISK:   kindLabel = L"RAM Disk";         break;
+            default:              kindLabel = L"Local Disk";       break;
+            }
+
+            // Use the volume label as the display name when available.
+            wchar_t volLabel[MAX_PATH]{};
+            GetVolumeInformationW(cursor, volLabel, MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0);
+
+            std::wstring displayName;
+            if (volLabel[0] != L'\0')
+            {
+                displayName = std::wstring{ volLabel } + L" (" + drivePath.root_name().wstring() + L")";
+            }
+            else
+            {
+                displayName = kindLabel + L" (" + drivePath.root_name().wstring() + L")";
+            }
+
+            FileScoutNative::Domain::ShellItemRef item;
+            item.path = drivePath;
+            item.display_name = displayName;
+            item.parsing_name = drivePath.wstring();
+            item.kind_label = kindLabel;
+            item.is_folder = true;
+            item.icon = GetIconForItem(drivePath, true);
+
+            drives.push_back(std::move(item));
+        }
+
+        return drives;
+    }
 }

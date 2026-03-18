@@ -193,12 +193,16 @@ namespace winrt::FileScoutNative::implementation
         ConfigureWindow();
         SetupKeyboardAccelerators();
 
-        auto const startPath = std::filesystem::current_path();
+        // Start in the user's home folder rather than the process working directory.
+        auto const startPath = m_favoritesService.GetUserHomePath();
 
         // Initialize both panes. Right pane starts at the same path but is loaded
         // lazily — it gets LoadDirectory called when InitPane runs for index 1.
         InitPane(0, startPath);
         InitPane(1, startPath);
+
+        // Build the sidebar navigation buttons after panes are initialized.
+        BuildSidebarFavorites();
 
         // Pane 0 (left) starts as active with its indicator already lit.
         m_activePaneIndex = 0;
@@ -531,6 +535,7 @@ namespace winrt::FileScoutNative::implementation
 
             auto& pane = ActivePane();
             pane.current_path = absolute;
+            pane.is_drives_view = false;
             pane.items = items;
             pane.selection.Clear();
 
@@ -539,6 +544,7 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].items = items;
             pane.tabs[pane.active_tab_index].selection = {};
             pane.tabs[pane.active_tab_index].selected_item_index = -1;
+            pane.tabs[pane.active_tab_index].is_drives_view = false;
             UpdateTabHeader(pane.active_tab_index);
 
             AddressTextBox().Text(ToHString(absolute.wstring()));
@@ -1501,5 +1507,85 @@ namespace winrt::FileScoutNative::implementation
 
         LeftPaneBorder().BorderBrush(m_activePaneIndex == 0 ? accentBrush : transparentBrush);
         RightPaneBorder().BorderBrush(m_activePaneIndex == 1 ? accentBrush : transparentBrush);
+    }
+
+    void MainWindow::BuildSidebarFavorites()
+    {
+        auto const panel = SidebarPlacesPanel();
+        panel.Children().Clear();
+
+        for (auto const& entry : m_favoritesService.GetBuiltinFavorites())
+        {
+            auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
+            btn.Content(winrt::box_value(ToHString(entry.display_name)));
+            btn.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
+            btn.HorizontalContentAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
+            btn.Padding({ 8, 6, 8, 6 });
+
+
+            if (entry.is_drives_view)
+            {
+                btn.Click([this](auto const&, auto const&) { LoadDrivesView(); });
+            }
+            else if (entry.is_recycle_bin)
+            {
+                btn.Click([this](auto const&, auto const&)
+                {
+                    ShellExecuteW(GetWindowHandle(), L"open",
+                        L"shell:RecycleBinFolder", nullptr, nullptr, SW_SHOW);
+                    StatusTextBlock().Text(L"Opened Recycle Bin in Explorer.");
+                });
+            }
+            else if (!entry.path.empty())
+            {
+                auto const targetPath = entry.path;
+                btn.Click([this, targetPath](auto const&, auto const&)
+                {
+                    LoadDirectory(targetPath);
+                });
+            }
+
+            panel.Children().Append(btn);
+        }
+    }
+
+    void MainWindow::LoadDrivesView()
+    {
+        try
+        {
+            auto items = m_shellInterop.EnumerateDrives();
+
+            auto& pane = ActivePane();
+            pane.current_path = std::filesystem::path{};
+            pane.is_drives_view = true;
+            pane.items = items;
+            pane.selection.Clear();
+
+            pane.tabs[pane.active_tab_index].path = std::filesystem::path{};
+            pane.tabs[pane.active_tab_index].items = items;
+            pane.tabs[pane.active_tab_index].selection = {};
+            pane.tabs[pane.active_tab_index].selected_item_index = -1;
+            pane.tabs[pane.active_tab_index].is_drives_view = true;
+            UpdateTabHeader(pane.active_tab_index);
+
+            AddressTextBox().Text(L"This PC");
+            UpdateRows(items);
+
+            if (pane.active_list_view)
+            {
+                pane.tab_switching = true;
+                pane.active_list_view.SelectedIndex(-1);
+                pane.tab_switching = false;
+            }
+
+            ResetSelectionDetails();
+
+            StatusTextBlock().Text(
+                ToHString(std::to_wstring(items.size()) + L" drive(s) available."));
+        }
+        catch (std::exception const&)
+        {
+            StatusTextBlock().Text(L"Drive enumeration failed.");
+        }
     }
 }

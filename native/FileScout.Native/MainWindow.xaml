@@ -86,11 +86,8 @@
                     Background="#F7FAFDCC">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Places" FontSize="18" FontWeight="SemiBold" />
-                    <TextBlock Text="Desktop" />
-                    <TextBlock Text="Documents" />
-                    <TextBlock Text="Downloads" />
-                    <TextBlock Text="This PC" />
-                    <TextBlock Text="Recycle Bin" />
+                    <!-- Sidebar navigation items are populated programmatically in BuildSidebarFavorites(). -->
+                    <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" />
                     <Border Height="1" Margin="0,4,0,4" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
                     <TextBlock Text="Selection" FontSize="18" FontWeight="SemiBold" />
                     <Border Width="48"

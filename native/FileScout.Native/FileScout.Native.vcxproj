@@ -128,8 +128,10 @@
     <ClInclude Include="Domain\ExplorerCommand.h" />
     <ClInclude Include="Domain\OperationRequest.h" />
     <ClInclude Include="Domain\PaneSelectionState.h" />
+    <ClInclude Include="Domain\FavoriteEntry.h" />
     <ClInclude Include="Domain\ShellItemRef.h" />
     <ClInclude Include="Shell\ContextMenuService.h" />
+    <ClInclude Include="Shell\FavoritesService.h" />
     <ClInclude Include="Shell\ShellClipboardService.h" />
     <ClInclude Include="Shell\ShellFileOperationService.h" />
     <ClInclude Include="Shell\ShellOverflowMenuService.h" />
@@ -150,6 +152,7 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="Shell\ContextMenuService.cpp" />
+    <ClCompile Include="Shell\FavoritesService.cpp" />
     <ClCompile Include="Shell\ShellClipboardService.cpp" />
     <ClCompile Include="Shell\ShellFileOperationService.cpp" />
     <ClCompile Include="Shell\ShellOverflowMenuService.cpp" />

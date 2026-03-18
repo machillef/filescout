@@ -6,6 +6,7 @@
 #include "Domain\ShellItemRef.h"
 #include "Domain\TabState.h"
 #include "Shell\ContextMenuService.h"
+#include "Shell\FavoritesService.h"
 #include "Shell\ShellClipboardService.h"
 #include "Shell\ShellFileOperationService.h"
 #include "Shell\ShellOverflowMenuService.h"
@@ -25,6 +26,7 @@ namespace winrt::FileScoutNative::implementation
         winrt::Microsoft::UI::Xaml::Controls::ListView active_list_view{ nullptr };
         int32_t active_tab_index{ 0 };
         bool tab_switching{ false };
+        bool is_drives_view{ false };   // True when the pane shows the "This PC" drives list.
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -75,6 +77,7 @@ namespace winrt::FileScoutNative::implementation
 
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;
+        ::FileScoutNative::Shell::FavoritesService m_favoritesService;
         ::FileScoutNative::Shell::ShellClipboardService m_shellClipboardService;
         ::FileScoutNative::Shell::ShellFileOperationService m_shellFileOperationService;
         ::FileScoutNative::Shell::ShellOverflowMenuService m_shellOverflowMenuService;
@@ -118,6 +121,9 @@ namespace winrt::FileScoutNative::implementation
         [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;
         [[nodiscard]] std::wstring SuggestNewFolderName() const;
         [[nodiscard]] static std::optional<std::wstring> ValidateFileName(std::wstring const& name);
+
+        void BuildSidebarFavorites();
+        void LoadDrivesView();
 
         winrt::Microsoft::UI::Xaml::Controls::ListView CreateTabListView(
             winrt::Windows::Foundation::Collections::IObservableVector<
