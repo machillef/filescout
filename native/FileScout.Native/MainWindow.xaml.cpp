@@ -2,6 +2,7 @@
 // IRandomAccessStreamWithContentType return type for co_await file.OpenReadAsync().
 // Included here rather than pch.h to avoid PCH bloat across all TUs.
 #include <winrt/Windows.Storage.Streams.h>
+#include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
 #include "MainWindow.xaml.h"
 #include "TraceHelper.h"
 
@@ -32,40 +33,48 @@ namespace
         }
     }
 
-    // Async coroutine: builds a SoftwareBitmapSource from raw RGBA pixel data.
-    // Must be co_await-ed from the UI thread; SetBitmapAsync completes on the UI thread.
-    winrt::Windows::Foundation::IAsyncOperation<winrt::Microsoft::UI::Xaml::Media::ImageSource>
-    BuildIconSourceAsync(::FileScoutNative::Domain::IconBitmap icon)  // by value: coroutine owns lifetime
+    // Synchronous: converts RGBA8-Straight icon pixels into a WriteableBitmap (BGRA8-Premultiplied).
+    // Must be called from the UI thread. No async operations needed — avoids STA blocking issues.
+    winrt::Microsoft::UI::Xaml::Media::ImageSource BuildIconSource(
+        ::FileScoutNative::Domain::IconBitmap const& icon)
     {
         if (icon.rgba.empty() || icon.width == 0 || icon.height == 0)
         {
-            co_return nullptr;
+            return nullptr;
         }
 
         try
         {
-            // icon.rgba holds RGBA8/Straight pixel data from GetDIBits (B↔R swapped).
-            // SoftwareBitmapSource requires Bgra8/Premultiplied; Convert() handles both
-            // the channel swap and alpha premultiplication.
-            auto staging = winrt::Windows::Graphics::Imaging::SoftwareBitmap::CreateCopyFromBuffer(
-                winrt::Windows::Security::Cryptography::CryptographicBuffer::CreateFromByteArray(icon.rgba),
-                winrt::Windows::Graphics::Imaging::BitmapPixelFormat::Rgba8,
+            auto const wb = winrt::Microsoft::UI::Xaml::Media::Imaging::WriteableBitmap{
                 static_cast<int32_t>(icon.width),
-                static_cast<int32_t>(icon.height),
-                winrt::Windows::Graphics::Imaging::BitmapAlphaMode::Straight);
+                static_cast<int32_t>(icon.height)
+            };
 
-            auto compatible = winrt::Windows::Graphics::Imaging::SoftwareBitmap::Convert(
-                staging,
-                winrt::Windows::Graphics::Imaging::BitmapPixelFormat::Bgra8,
-                winrt::Windows::Graphics::Imaging::BitmapAlphaMode::Premultiplied);
+            // Write BGRA8-Premultiplied into the pixel buffer via IBufferByteAccess.
+            // icon.rgba is RGBA8-Straight (R=byte0, G=byte1, B=byte2, A=byte3).
+            auto const byteAccess = wb.PixelBuffer().as<::Windows::Storage::Streams::IBufferByteAccess>();
+            uint8_t* dest = nullptr;
+            winrt::check_hresult(byteAccess->Buffer(&dest));
 
-            auto source = winrt::Microsoft::UI::Xaml::Media::Imaging::SoftwareBitmapSource{};
-            co_await source.SetBitmapAsync(compatible);
-            co_return source;
+            auto const& src = icon.rgba;
+            for (std::size_t i = 0; i + 3 < src.size(); i += 4)
+            {
+                uint8_t const r = src[i];
+                uint8_t const g = src[i + 1];
+                uint8_t const b = src[i + 2];
+                uint8_t const a = src[i + 3];
+                dest[i]     = static_cast<uint8_t>(b * a / 255u);  // B premultiplied
+                dest[i + 1] = static_cast<uint8_t>(g * a / 255u);  // G premultiplied
+                dest[i + 2] = static_cast<uint8_t>(r * a / 255u);  // R premultiplied
+                dest[i + 3] = a;
+            }
+
+            wb.Invalidate();
+            return wb;
         }
         catch (...)
         {
-            co_return nullptr;
+            return nullptr;
         }
     }
 
@@ -163,22 +172,7 @@ namespace
         iconImage.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
         iconImage.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
         iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
-        iconImage.Source(nullptr);
-        if (!item.icon.rgba.empty())
-        {
-            auto icon = item.icon;
-            auto weakImg = winrt::make_weak(iconImage);
-            auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
-            [icon = std::move(icon), weakImg, dq]() mutable -> winrt::fire_and_forget
-            {
-                auto src = co_await BuildIconSourceAsync(std::move(icon));
-                dq.TryEnqueue([weakImg, src]()
-                {
-                    if (auto img = weakImg.get())
-                        img.Source(src);
-                });
-            }();
-        }
+        iconImage.Source(BuildIconSource(item.icon));
         iconTile.Child(iconImage);
 
         // Content column: name + metadata row.
@@ -266,22 +260,7 @@ namespace
         iconImage.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
         iconImage.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
         iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
-        iconImage.Source(nullptr);
-        if (!item.icon.rgba.empty())
-        {
-            auto icon = item.icon;
-            auto weakImg = winrt::make_weak(iconImage);
-            auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
-            [icon = std::move(icon), weakImg, dq]() mutable -> winrt::fire_and_forget
-            {
-                auto src = co_await BuildIconSourceAsync(std::move(icon));
-                dq.TryEnqueue([weakImg, src]()
-                {
-                    if (auto img = weakImg.get())
-                        img.Source(src);
-                });
-            }();
-        }
+        iconImage.Source(BuildIconSource(item.icon));
         winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconImage, 0);
         rowGrid.Children().Append(iconImage);
 
@@ -877,22 +856,7 @@ namespace winrt::FileScoutNative::implementation
             auto const gen = ++m_previewGeneration;
             PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
-            SelectionIconImage().Source(nullptr);
-            if (!item.icon.rgba.empty())
-            {
-                auto icon = item.icon;
-                auto weakThis = get_weak();
-                auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
-                [icon = std::move(icon), weakThis, dq]() mutable -> winrt::fire_and_forget
-                {
-                    auto src = co_await BuildIconSourceAsync(std::move(icon));
-                    dq.TryEnqueue([weakThis, src]()
-                    {
-                        if (auto self = weakThis.get())
-                            self->SelectionIconImage().Source(src);
-                    });
-                }();
-            }
+            SelectionIconImage().Source(BuildIconSource(item.icon));
             LoadImagePreviewAsync(item.path, gen);
         }
         else
@@ -900,22 +864,7 @@ namespace winrt::FileScoutNative::implementation
             ++m_previewGeneration;  // Cancel any in-flight load from a previous image selection.
             PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
-            SelectionIconImage().Source(nullptr);
-            if (!item.icon.rgba.empty())
-            {
-                auto icon = item.icon;
-                auto weakThis = get_weak();
-                auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
-                [icon = std::move(icon), weakThis, dq]() mutable -> winrt::fire_and_forget
-                {
-                    auto src = co_await BuildIconSourceAsync(std::move(icon));
-                    dq.TryEnqueue([weakThis, src]()
-                    {
-                        if (auto self = weakThis.get())
-                            self->SelectionIconImage().Source(src);
-                    });
-                }();
-            }
+            SelectionIconImage().Source(BuildIconSource(item.icon));
         }
 
         // Primary metadata line: type + size (or folder hint).
