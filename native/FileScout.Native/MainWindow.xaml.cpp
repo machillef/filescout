@@ -32,12 +32,14 @@ namespace
         }
     }
 
-    winrt::Microsoft::UI::Xaml::Media::ImageSource BuildIconSource(
-        ::FileScoutNative::Domain::IconBitmap const& icon)
+    // Async coroutine: builds a SoftwareBitmapSource from raw RGBA pixel data.
+    // Must be co_await-ed from the UI thread; SetBitmapAsync completes on the UI thread.
+    winrt::Windows::Foundation::IAsyncOperation<winrt::Microsoft::UI::Xaml::Media::ImageSource>
+    BuildIconSourceAsync(::FileScoutNative::Domain::IconBitmap icon)  // by value: coroutine owns lifetime
     {
         if (icon.rgba.empty() || icon.width == 0 || icon.height == 0)
         {
-            return nullptr;
+            co_return nullptr;
         }
 
         try
@@ -58,12 +60,12 @@ namespace
                 winrt::Windows::Graphics::Imaging::BitmapAlphaMode::Premultiplied);
 
             auto source = winrt::Microsoft::UI::Xaml::Media::Imaging::SoftwareBitmapSource{};
-            source.SetBitmapAsync(compatible).get();
-            return source;
+            co_await source.SetBitmapAsync(compatible);
+            co_return source;
         }
         catch (...)
         {
-            return nullptr;
+            co_return nullptr;
         }
     }
 
@@ -161,7 +163,18 @@ namespace
         iconImage.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
         iconImage.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
         iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
-        iconImage.Source(BuildIconSource(item.icon));
+        iconImage.Source(nullptr);
+        if (!item.icon.rgba.empty())
+        {
+            auto icon = item.icon;
+            auto weakImg = winrt::make_weak(iconImage);
+            [icon = std::move(icon), weakImg]() mutable -> winrt::fire_and_forget
+            {
+                auto src = co_await BuildIconSourceAsync(std::move(icon));
+                if (auto img = weakImg.get())
+                    img.Source(src);
+            }();
+        }
         iconTile.Child(iconImage);
 
         // Content column: name + metadata row.
@@ -249,7 +262,18 @@ namespace
         iconImage.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
         iconImage.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
         iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
-        iconImage.Source(BuildIconSource(item.icon));
+        iconImage.Source(nullptr);
+        if (!item.icon.rgba.empty())
+        {
+            auto icon = item.icon;
+            auto weakImg = winrt::make_weak(iconImage);
+            [icon = std::move(icon), weakImg]() mutable -> winrt::fire_and_forget
+            {
+                auto src = co_await BuildIconSourceAsync(std::move(icon));
+                if (auto img = weakImg.get())
+                    img.Source(src);
+            }();
+        }
         winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconImage, 0);
         rowGrid.Children().Append(iconImage);
 
@@ -456,24 +480,39 @@ namespace winrt::FileScoutNative::implementation
 
         try
         {
-            winrt::Windows::Foundation::Collections::IVector<winrt::Windows::Storage::IStorageItem> storageItems =
-                winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
-
             auto const pathStr = winrt::hstring{ item.path.wstring() };
-            if (item.is_folder)
-            {
-                auto storageFolder =
-                    winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(pathStr).get();
-                storageItems.Append(storageFolder);
-            }
-            else
-            {
-                auto storageFile =
-                    winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(pathStr).get();
-                storageItems.Append(storageFile);
-            }
+            bool const isFolder = item.is_folder;
 
-            e.Data().SetStorageItems(storageItems, false);
+            // SetDataProvider defers the async StorageItem lookup to a background thread
+            // called by the drop target when it actually requests the data.
+            // This avoids a blocking .get() call on the STA (UI) thread.
+            e.Data().SetDataProvider(
+                winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems(),
+                [pathStr, isFolder](winrt::Windows::ApplicationModel::DataTransfer::DataProviderRequest const& request)
+                {
+                    auto deferral = request.GetDeferral();
+                    [request, deferral, pathStr, isFolder]() mutable -> winrt::fire_and_forget
+                    {
+                        co_await winrt::resume_background();
+                        try
+                        {
+                            auto items = winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
+                            if (isFolder)
+                            {
+                                auto folder = co_await winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(pathStr);
+                                items.Append(folder);
+                            }
+                            else
+                            {
+                                auto file = co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(pathStr);
+                                items.Append(file);
+                            }
+                            request.SetData(items.GetView());
+                        }
+                        catch (...) {}
+                        deferral.Complete();
+                    }();
+                });
             e.Data().RequestedOperation(
                 winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy |
                 winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
@@ -830,7 +869,18 @@ namespace winrt::FileScoutNative::implementation
             auto const gen = ++m_previewGeneration;
             PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
-            SelectionIconImage().Source(BuildIconSource(item.icon));
+            SelectionIconImage().Source(nullptr);
+            if (!item.icon.rgba.empty())
+            {
+                auto icon = item.icon;
+                auto weakThis = get_weak();
+                [icon = std::move(icon), weakThis]() mutable -> winrt::fire_and_forget
+                {
+                    auto src = co_await BuildIconSourceAsync(std::move(icon));
+                    if (auto self = weakThis.get())
+                        self->SelectionIconImage().Source(src);
+                }();
+            }
             LoadImagePreviewAsync(item.path, gen);
         }
         else
@@ -838,7 +888,18 @@ namespace winrt::FileScoutNative::implementation
             ++m_previewGeneration;  // Cancel any in-flight load from a previous image selection.
             PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
-            SelectionIconImage().Source(BuildIconSource(item.icon));
+            SelectionIconImage().Source(nullptr);
+            if (!item.icon.rgba.empty())
+            {
+                auto icon = item.icon;
+                auto weakThis = get_weak();
+                [icon = std::move(icon), weakThis]() mutable -> winrt::fire_and_forget
+                {
+                    auto src = co_await BuildIconSourceAsync(std::move(icon));
+                    if (auto self = weakThis.get())
+                        self->SelectionIconImage().Source(src);
+                }();
+            }
         }
 
         // Primary metadata line: type + size (or folder hint).
