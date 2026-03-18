@@ -80,12 +80,18 @@ and cross-pane drag-and-drop is recommended before widening into R8
 
 ## R8: Favorites, Sidebar Tree, And Pinned Locations
 **Goal:** Real navigation surfaces for places, favorites, and shell locations.
-**Status:** Not Started
+**Status:** Complete
+**Completed sub-slices:** `R8` FavoritesService with `SHGetKnownFolderPath`; clickable sidebar
+buttons for Home/Desktop/Documents/Downloads/Pictures/Music/Videos/This PC/Recycle Bin;
+`EnumerateDrives()` for the "This PC" virtual view; startup path changed to user home folder
+**Follow-up note:** manual validation of each sidebar entry is recommended before widening into R9
 **Depends on:** `R2`, `R7`
 
 ## R9: Sort/Group/View Mode Parity
 **Goal:** Explorer-class list behavior for sort, grouping, and presentation.
-**Status:** Not Started
+**Status:** In Progress
+**Completed sub-slices:** `R9a` sort column/direction with clickable column headers,
+folders-first on all columns, date-modified field, per-pane sort state
 **Depends on:** `R2`
 
 ## R10: Preview And Inspect Surface

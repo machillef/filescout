@@ -25,8 +25,9 @@
 ## Phase 2: FileScout Baseline
 - [x] `R6` tabs
 - [x] `R7` dual-pane layout
-- [ ] `R8` favorites, sidebar tree, and pinned locations
+- [x] `R8` favorites, sidebar tree, and pinned locations
 - [ ] `R9` sort/group/view mode parity
+  - [x] `R9a` sort column/direction with clickable column headers
 - [ ] `R10` preview and inspect surface
 
 ## Phase 3: Differentiated Features

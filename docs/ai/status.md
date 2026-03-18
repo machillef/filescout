@@ -472,4 +472,91 @@ Last updated: 2026-03-17
 - None
 
 ### Next recommended step
-- Continue with `R8`: favorites, sidebar tree, and pinned locations
+- Continue with `R8`: favorites, sidebar tree, and pinned locations — Complete
+
+## Slice R8: Favorites, Sidebar Tree, And Pinned Locations
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- Added `native/FileScout.Native/Domain/FavoriteEntry.h` — domain struct for sidebar pinned entries
+  with `display_name`, `path`, `is_drives_view`, and `is_recycle_bin` flags
+- Added `native/FileScout.Native/Shell/FavoritesService.h` and `FavoritesService.cpp` — resolves
+  shell known-folder paths via `SHGetKnownFolderPath` for Home, Desktop, Documents, Downloads,
+  Pictures, Music, and Videos; `GetUserHomePath()` falls back to `USERPROFILE` env var
+- Extended `native/FileScout.Native/Shell/ShellInteropService.h` and `ShellInteropService.cpp`
+  with `EnumerateDrives()` — uses `GetLogicalDriveStringsW` + `GetDriveTypeW` +
+  `GetVolumeInformationW` to build `ShellItemRef` entries for all attached drives
+- Added `is_drives_view` flag to `native/FileScout.Native/Domain/TabState.h`; `display_name()`
+  now returns `"This PC"` when the flag is set
+- Added `is_drives_view` flag to `PaneContext` in `native/FileScout.Native/MainWindow.xaml.h`;
+  cleared by `LoadDirectory`, set by `LoadDrivesView`
+- Added `FavoritesService m_favoritesService` member and `BuildSidebarFavorites()` /
+  `LoadDrivesView()` methods to `native/FileScout.Native/MainWindow.xaml.h`
+- Updated `native/FileScout.Native/MainWindow.xaml` — replaced static `TextBlock` sidebar
+  entries with a named `StackPanel x:Name="SidebarPlacesPanel"` populated in code
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp`:
+  - Constructor now starts both panes at `m_favoritesService.GetUserHomePath()` instead of CWD
+  - `BuildSidebarFavorites()` creates `Button` elements for each favorite; folders navigate
+    the active pane via `LoadDirectory`, "This PC" calls `LoadDrivesView()`, "Recycle Bin"
+    uses `ShellExecuteW(L"shell:RecycleBinFolder")`
+  - `LoadDrivesView()` populates the active pane with drive entries, sets `is_drives_view = true`,
+    and shows "This PC" in the address bar
+- Updated `native/FileScout.Native/FileScout.Native.vcxproj` and `.vcxproj.filters` to
+  include the new `FavoriteEntry.h`, `FavoritesService.h`, and `FavoritesService.cpp`
+
+### What was validated
+- Clean rebuild (`/t:Rebuild`) with `0 Error(s)` and `0 Warning(s)` — pass
+- Launch smoke: process stays alive for 5+ seconds, no abort — pass
+
+### What remains unverified
+- Manual click behavior for each sidebar entry (Home, Desktop, Documents, Downloads, Pictures,
+  Music, Videos, This PC, Recycle Bin)
+- "This PC" drive list rendering and double-click navigation into a drive root
+- Recycle Bin shell:// redirect in Explorer
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R9`: sort/group/view mode parity
+
+## Slice R9a: Sort Column And Direction With Clickable Column Headers
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- Added `date_modified`, `date_modified_available`, `date_modified_str` to
+  `native/FileScout.Native/Domain/ShellItemRef.h`
+- Updated `native/FileScout.Native/Shell/ShellInteropService.cpp` to populate
+  date-modified fields via `last_write_time()` → FILETIME → SYSTEMTIME with
+  `GetDateFormatEx`/`GetTimeFormatEx`; removed the hardcoded sort from enumeration
+- Added `SortColumn` and `SortDirection` enums to `MainWindow.xaml.h`; added
+  `sort_column`/`sort_direction` to `PaneContext`
+- Added `SortItems()` comparator with folders-first on all columns, name tie-break
+  for Size/DateModified; `SetSortColumn()` with per-pane toggle/flip logic
+- Added `BuildSortHeader(paneIndex)` — programmatic 4-column header row
+  (Name/Type/Size/Date Modified) with ↑/↓ active indicator and accent colour;
+  one header per pane in `LeftPaneSortHeader`/`RightPaneSortHeader` Borders
+- Updated `native/FileScout.Native/MainWindow.xaml` with sort header containers
+  above each `TabView`
+- Updated `CreateRowView()`: date shown right-aligned in the metadata row;
+  tighter card padding (8 px corner radius, 10/12 px padding)
+- Fixed HIGH: `ULONGLONG` cast before FILETIME bit-split removes signed right-shift UB
+- Fixed HIGH: folders-first guard applied to all four sort columns
+
+### What was validated
+- Clean build (`0 Error(s)`, `0 Warning(s)`) — pass
+- Launch smoke: process alive 5+ seconds — pass
+
+### What remains unverified
+- Manual click of each sort column header and direction toggle
+- Manual verification that Date Modified renders correctly for various file ages
+- Sort behaviour on the "This PC" drives view
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R9b`: view mode toggle (compact card vs. details list)
+- Or continue with `R10`: preview and inspect surface
