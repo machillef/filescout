@@ -1,52 +1,49 @@
-# FileScout Native Rewrite
+# FileScout Native
 
-This folder hosts the parallel Windows-native rewrite of FileScout.
+Windows 11 file explorer built with C++/WinRT + WinUI 3.
 
-## Direction
+## Current state (R7 complete)
 
-- Host UI: C++/WinRT + WinUI 3
-- Target OS: Windows 11 x64
-- Packaging model: unpackaged desktop app
-- Goal: Explorer-parity shell behavior first, FileScout differentiation second
-
-## Current Slice
-
-Slice 1 establishes:
-
-- a same-repo native workspace
-- an unpackaged WinUI 3 desktop shell
-- the initial domain and shell contracts for parity work
-- a placeholder Explorer surface backed by real filesystem enumeration
-
-It does **not** yet implement:
-
-- shell-backed context menu hosting
-- `IFileOperation` copy/cut/paste/delete flows
-- native icon extraction
-- drag/drop parity
-- tabs or dual-pane behavior
+| Feature | Status |
+|---|---|
+| Shell-backed file pane + native icons | Done |
+| Windows 11 context menu + shell overflow | Done |
+| Open / Open with / Properties | Done |
+| New folder / Rename / Delete (recycle bin) | Done |
+| Copy / Cut / Paste (shell clipboard) | Done |
+| Drag-and-drop (in-app and cross-app) | Done |
+| Keyboard shortcuts (Ctrl+C/X/V, Del, F2, F5) | Done |
+| Multi-tab pane (Ctrl+T / Ctrl+W) | Done |
+| Dual-pane layout (Ctrl+Tab to switch panes) | Done |
+| Favorites / sidebar tree | Next (R8) |
 
 ## Prerequisites
 
-Install Visual Studio 2022 Build Tools or Visual Studio 2022 with:
-
-- Desktop development with C++
-- Windows 11 SDK
-- C++ WinUI / Windows App SDK support
+- Windows 11 x64
+- [Windows App Runtime 1.8](https://aka.ms/windowsappsdk) installed
+- Visual Studio 2022 or Build Tools with **Desktop development with C++** and **Windows 11 SDK**
 
 ## Restore
 
-```powershell
+```
 cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /restore /p:RestorePackagesConfig=true"
 ```
 
 ## Build
 
-```powershell
+```
 cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"
 ```
 
-## Notes
+Binary: `native/x64/Debug/FileScout.Native/FileScout.Native.exe`
 
-- The project pins current stable NuGet package versions for `Microsoft.WindowsAppSDK`, `Microsoft.Windows.CppWinRT`, and `Microsoft.Windows.SDK.BuildTools`.
-- The shell layer is intentionally thin in Slice 1: directory enumeration is real, but Explorer-class shell verbs are not yet wired.
+## Structure
+
+```
+native/FileScout.Native/
+├── Domain/          # ShellItemRef, TabState — pure data contracts
+├── Shell/           # ShellInteropService, ContextMenuService, ShellFileOperationService,
+│                    #   ShellClipboardService, ShellOverflowMenuService
+├── MainWindow.xaml  # Two-pane TabView layout
+└── App.xaml         # WinUI 3 application entry + MddBootstrap init
+```
