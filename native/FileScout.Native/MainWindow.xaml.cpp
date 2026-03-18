@@ -856,15 +856,13 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::UpdateRows(int32_t const paneIndex,
         std::vector<::FileScoutNative::Domain::ShellItemRef> const& items)
     {
-        // Store lightweight indices instead of UIElement trees. The ListView's
-        // ContainerContentChanging callback creates UIElements on demand for
-        // visible containers only — this is what enables ListView virtualization.
         auto& pane = m_panes[paneIndex];
+        bool const listMode = (pane.view_mode == ViewMode::List);
         auto& rows = pane.tab_rows[pane.active_tab_index];
         rows.Clear();
-        for (int32_t i = 0; i < static_cast<int32_t>(items.size()); ++i)
+        for (auto const& item : items)
         {
-            rows.Append(winrt::box_value(i));
+            rows.Append(CreateRowView(item, listMode));
         }
     }
 
@@ -1656,22 +1654,6 @@ namespace winrt::FileScoutNative::implementation
                 FileRowsListView_Drop(s, a);
             });
 
-        // ContainerContentChanging fires only for visible containers, enabling ListView
-        // virtualization: UIElement rows are created on demand, not for every item.
-        listView.ContainerContentChanging(
-            [this, paneIndex](
-                winrt::Microsoft::UI::Xaml::Controls::ListViewBase const&,
-                winrt::Microsoft::UI::Xaml::Controls::ContainerContentChangingEventArgs const& args)
-            {
-                if (args.InRecycleQueue()) return;
-                auto const index = winrt::unbox_value<int32_t>(args.Item());
-                auto const& pane = m_panes[paneIndex];
-                if (index < 0 || static_cast<std::size_t>(index) >= pane.items.size()) return;
-                bool const listMode = (pane.view_mode == ViewMode::List);
-                args.ItemContainer().Content(
-                    CreateRowView(pane.items[static_cast<std::size_t>(index)], listMode));
-            });
-
         return listView;
     }
 
@@ -2144,10 +2126,8 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
     {
         auto& pane = m_panes[paneIndex];
+        bool const listMode = (pane.view_mode == ViewMode::List);
 
-        // Repopulate all tab row collections with boxed indices. The ListView's
-        // ContainerContentChanging handler will re-create UIElements on demand for
-        // visible containers using the current view mode — no upfront work needed here.
         // Use (std::min)() to prevent expansion of the Windows.h min() macro.
         auto const tabCount = (std::min)(pane.tabs.size(), pane.tab_rows.size());
         for (std::size_t i = 0; i < tabCount; ++i)
@@ -2158,9 +2138,9 @@ namespace winrt::FileScoutNative::implementation
 
             auto& rows = pane.tab_rows[i];
             rows.Clear();
-            for (int32_t j = 0; j < static_cast<int32_t>(source.size()); ++j)
+            for (auto const& item : source)
             {
-                rows.Append(winrt::box_value(j));
+                rows.Append(CreateRowView(item, listMode));
             }
         }
     }
