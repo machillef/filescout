@@ -9,7 +9,8 @@
   longer part of the active implementation plan
 - Current phase: Phase 1, Explorer parity foundation
 - Current blocker: none
-- Current known warning: none in the current native debug build
+- Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
+- App launches and shows window as of 2026-03-18 (launch crash fixed)
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete
@@ -621,3 +622,34 @@ Last updated: 2026-03-18
 
 ### Next recommended step
 - Continue with `R11`: archive mode (browse zip/7z/tar as virtual views)
+
+## Launch Crash Fix (post-R10 infrastructure fix)
+Status: Complete
+Last updated: 2026-03-18
+
+### Root cause
+Unpackaged WinUI 3 C++ apps need `resources.pri` in the output directory for
+`Application::LoadComponent(ms-appx:///FileScoutNative/MainWindow.xaml)` to resolve the
+XBF path at runtime. The MSBuild `AppxPackage` targets (which normally run `makepri.exe`)
+are only imported when `WindowsAppContainer=true`, which is not set for desktop apps.
+As a result, `resources.pri` was never generated, causing `InitializeComponent` to crash.
+
+Additionally, `App.xaml` had `XamlControlsResources` which tried to load
+`ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml`. Without `resources.pri`
+in the app directory, the MRT resource manager failed to initialize, making that
+URI unresolvable — silently swallowing startup and preventing `OnLaunched` from running.
+
+### Fix
+1. Added `GenerateResourcesPri` MSBuild target to `FileScout.Native.vcxproj`: runs
+   `makepri.exe createconfig` + `makepri.exe new` after every build to generate
+   `resources.pri` in the output directory (`AfterTargets="CopyFilesToOutputDirectory"`).
+2. Restored `XamlControlsResources` in `App.xaml` — it works correctly now that
+   `resources.pri` is present and MRT Core can resolve `ms-appx:///` URIs.
+
+### What was validated
+- Clean build with auto-generated `resources.pri` — pass
+- App launches, shows main window, loads directory listing (`C:\Users\machi`, 108 items) — pass
+- No entries in startup error log — pass
+
+### Remaining items to verify
+- Manual inspection of R9b (Cards/List toggle), R10 (image preview, created date, attributes)

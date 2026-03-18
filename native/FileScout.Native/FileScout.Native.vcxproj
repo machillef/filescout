@@ -90,6 +90,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <WarningLevel>Level4</WarningLevel>
       <AdditionalOptions>%(AdditionalOptions) /bigobj /Zm200</AdditionalOptions>
+      <PreprocessorDefinitions>DISABLE_XAML_GENERATED_MAIN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <AppContainer>false</AppContainer>
@@ -158,6 +159,7 @@
     <ClCompile Include="Shell\ShellOverflowMenuService.cpp" />
     <ClCompile Include="Shell\ShellInteropService.cpp" />
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
+    <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="Project.idl">
@@ -172,7 +174,7 @@
     <Import Project="$(NugetPackageDirectory)\Microsoft.WindowsAppSDK.1.8.260209005\build\native\Microsoft.WindowsAppSDK.targets" Condition="Exists('$(NugetPackageDirectory)\Microsoft.WindowsAppSDK.1.8.260209005\build\native\Microsoft.WindowsAppSDK.targets')" />
   </ImportGroup>
   <PropertyGroup>
-    <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+    <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
     <WindowsAppSdkAutoInitialize>true</WindowsAppSdkAutoInitialize>
   </PropertyGroup>
   <ImportGroup Label="FoundationTargets">
@@ -183,6 +185,24 @@
     <Import Project="$(NugetPackageDirectory)\Microsoft.WindowsAppSDK.WinUI.1.8.260204000\build\native\Microsoft.WindowsAppSDK.WinUI.targets" Condition="Exists('$(NugetPackageDirectory)\Microsoft.WindowsAppSDK.WinUI.1.8.260204000\build\native\Microsoft.WindowsAppSDK.WinUI.targets')" />
     <Import Project="$(NugetPackageDirectory)\Microsoft.Web.WebView2.1.0.3179.45\build\native\Microsoft.Web.WebView2.targets" Condition="Exists('$(NugetPackageDirectory)\Microsoft.Web.WebView2.1.0.3179.45\build\native\Microsoft.Web.WebView2.targets')" />
   </ImportGroup>
+  <!--
+    Generate resources.pri for unpackaged WinUI 3 apps.
+    AppXPackage targets (which normally run makepri) are not imported when
+    WindowsAppContainer=false, so we run makepri manually after XBF output is ready.
+  -->
+  <PropertyGroup>
+    <_PriConfigXmlPath>$(IntDir)priconfig.xml</_PriConfigXmlPath>
+  </PropertyGroup>
+  <Target Name="GenerateResourcesPri"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(MakePriExeFullPath)' != '' and Exists('$(MakePriExeFullPath)')">
+    <Exec Command="&quot;$(MakePriExeFullPath)&quot; createconfig /cf &quot;$(_PriConfigXmlPath)&quot; /dq en-US /pv 10.0.0 /o"
+          EchoOff="true" />
+    <Exec Command="&quot;$(MakePriExeFullPath)&quot; new /pr &quot;$(OutDir.TrimEnd('\'))&quot; /cf &quot;$(_PriConfigXmlPath)&quot; /in $(RootNamespace) /of &quot;$(OutDir)resources.pri&quot; /o"
+          EchoOff="true" />
+    <Message Text="Generated $(OutDir)resources.pri" Importance="high" />
+  </Target>
+
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them. The missing file is {0}.</ErrorText>

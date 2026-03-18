@@ -1,5 +1,9 @@
 #include "pch.h"
+// IRandomAccessStreamWithContentType return type for co_await file.OpenReadAsync().
+// Included here rather than pch.h to avoid PCH bloat across all TUs.
+#include <winrt/Windows.Storage.Streams.h>
 #include "MainWindow.xaml.h"
+#include "TraceHelper.h"
 
 #if __has_include("MainWindow.g.cpp")
 #include "MainWindow.g.cpp"
@@ -286,28 +290,42 @@ namespace winrt::FileScoutNative::implementation
 {
     MainWindow::MainWindow()
     {
+        TraceLog(L"MainWindow ctor: InitializeComponent...");
         InitializeComponent();
+        TraceLog(L"MainWindow ctor: InitializeComponent done. ConfigureWindow...");
         ConfigureWindow();
+        TraceLog(L"MainWindow ctor: ConfigureWindow done. SetupKeyboardAccelerators...");
         SetupKeyboardAccelerators();
+        TraceLog(L"MainWindow ctor: SetupKeyboardAccelerators done.");
 
         // Start in the user's home folder rather than the process working directory.
         auto const startPath = m_favoritesService.GetUserHomePath();
+        TraceLog(L"MainWindow ctor: startPath=" + startPath.wstring());
 
         // Initialize both panes. Right pane starts at the same path but is loaded
         // lazily — it gets LoadDirectory called when InitPane runs for index 1.
+        TraceLog(L"MainWindow ctor: InitPane(0)...");
         InitPane(0, startPath);
+        TraceLog(L"MainWindow ctor: InitPane(0) done. InitPane(1)...");
         InitPane(1, startPath);
+        TraceLog(L"MainWindow ctor: InitPane(1) done.");
 
         // Build the sidebar navigation buttons after panes are initialized.
+        TraceLog(L"MainWindow ctor: BuildSidebarFavorites...");
         BuildSidebarFavorites();
+        TraceLog(L"MainWindow ctor: BuildSidebarFavorites done.");
 
         // Build sort column headers for both panes.
+        TraceLog(L"MainWindow ctor: BuildSortHeader(0)...");
         BuildSortHeader(0);
+        TraceLog(L"MainWindow ctor: BuildSortHeader(0) done. BuildSortHeader(1)...");
         BuildSortHeader(1);
+        TraceLog(L"MainWindow ctor: BuildSortHeader(1) done.");
 
         // Pane 0 (left) starts as active with its indicator already lit.
         m_activePaneIndex = 0;
         UpdateActivePaneIndicator();
+        TraceLog(L"MainWindow ctor: complete.");
     }
 
     void MainWindow::RefreshButton_Click(
@@ -689,10 +707,13 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::LoadDirectory(std::filesystem::path const& path)
     {
+        TraceLog(L"LoadDirectory: " + path.wstring());
         try
         {
             const auto absolute = std::filesystem::absolute(path);
+            TraceLog(L"LoadDirectory: EnumerateDirectory...");
             auto items = m_shellInterop.EnumerateDirectory(absolute);
+            TraceLog(L"LoadDirectory: EnumerateDirectory done, count=" + std::to_wstring(items.size()));
             SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
 
             auto& pane = ActivePane();
@@ -710,7 +731,9 @@ namespace winrt::FileScoutNative::implementation
             UpdateTabHeader(pane.active_tab_index);
 
             AddressTextBox().Text(ToHString(absolute.wstring()));
+            TraceLog(L"LoadDirectory: UpdateRows...");
             UpdateRows(items);
+            TraceLog(L"LoadDirectory: UpdateRows done.");
 
             if (pane.active_list_view)
             {
@@ -719,7 +742,9 @@ namespace winrt::FileScoutNative::implementation
                 pane.tab_switching = false;
             }
 
+            TraceLog(L"LoadDirectory: ResetSelectionDetails...");
             ResetSelectionDetails();
+            TraceLog(L"LoadDirectory: ResetSelectionDetails done.");
 
             StatusTextBlock().Text(
                 ToHString(std::to_wstring(items.size()) + L" shell-backed entries loaded from " + absolute.wstring()));
@@ -766,20 +791,30 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::ResetSelectionDetails()
     {
+        TraceLog(L"ResetSelectionDetails: start");
         // Cancel any in-flight image preview load.
         ++m_previewGeneration;
 
         // Hide image preview and restore the icon tile.
+        TraceLog(L"ResetSelectionDetails: PreviewBorder...");
         PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        TraceLog(L"ResetSelectionDetails: PreviewImage...");
         PreviewImage().Source(nullptr);
+        TraceLog(L"ResetSelectionDetails: SelectionIconBorder...");
         SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
-
+        TraceLog(L"ResetSelectionDetails: SelectionIconImage...");
         SelectionIconImage().Source(nullptr);
+        TraceLog(L"ResetSelectionDetails: SelectionTitleTextBlock...");
         SelectionTitleTextBlock().Text(L"No item selected");
+        TraceLog(L"ResetSelectionDetails: SelectionMetaTextBlock...");
         SelectionMetaTextBlock().Text(L"Pick a folder or file to inspect its shell-backed details.");
+        TraceLog(L"ResetSelectionDetails: SelectionCreatedTextBlock...");
         SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        TraceLog(L"ResetSelectionDetails: SelectionAttributesTextBlock...");
         SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        TraceLog(L"ResetSelectionDetails: SelectionPathTextBlock...");
         SelectionPathTextBlock().Text(L"Selection path will appear here.");
+        TraceLog(L"ResetSelectionDetails: done.");
     }
 
     void MainWindow::UpdateSelectionDetails(::FileScoutNative::Domain::ShellItemRef const& item)

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "App.xaml.h"
+#include "TraceHelper.h"
 
 #include <fstream>
 #include <MddBootstrap.h>
@@ -50,29 +51,44 @@ namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
+    TraceLog(L"--- wWinMain start ---");
     std::filesystem::remove(StartupLogPath());
-    winrt::init_apartment(winrt::apartment_type::single_threaded);
 
     PACKAGE_VERSION minVersion{};
     minVersion.Version = WINDOWSAPPSDK_RUNTIME_VERSION_UINT64;
 
+    TraceLog(L"MddBootstrapInitialize2 (manual call after auto-init)...");
     auto const bootstrapHr = ::MddBootstrapInitialize2(
         WINDOWSAPPSDK_RELEASE_MAJORMINOR,
         WINDOWSAPPSDK_RELEASE_VERSION_TAG_W,
         minVersion,
         MddBootstrapInitializeOptions_OnNoMatch_ShowUI);
+    {
+        std::wstringstream hrMsg;
+        hrMsg << L"MddBootstrapInitialize2 returned: 0x" << std::uppercase << std::hex
+              << static_cast<std::uint32_t>(bootstrapHr);
+        TraceLog(hrMsg.str());
+    }
     if (FAILED(bootstrapHr))
     {
         return ShowBootstrapFailure(bootstrapHr);
     }
 
+    TraceLog(L"init_apartment...");
+    winrt::init_apartment(winrt::apartment_type::single_threaded);
+    TraceLog(L"init_apartment done");
+
     int exitCode = EXIT_SUCCESS;
     try
     {
+        TraceLog(L"Application::Start...");
         winrt::Microsoft::UI::Xaml::Application::Start([](auto&&)
             {
+                TraceLog(L"App ctor lambda...");
                 winrt::make<winrt::FileScoutNative::implementation::App>();
+                TraceLog(L"App ctor lambda done");
             });
+        TraceLog(L"Application::Start returned");
     }
     catch (winrt::hresult_error const& error)
     {

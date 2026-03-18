@@ -89,7 +89,7 @@
                     <TextBlock Text="Places" FontSize="18" FontWeight="SemiBold" />
                     <!-- Sidebar navigation items are populated programmatically in BuildSidebarFavorites(). -->
                     <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" />
-                    <Border Height="1" Margin="0,4,0,4" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <Border Height="1" Margin="0,4,0,4" Background="#0F000000" />
                     <TextBlock Text="Selection" FontSize="18" FontWeight="SemiBold" />
                     <!-- Image preview — shown when an image file is selected (R10). -->
                     <Border x:Name="PreviewBorder"
@@ -195,7 +195,7 @@
 
         <Border Grid.Row="3"
                 Padding="20,10"
-                Background="{ThemeResource LayerFillColorDefaultBrush}">
+                Background="#F3F3F3">
             <TextBlock x:Name="StatusTextBlock"
                        Text="Bootstrapping shell-backed directory view..."
                        Opacity="0.72" />

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
+#include "TraceHelper.h"
 
 #include <fstream>
 
@@ -49,7 +50,9 @@ namespace winrt::FileScoutNative::implementation
 
     App::App()
     {
+        TraceLog(L"App::App() start");
         InitializeComponent();
+        TraceLog(L"App::App() InitializeComponent done");
 
         UnhandledException([](
             winrt::Windows::Foundation::IInspectable const&,
@@ -68,10 +71,14 @@ namespace winrt::FileScoutNative::implementation
 
     void App::OnLaunched(Microsoft::UI::Xaml::LaunchActivatedEventArgs const&)
     {
+        TraceLog(L"App::OnLaunched start");
         try
         {
+            TraceLog(L"App::OnLaunched: make<MainWindow>...");
             m_window = winrt::make<MainWindow>();
+            TraceLog(L"App::OnLaunched: Activate...");
             m_window.Activate();
+            TraceLog(L"App::OnLaunched: Activate done");
         }
         catch (winrt::hresult_error const& error)
         {
