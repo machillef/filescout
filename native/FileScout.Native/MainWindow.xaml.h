@@ -14,6 +14,12 @@
 
 namespace winrt::FileScoutNative::implementation
 {
+    // Sort column applied to a file-list pane.
+    enum class SortColumn { Name, Type, Size, DateModified };
+
+    // Sort direction applied to a file-list pane.
+    enum class SortDirection { Ascending, Descending };
+
     // Per-pane UI and browse state. One instance per visible pane.
     struct PaneContext
     {
@@ -27,6 +33,9 @@ namespace winrt::FileScoutNative::implementation
         int32_t active_tab_index{ 0 };
         bool tab_switching{ false };
         bool is_drives_view{ false };   // True when the pane shows the "This PC" drives list.
+        // Sort state — shared across all tabs in this pane (same as Explorer behaviour).
+        SortColumn sort_column{ SortColumn::Name };
+        SortDirection sort_direction{ SortDirection::Ascending };
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -124,6 +133,13 @@ namespace winrt::FileScoutNative::implementation
 
         void BuildSidebarFavorites();
         void LoadDrivesView();
+
+        // Sort header helpers.
+        void BuildSortHeader(int32_t paneIndex);
+        [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::Border SortHeaderForPane(int32_t paneIndex);
+        void SetSortColumn(int32_t paneIndex, SortColumn column);
+        void SortItems(std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
+                       SortColumn column, SortDirection direction) const;
 
         winrt::Microsoft::UI::Xaml::Controls::ListView CreateTabListView(
             winrt::Windows::Foundation::Collections::IObservableVector<

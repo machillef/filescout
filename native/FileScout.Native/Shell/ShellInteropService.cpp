@@ -242,19 +242,42 @@ namespace FileScoutNative::Shell
                 }
             }
 
+            // Populate date modified for sorting and display.
+            std::error_code timeError;
+            auto const writeTime = entry.last_write_time(timeError);
+            if (!timeError)
+            {
+                item.date_modified = writeTime;
+                item.date_modified_available = true;
+
+                // Convert file_time_type → FILETIME → SYSTEMTIME for locale-aware formatting.
+                // On Windows, file_time_type epoch matches FILETIME (100-ns ticks since 1601-01-01).
+                // Cast to ULONGLONG before splitting to avoid implementation-defined signed right-shift.
+                auto const ticks = static_cast<ULONGLONG>(writeTime.time_since_epoch().count());
+                FILETIME ft{};
+                ft.dwLowDateTime  = static_cast<DWORD>(ticks & 0xFFFFFFFFULL);
+                ft.dwHighDateTime = static_cast<DWORD>(ticks >> 32);
+
+                SYSTEMTIME utc{};
+                SYSTEMTIME local{};
+                if (FileTimeToSystemTime(&ft, &utc) &&
+                    SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
+                {
+                    wchar_t dateBuf[64]{};
+                    wchar_t timeBuf[64]{};
+                    GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE,
+                                    &local, nullptr, dateBuf, 64, nullptr);
+                    GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS,
+                                    &local, nullptr, timeBuf, 64);
+                    item.date_modified_str = std::wstring{ dateBuf } + L"  " + std::wstring{ timeBuf };
+                }
+            }
+
             items.push_back(std::move(item));
         }
 
-        std::sort(items.begin(), items.end(), [](auto const& left, auto const& right)
-            {
-                if (left.is_folder != right.is_folder)
-                {
-                    return left.is_folder > right.is_folder;
-                }
-
-                return _wcsicmp(left.display_name.c_str(), right.display_name.c_str()) < 0;
-            });
-
+        // NOTE: Sorting is intentionally omitted here — callers (e.g. LoadDirectory)
+        // apply the user-selected sort column and direction after enumeration.
         return items;
     }
 

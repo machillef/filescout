@@ -19,5 +19,9 @@ namespace FileScoutNative::Domain
         bool is_folder{ false };
         bool size_available{ false };
         std::uintmax_t size_bytes{ 0 };
+        // Date modified (populated by ShellInteropService::EnumerateDirectory).
+        bool date_modified_available{ false };
+        std::filesystem::file_time_type date_modified{};
+        std::wstring date_modified_str;  // Locale-formatted for display, e.g. "3/18/2026 10:30 AM"
     };
 }

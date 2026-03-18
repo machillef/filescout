@@ -122,13 +122,25 @@
                     CornerRadius="8"
                     BorderThickness="2"
                     BorderBrush="#FF0078D4">
-                <TabView x:Name="LeftPaneTabView"
-                         TabWidthMode="SizeToContent"
-                         CloseButtonOverlayMode="OnPointerOver"
-                         Background="#FDFEFEF0"
-                         AddTabButtonClick="PaneTabView_AddTabButtonClick"
-                         TabCloseRequested="PaneTabView_TabCloseRequested"
-                         SelectionChanged="PaneTabView_SelectionChanged" />
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
+                    <Border x:Name="LeftPaneSortHeader"
+                            Grid.Row="0"
+                            Padding="12,0,12,0"
+                            Background="#F0F3F7" />
+                    <TabView x:Name="LeftPaneTabView"
+                             Grid.Row="1"
+                             TabWidthMode="SizeToContent"
+                             CloseButtonOverlayMode="OnPointerOver"
+                             Background="#FDFEFEF0"
+                             AddTabButtonClick="PaneTabView_AddTabButtonClick"
+                             TabCloseRequested="PaneTabView_TabCloseRequested"
+                             SelectionChanged="PaneTabView_SelectionChanged" />
+                </Grid>
             </Border>
 
             <!-- Right pane — inactive by default -->
@@ -137,13 +149,25 @@
                     CornerRadius="8"
                     BorderThickness="2"
                     BorderBrush="Transparent">
-                <TabView x:Name="RightPaneTabView"
-                         TabWidthMode="SizeToContent"
-                         CloseButtonOverlayMode="OnPointerOver"
-                         Background="#FDFEFEF0"
-                         AddTabButtonClick="PaneTabView_AddTabButtonClick"
-                         TabCloseRequested="PaneTabView_TabCloseRequested"
-                         SelectionChanged="PaneTabView_SelectionChanged" />
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
+                    <Border x:Name="RightPaneSortHeader"
+                            Grid.Row="0"
+                            Padding="12,0,12,0"
+                            Background="#F0F3F7" />
+                    <TabView x:Name="RightPaneTabView"
+                             Grid.Row="1"
+                             TabWidthMode="SizeToContent"
+                             CloseButtonOverlayMode="OnPointerOver"
+                             Background="#FDFEFEF0"
+                             AddTabButtonClick="PaneTabView_AddTabButtonClick"
+                             TabCloseRequested="PaneTabView_TabCloseRequested"
+                             SelectionChanged="PaneTabView_SelectionChanged" />
+                </Grid>
             </Border>
         </Grid>
 

@@ -113,68 +113,92 @@ namespace
 
     winrt::Microsoft::UI::Xaml::FrameworkElement CreateRowView(::FileScoutNative::Domain::ShellItemRef const& item)
     {
+        // Build the detail chip: "Type  |  Size"
         std::wstring details = item.kind_label;
         if (item.size_available)
         {
-            details += L"  |  " + FormatSize(item.size_bytes);
+            details += L"  ·  " + FormatSize(item.size_bytes);
         }
 
+        // Card container — clean modern card with subtle stroke.
         auto rowBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
-        rowBorder.Padding({ 14, 12, 14, 12 });
-        rowBorder.CornerRadius({ 12, 12, 12, 12 });
+        rowBorder.Padding({ 12, 10, 12, 10 });
+        rowBorder.CornerRadius({ 8, 8, 8, 8 });
         rowBorder.BorderThickness({ 1, 1, 1, 1 });
         rowBorder.BorderBrush(LookupBrush(L"CardStrokeColorDefaultBrush"));
         rowBorder.Background(LookupBrush(L"CardBackgroundFillColorSecondaryBrush"));
 
+        // Outer grid: [icon col] [content col]
         auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
         auto iconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-        iconColumn.Width({ 52, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+        iconColumn.Width({ 44, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
         auto contentColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
         contentColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
         rowGrid.ColumnDefinitions().Append(iconColumn);
         rowGrid.ColumnDefinitions().Append(contentColumn);
-        rowGrid.ColumnSpacing(12);
+        rowGrid.ColumnSpacing(10);
 
+        // Icon tile — folder gets a tinted accent background, files get a neutral pill.
         auto iconTile = winrt::Microsoft::UI::Xaml::Controls::Border{};
-        iconTile.Width(40);
-        iconTile.Height(40);
-        iconTile.CornerRadius({ 14, 14, 14, 14 });
+        iconTile.Width(36);
+        iconTile.Height(36);
+        iconTile.CornerRadius({ 8, 8, 8, 8 });
         iconTile.Background(item.is_folder
                 ? LookupBrush(L"AccentFillColorSecondaryBrush")
                 : LookupBrush(L"SubtleFillColorSecondaryBrush"));
+        iconTile.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
 
         auto iconImage = winrt::Microsoft::UI::Xaml::Controls::Image{};
-        iconImage.Width(20);
-        iconImage.Height(20);
+        iconImage.Width(18);
+        iconImage.Height(18);
         iconImage.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
         iconImage.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
         iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
         iconImage.Source(BuildIconSource(item.icon));
         iconTile.Child(iconImage);
 
+        // Content column: name + metadata row.
         auto contentStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
-        contentStack.Spacing(4);
+        contentStack.Spacing(2);
+        contentStack.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
 
         auto titleText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
         titleText.Text(ToHString(item.display_name));
-        titleText.FontSize(15);
+        titleText.FontSize(14);
         titleText.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
         titleText.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
 
+        // Metadata row: type + size on left, date on right.
+        auto metaGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        auto metaLeftCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+        metaLeftCol.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+        auto metaRightCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+        metaRightCol.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Auto });
+        metaGrid.ColumnDefinitions().Append(metaLeftCol);
+        metaGrid.ColumnDefinitions().Append(metaRightCol);
+
         auto detailText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
         detailText.Text(ToHString(details));
-        detailText.Opacity(0.8);
+        detailText.Opacity(0.72);
+        detailText.FontSize(12);
         detailText.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
 
-        auto pathText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-        pathText.Text(ToHString(item.path.wstring()));
-        pathText.Opacity(0.58);
-        pathText.FontSize(12);
-        pathText.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+        metaGrid.Children().Append(detailText);
+        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(detailText, 0);
+
+        if (item.date_modified_available && !item.date_modified_str.empty())
+        {
+            auto dateText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+            dateText.Text(ToHString(item.date_modified_str));
+            dateText.Opacity(0.55);
+            dateText.FontSize(11);
+            dateText.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
+            metaGrid.Children().Append(dateText);
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(dateText, 1);
+        }
 
         contentStack.Children().Append(titleText);
-        contentStack.Children().Append(detailText);
-        contentStack.Children().Append(pathText);
+        contentStack.Children().Append(metaGrid);
 
         rowGrid.Children().Append(iconTile);
         rowGrid.Children().Append(contentStack);
@@ -203,6 +227,10 @@ namespace winrt::FileScoutNative::implementation
 
         // Build the sidebar navigation buttons after panes are initialized.
         BuildSidebarFavorites();
+
+        // Build sort column headers for both panes.
+        BuildSortHeader(0);
+        BuildSortHeader(1);
 
         // Pane 0 (left) starts as active with its indicator already lit.
         m_activePaneIndex = 0;
@@ -526,12 +554,73 @@ namespace winrt::FileScoutNative::implementation
         SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
     }
 
+    void MainWindow::SortItems(
+        std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
+        SortColumn const column,
+        SortDirection const direction) const
+    {
+        std::sort(items.begin(), items.end(),
+            [column, direction](
+                ::FileScoutNative::Domain::ShellItemRef const& a,
+                ::FileScoutNative::Domain::ShellItemRef const& b) -> bool
+            {
+                // Folders always sort before files regardless of column or direction —
+                // consistent with Windows Explorer behaviour on all columns.
+                if (a.is_folder != b.is_folder)
+                {
+                    return a.is_folder > b.is_folder;
+                }
+
+                bool ascending{};
+                switch (column)
+                {
+                case SortColumn::Name:
+                    ascending = _wcsicmp(a.display_name.c_str(), b.display_name.c_str()) < 0;
+                    break;
+                case SortColumn::Type:
+                    ascending = _wcsicmp(a.kind_label.c_str(), b.kind_label.c_str()) < 0;
+                    break;
+                case SortColumn::Size:
+                    // Items without size (folders) are already separated above; among files,
+                    // sort by size then fall back to name for equal sizes.
+                    if (a.size_available != b.size_available)
+                    {
+                        return a.size_available > b.size_available;
+                    }
+                    if (a.size_bytes != b.size_bytes)
+                    {
+                        ascending = a.size_bytes < b.size_bytes;
+                        break;
+                    }
+                    ascending = _wcsicmp(a.display_name.c_str(), b.display_name.c_str()) < 0;
+                    break;
+                case SortColumn::DateModified:
+                    if (a.date_modified_available != b.date_modified_available)
+                    {
+                        return a.date_modified_available > b.date_modified_available;
+                    }
+                    if (a.date_modified != b.date_modified)
+                    {
+                        ascending = a.date_modified < b.date_modified;
+                        break;
+                    }
+                    ascending = _wcsicmp(a.display_name.c_str(), b.display_name.c_str()) < 0;
+                    break;
+                default:
+                    ascending = _wcsicmp(a.display_name.c_str(), b.display_name.c_str()) < 0;
+                }
+
+                return direction == SortDirection::Ascending ? ascending : !ascending;
+            });
+    }
+
     void MainWindow::LoadDirectory(std::filesystem::path const& path)
     {
         try
         {
             const auto absolute = std::filesystem::absolute(path);
             auto items = m_shellInterop.EnumerateDirectory(absolute);
+            SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
 
             auto& pane = ActivePane();
             pane.current_path = absolute;
@@ -1513,6 +1602,140 @@ namespace winrt::FileScoutNative::implementation
         RightPaneBorder().BorderBrush(m_activePaneIndex == 1 ? accentBrush : transparentBrush);
     }
 
+    winrt::Microsoft::UI::Xaml::Controls::Border MainWindow::SortHeaderForPane(int32_t const paneIndex)
+    {
+        return paneIndex == 0 ? LeftPaneSortHeader() : RightPaneSortHeader();
+    }
+
+    void MainWindow::BuildSortHeader(int32_t const paneIndex)
+    {
+        struct ColumnDef { std::wstring_view label; SortColumn column; double widthStar; };
+        static constexpr std::array<ColumnDef, 4> columns{{
+            { L"Name",          SortColumn::Name,         3.0 },
+            { L"Type",          SortColumn::Type,         1.8 },
+            { L"Size",          SortColumn::Size,         1.2 },
+            { L"Date Modified", SortColumn::DateModified, 2.0 },
+        }};
+
+        auto headerBorder = SortHeaderForPane(paneIndex);
+
+        auto headerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        for (auto const& col : columns)
+        {
+            auto colDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            colDef.Width({ col.widthStar, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+            headerGrid.ColumnDefinitions().Append(colDef);
+        }
+
+        auto const& pane = m_panes[paneIndex];
+
+        for (int32_t colIdx = 0; colIdx < static_cast<int32_t>(columns.size()); ++colIdx)
+        {
+            auto const& colDef = columns[static_cast<std::size_t>(colIdx)];
+            bool const isActive = (pane.sort_column == colDef.column);
+
+            // Compose label text: "Name ↑" / "Name ↓" when active, plain label when inactive.
+            std::wstring labelText{ colDef.label };
+            if (isActive)
+            {
+                labelText += (pane.sort_direction == SortDirection::Ascending) ? L"  \u2191" : L"  \u2193";
+            }
+
+            auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
+            btn.Content(winrt::box_value(winrt::hstring{ labelText }));
+            btn.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
+            btn.HorizontalContentAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
+            btn.Padding({ 6, 5, 6, 5 });
+            btn.FontSize(12);
+            btn.FontWeight(isActive
+                ? winrt::Microsoft::UI::Text::FontWeights::SemiBold()
+                : winrt::Microsoft::UI::Text::FontWeights::Normal());
+
+            // Subtle accent on active column.
+            if (isActive)
+            {
+                btn.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                    winrt::Windows::UI::Color{ 0xFF, 0x00, 0x78, 0xD4 }));
+            }
+
+            // Flat button style — remove default padding/chrome so it looks like a header cell.
+            try
+            {
+                auto const style = winrt::Microsoft::UI::Xaml::Application::Current()
+                    .Resources()
+                    .Lookup(winrt::box_value(winrt::hstring{ L"SubtleButtonStyle" }))
+                    .as<winrt::Microsoft::UI::Xaml::Style>();
+                btn.Style(style);
+            }
+            catch (...) {}
+
+            auto const targetCol = colDef.column;
+            btn.Click([this, paneIndex, targetCol](auto const&, auto const&)
+                {
+                    SetActivePaneIndex(paneIndex);
+                    SetSortColumn(paneIndex, targetCol);
+                });
+
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(btn, colIdx);
+            headerGrid.Children().Append(btn);
+        }
+
+        headerBorder.Child(headerGrid);
+    }
+
+    void MainWindow::SetSortColumn(int32_t const paneIndex, SortColumn const column)
+    {
+        auto& pane = m_panes[paneIndex];
+
+        if (pane.sort_column == column)
+        {
+            // Same column — flip direction.
+            pane.sort_direction = (pane.sort_direction == SortDirection::Ascending)
+                ? SortDirection::Descending
+                : SortDirection::Ascending;
+        }
+        else
+        {
+            pane.sort_column = column;
+            // Date and Size default to Descending when first selected (most-recent / largest first).
+            pane.sort_direction = (column == SortColumn::DateModified || column == SortColumn::Size)
+                ? SortDirection::Descending
+                : SortDirection::Ascending;
+        }
+
+        BuildSortHeader(paneIndex);
+
+        // Re-sort the current items and refresh the rows without re-enumerating disk.
+        SortItems(pane.items, pane.sort_column, pane.sort_direction);
+
+        // Also sync the active tab's cached items so RestoreActiveTab stays consistent.
+        if (pane.active_tab_index >= 0 && pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
+        {
+            pane.tabs[pane.active_tab_index].items = pane.items;
+        }
+
+        // Switch to this pane temporarily to call UpdateRows (which uses ActivePane()).
+        auto const savedActive = m_activePaneIndex;
+        m_activePaneIndex = paneIndex;
+        UpdateRows(pane.items);
+        m_activePaneIndex = savedActive;
+
+        StatusTextBlock().Text(ToHString(
+            std::to_wstring(pane.items.size()) + L" items  ·  sorted by "
+            + [column]() -> std::wstring
+              {
+                  switch (column)
+                  {
+                  case SortColumn::Name:         return L"Name";
+                  case SortColumn::Type:         return L"Type";
+                  case SortColumn::Size:         return L"Size";
+                  case SortColumn::DateModified: return L"Date Modified";
+                  default:                       return L"Name";
+                  }
+              }()
+            + (pane.sort_direction == SortDirection::Ascending ? L"  \u2191" : L"  \u2193")));
+    }
+
     void MainWindow::BuildSidebarFavorites()
     {
         auto const panel = SidebarPlacesPanel();
@@ -1558,6 +1781,9 @@ namespace winrt::FileScoutNative::implementation
         try
         {
             auto items = m_shellInterop.EnumerateDrives();
+            // Drives lack size/date, so sort degenerates to name order for those columns —
+            // but apply the active sort to stay consistent with the current pane preference.
+            SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
 
             auto& pane = ActivePane();
             pane.current_path = std::filesystem::path{};
