@@ -186,9 +186,12 @@ namespace FileScoutNative::Shell
         bool const isFolder)
     {
         const auto cacheKey = BuildIconCacheKey(path, isFolder);
-        if (auto const existing = m_iconCache.find(cacheKey); existing != m_iconCache.end())
         {
-            return existing->second;
+            std::lock_guard lock{ m_cacheMutex };
+            if (auto const existing = m_iconCache.find(cacheKey); existing != m_iconCache.end())
+            {
+                return existing->second;
+            }
         }
 
         std::wstring lookupName;
@@ -211,8 +214,12 @@ namespace FileScoutNative::Shell
             }
         }
 
+        // Extract icon outside the lock — GDI/SHGetFileInfoW can be slow.
         auto icon = ExtractShellIconBitmap(lookupName, fileAttributes).value_or(FileScoutNative::Domain::IconBitmap{});
-        m_iconCache.emplace(cacheKey, icon);
+        {
+            std::lock_guard lock{ m_cacheMutex };
+            m_iconCache.emplace(cacheKey, icon);
+        }
         return icon;
     }
 

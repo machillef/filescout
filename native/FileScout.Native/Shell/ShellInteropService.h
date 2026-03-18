@@ -18,6 +18,7 @@ namespace FileScoutNative::Shell
             std::filesystem::path const& path,
             bool isFolder);
 
+        mutable std::mutex m_cacheMutex;
         std::unordered_map<std::wstring, FileScoutNative::Domain::IconBitmap> m_iconCache;
     };
 }

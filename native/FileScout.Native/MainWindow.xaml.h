@@ -41,6 +41,8 @@ namespace winrt::FileScoutNative::implementation
         SortDirection sort_direction{ SortDirection::Ascending };
         // View mode — cards (rich cards) or list (compact rows).
         ViewMode view_mode{ ViewMode::Cards };
+        // Incremented each time LoadDirectory is called; lets background loads detect stale results.
+        uint32_t load_generation{ 0 };
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -84,6 +86,7 @@ namespace winrt::FileScoutNative::implementation
 
     private:
         HWND m_hwnd{ nullptr };
+        winrt::Microsoft::UI::Dispatching::DispatcherQueue m_dispatcherQueue{ nullptr };
 
         // Dual-pane state: index 0 = left, index 1 = right.
         std::array<PaneContext, 2> m_panes{};
@@ -112,8 +115,11 @@ namespace winrt::FileScoutNative::implementation
         HWND GetWindowHandle();
         void ConfigureWindow();
         void SetupKeyboardAccelerators();
-        void LoadDirectory(std::filesystem::path const& path);
-        void UpdateRows(std::vector<::FileScoutNative::Domain::ShellItemRef> const& items);
+        void LoadDirectory(std::filesystem::path const& path,
+            std::optional<std::filesystem::path> selectAfter = std::nullopt);
+        winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
+            std::optional<std::filesystem::path> selectAfter);
+        void UpdateRows(int32_t paneIndex, std::vector<::FileScoutNative::Domain::ShellItemRef> const& items);
         void SelectItemByIndex(int32_t index);
         void ResetSelectionDetails();
         void UpdateSelectionDetails(::FileScoutNative::Domain::ShellItemRef const& item);

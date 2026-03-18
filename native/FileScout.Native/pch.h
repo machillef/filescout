@@ -25,6 +25,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <mutex>
 #include <unordered_set>
 #include <vector>
 

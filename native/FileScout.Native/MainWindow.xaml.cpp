@@ -303,6 +303,7 @@ namespace winrt::FileScoutNative::implementation
     {
         TraceLog(L"MainWindow ctor: InitializeComponent...");
         InitializeComponent();
+        m_dispatcherQueue = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
         TraceLog(L"MainWindow ctor: InitializeComponent done. ConfigureWindow...");
         ConfigureWindow();
         TraceLog(L"MainWindow ctor: ConfigureWindow done. SetupKeyboardAccelerators...");
@@ -733,65 +734,137 @@ namespace winrt::FileScoutNative::implementation
             });
     }
 
-    void MainWindow::LoadDirectory(std::filesystem::path const& path)
+    void MainWindow::LoadDirectory(
+        std::filesystem::path const& path,
+        std::optional<std::filesystem::path> selectAfter)
     {
-        TraceLog(L"LoadDirectory: " + path.wstring());
-        try
-        {
-            const auto absolute = std::filesystem::absolute(path);
-            TraceLog(L"LoadDirectory: EnumerateDirectory...");
-            auto items = m_shellInterop.EnumerateDirectory(absolute);
-            TraceLog(L"LoadDirectory: EnumerateDirectory done, count=" + std::to_wstring(items.size()));
-            SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
-
-            auto& pane = ActivePane();
-            pane.current_path = absolute;
-            pane.is_drives_view = false;
-            pane.items = items;
-            pane.selection.Clear();
-
-            // Persist the newly loaded state to the active tab.
-            pane.tabs[pane.active_tab_index].path = absolute;
-            pane.tabs[pane.active_tab_index].items = items;
-            pane.tabs[pane.active_tab_index].selection = {};
-            pane.tabs[pane.active_tab_index].selected_item_index = -1;
-            pane.tabs[pane.active_tab_index].is_drives_view = false;
-            UpdateTabHeader(pane.active_tab_index);
-
-            AddressTextBox().Text(ToHString(absolute.wstring()));
-            TraceLog(L"LoadDirectory: UpdateRows...");
-            UpdateRows(items);
-            TraceLog(L"LoadDirectory: UpdateRows done.");
-
-            if (pane.active_list_view)
-            {
-                pane.tab_switching = true;
-                pane.active_list_view.SelectedIndex(-1);
-                pane.tab_switching = false;
-            }
-
-            TraceLog(L"LoadDirectory: ResetSelectionDetails...");
-            ResetSelectionDetails();
-            TraceLog(L"LoadDirectory: ResetSelectionDetails done.");
-
-            StatusTextBlock().Text(
-                ToHString(std::to_wstring(items.size()) + L" shell-backed entries loaded from " + absolute.wstring()));
-        }
-        catch (std::exception const&)
-        {
-            StatusTextBlock().Text(L"Directory load failed.");
-        }
+        // Capture pane/tab index synchronously so async work targets the right pane
+        // even if the user switches panes before the enumeration finishes.
+        LoadDirectoryAsync(path, m_activePaneIndex, std::move(selectAfter));
     }
 
-    void MainWindow::UpdateRows(std::vector<::FileScoutNative::Domain::ShellItemRef> const& items)
+    winrt::fire_and_forget MainWindow::LoadDirectoryAsync(
+        std::filesystem::path path,
+        int32_t const paneIndex,
+        std::optional<std::filesystem::path> selectAfter)
     {
-        auto& pane = ActivePane();
-        bool const listView = (pane.view_mode == ViewMode::List);
-        pane.tab_rows[pane.active_tab_index].Clear();
+        auto lifetime = get_strong();
+        auto& pane = m_panes[paneIndex];
+        uint32_t const generation = ++pane.load_generation;
+        int32_t const tabIndex = pane.active_tab_index;
 
-        for (auto const& item : items)
+        // Immediately clear stale content on the UI thread so the list goes blank
+        // rather than showing outdated rows during enumeration.
+        pane.items.clear();
+        pane.selection.Clear();
+        pane.tab_rows[tabIndex].Clear();
+        if (pane.active_list_view)
         {
-            pane.tab_rows[pane.active_tab_index].Append(CreateRowView(item, listView));
+            pane.tab_switching = true;
+            pane.active_list_view.SelectedIndex(-1);
+            pane.tab_switching = false;
+        }
+        if (m_activePaneIndex == paneIndex)
+        {
+            AddressTextBox().Text(ToHString(path.wstring()));
+            ResetSelectionDetails();
+        }
+
+        // Switch to a thread-pool thread for I/O and shell COM calls.
+        co_await winrt::resume_background();
+
+        std::filesystem::path absolute;
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items;
+        try
+        {
+            absolute = std::filesystem::absolute(path);
+            items = m_shellInterop.EnumerateDirectory(absolute);
+        }
+        catch (...)
+        {
+            m_dispatcherQueue.TryEnqueue([this, lifetime, paneIndex, generation]()
+            {
+                if (m_panes[paneIndex].load_generation != generation) return;
+                if (m_activePaneIndex == paneIndex)
+                {
+                    StatusTextBlock().Text(L"Directory load failed.");
+                }
+            });
+            co_return;
+        }
+
+        // Post results back to the UI thread.
+        m_dispatcherQueue.TryEnqueue(
+            [this, lifetime, paneIndex, tabIndex, generation,
+             absolute, selectAfter, items = std::move(items)]() mutable
+            {
+                auto& pane = m_panes[paneIndex];
+                if (pane.load_generation != generation) return;
+                if (pane.active_tab_index != tabIndex) return;
+
+                SortItems(items, pane.sort_column, pane.sort_direction);
+                pane.current_path = absolute;
+                pane.is_drives_view = false;
+                pane.items = items;
+                pane.selection.Clear();
+
+                pane.tabs[tabIndex].path = absolute;
+                pane.tabs[tabIndex].items = items;
+                pane.tabs[tabIndex].selection = {};
+                pane.tabs[tabIndex].selected_item_index = -1;
+                pane.tabs[tabIndex].is_drives_view = false;
+
+                // Update tab header via TabViewForPane so we target the right pane
+                // regardless of which pane is currently active.
+                auto tabView = TabViewForPane(paneIndex);
+                if (tabIndex >= 0 && tabIndex < static_cast<int32_t>(pane.tabs.size()))
+                {
+                    auto tabItem = tabView.TabItems()
+                        .GetAt(static_cast<uint32_t>(tabIndex))
+                        .as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>();
+                    tabItem.Header(winrt::box_value(ToHString(pane.tabs[tabIndex].display_name())));
+                }
+
+                if (m_activePaneIndex == paneIndex)
+                {
+                    AddressTextBox().Text(ToHString(absolute.wstring()));
+                }
+
+                UpdateRows(paneIndex, items);
+
+                if (pane.active_list_view)
+                {
+                    pane.tab_switching = true;
+                    pane.active_list_view.SelectedIndex(-1);
+                    pane.tab_switching = false;
+                }
+
+                if (m_activePaneIndex == paneIndex)
+                {
+                    ResetSelectionDetails();
+                    StatusTextBlock().Text(ToHString(
+                        std::to_wstring(items.size()) + L" items in " + absolute.wstring()));
+                }
+
+                if (selectAfter.has_value())
+                {
+                    SelectItemByPath(*selectAfter);
+                }
+            });
+    }
+
+    void MainWindow::UpdateRows(int32_t const paneIndex,
+        std::vector<::FileScoutNative::Domain::ShellItemRef> const& items)
+    {
+        // Store lightweight indices instead of UIElement trees. The ListView's
+        // ContainerContentChanging callback creates UIElements on demand for
+        // visible containers only — this is what enables ListView virtualization.
+        auto& pane = m_panes[paneIndex];
+        auto& rows = pane.tab_rows[pane.active_tab_index];
+        rows.Clear();
+        for (int32_t i = 0; i < static_cast<int32_t>(items.size()); ++i)
+        {
+            rows.Append(winrt::box_value(i));
         }
     }
 
@@ -1289,8 +1362,7 @@ namespace winrt::FileScoutNative::implementation
                 GetWindowHandle(),
                 ActivePane().current_path,
                 folderName);
-            LoadDirectory(ActivePane().current_path);
-            SelectItemByPath(createdPath);
+            LoadDirectory(ActivePane().current_path, createdPath);
             StatusTextBlock().Text(ToHString(L"Created folder: " + createdPath.filename().wstring()));
         }
         catch (std::exception const&)
@@ -1340,8 +1412,7 @@ namespace winrt::FileScoutNative::implementation
                 GetWindowHandle(),
                 item.path,
                 newName);
-            LoadDirectory(ActivePane().current_path);
-            SelectItemByPath(renamedPath);
+            LoadDirectory(ActivePane().current_path, renamedPath);
             StatusTextBlock().Text(ToHString(L"Renamed to " + renamedPath.filename().wstring()));
         }
         catch (std::exception const&)
@@ -1583,6 +1654,22 @@ namespace winrt::FileScoutNative::implementation
             {
                 SetActivePaneIndex(paneIndex);
                 FileRowsListView_Drop(s, a);
+            });
+
+        // ContainerContentChanging fires only for visible containers, enabling ListView
+        // virtualization: UIElement rows are created on demand, not for every item.
+        listView.ContainerContentChanging(
+            [this, paneIndex](
+                winrt::Microsoft::UI::Xaml::Controls::ListViewBase const&,
+                winrt::Microsoft::UI::Xaml::Controls::ContainerContentChangingEventArgs const& args)
+            {
+                if (args.InRecycleQueue()) return;
+                auto const index = winrt::unbox_value<int32_t>(args.Item());
+                auto const& pane = m_panes[paneIndex];
+                if (index < 0 || static_cast<std::size_t>(index) >= pane.items.size()) return;
+                bool const listMode = (pane.view_mode == ViewMode::List);
+                args.ItemContainer().Content(
+                    CreateRowView(pane.items[static_cast<std::size_t>(index)], listMode));
             });
 
         return listView;
@@ -1983,11 +2070,7 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].items = pane.items;
         }
 
-        // Switch to this pane temporarily to call UpdateRows (which uses ActivePane()).
-        auto const savedActive = m_activePaneIndex;
-        m_activePaneIndex = paneIndex;
-        UpdateRows(pane.items);
-        m_activePaneIndex = savedActive;
+        UpdateRows(paneIndex, pane.items);
 
         StatusTextBlock().Text(ToHString(
             std::to_wstring(pane.items.size()) + L" items  ·  sorted by "
@@ -2061,25 +2144,23 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
     {
         auto& pane = m_panes[paneIndex];
-        bool const listView = (pane.view_mode == ViewMode::List);
 
-        // pane.tabs and pane.tab_rows are maintained in parallel and must be the same size.
-        // Guard against divergence introduced by future refactoring.
+        // Repopulate all tab row collections with boxed indices. The ListView's
+        // ContainerContentChanging handler will re-create UIElements on demand for
+        // visible containers using the current view mode — no upfront work needed here.
         // Use (std::min)() to prevent expansion of the Windows.h min() macro.
         auto const tabCount = (std::min)(pane.tabs.size(), pane.tab_rows.size());
         for (std::size_t i = 0; i < tabCount; ++i)
         {
-            // pane.items is the live, up-to-date vector for the active tab.
-            // Background tabs use their cached copy.
             auto const& source = (static_cast<int32_t>(i) == pane.active_tab_index)
                 ? pane.items
                 : pane.tabs[i].items;
 
             auto& rows = pane.tab_rows[i];
             rows.Clear();
-            for (auto const& item : source)
+            for (int32_t j = 0; j < static_cast<int32_t>(source.size()); ++j)
             {
-                rows.Append(CreateRowView(item, listView));
+                rows.Append(winrt::box_value(j));
             }
         }
     }
@@ -2147,7 +2228,7 @@ namespace winrt::FileScoutNative::implementation
             UpdateTabHeader(pane.active_tab_index);
 
             AddressTextBox().Text(L"This PC");
-            UpdateRows(items);
+            UpdateRows(m_activePaneIndex, items);
 
             if (pane.active_list_view)
             {
