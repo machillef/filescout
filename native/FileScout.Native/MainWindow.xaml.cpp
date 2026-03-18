@@ -168,11 +168,15 @@ namespace
         {
             auto icon = item.icon;
             auto weakImg = winrt::make_weak(iconImage);
-            [icon = std::move(icon), weakImg]() mutable -> winrt::fire_and_forget
+            auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
+            [icon = std::move(icon), weakImg, dq]() mutable -> winrt::fire_and_forget
             {
                 auto src = co_await BuildIconSourceAsync(std::move(icon));
-                if (auto img = weakImg.get())
-                    img.Source(src);
+                dq.TryEnqueue([weakImg, src]()
+                {
+                    if (auto img = weakImg.get())
+                        img.Source(src);
+                });
             }();
         }
         iconTile.Child(iconImage);
@@ -267,11 +271,15 @@ namespace
         {
             auto icon = item.icon;
             auto weakImg = winrt::make_weak(iconImage);
-            [icon = std::move(icon), weakImg]() mutable -> winrt::fire_and_forget
+            auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
+            [icon = std::move(icon), weakImg, dq]() mutable -> winrt::fire_and_forget
             {
                 auto src = co_await BuildIconSourceAsync(std::move(icon));
-                if (auto img = weakImg.get())
-                    img.Source(src);
+                dq.TryEnqueue([weakImg, src]()
+                {
+                    if (auto img = weakImg.get())
+                        img.Source(src);
+                });
             }();
         }
         winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconImage, 0);
@@ -874,11 +882,15 @@ namespace winrt::FileScoutNative::implementation
             {
                 auto icon = item.icon;
                 auto weakThis = get_weak();
-                [icon = std::move(icon), weakThis]() mutable -> winrt::fire_and_forget
+                auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
+                [icon = std::move(icon), weakThis, dq]() mutable -> winrt::fire_and_forget
                 {
                     auto src = co_await BuildIconSourceAsync(std::move(icon));
-                    if (auto self = weakThis.get())
-                        self->SelectionIconImage().Source(src);
+                    dq.TryEnqueue([weakThis, src]()
+                    {
+                        if (auto self = weakThis.get())
+                            self->SelectionIconImage().Source(src);
+                    });
                 }();
             }
             LoadImagePreviewAsync(item.path, gen);
@@ -893,11 +905,15 @@ namespace winrt::FileScoutNative::implementation
             {
                 auto icon = item.icon;
                 auto weakThis = get_weak();
-                [icon = std::move(icon), weakThis]() mutable -> winrt::fire_and_forget
+                auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
+                [icon = std::move(icon), weakThis, dq]() mutable -> winrt::fire_and_forget
                 {
                     auto src = co_await BuildIconSourceAsync(std::move(icon));
-                    if (auto self = weakThis.get())
-                        self->SelectionIconImage().Source(src);
+                    dq.TryEnqueue([weakThis, src]()
+                    {
+                        if (auto self = weakThis.get())
+                            self->SelectionIconImage().Source(src);
+                    });
                 }();
             }
         }
