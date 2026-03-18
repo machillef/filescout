@@ -62,8 +62,7 @@ namespace FileScoutNative::Shell
             std::wstring const& shellLookupName,
             DWORD const fileAttributes)
         {
-            ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-
+            // COM is already initialized by winrt::init_apartment in main.cpp.
             SHFILEINFOW shellInfo{};
             const auto result = SHGetFileInfoW(
                 shellLookupName.c_str(),
@@ -275,6 +274,12 @@ namespace FileScoutNative::Shell
             std::filesystem::path drivePath{ cursor };
 
             const UINT driveType = GetDriveTypeW(cursor);
+
+            // Skip drive letters that have no accessible root.
+            if (driveType == DRIVE_UNKNOWN || driveType == DRIVE_NO_ROOT_DIR)
+            {
+                continue;
+            }
 
             std::wstring kindLabel;
             switch (driveType)

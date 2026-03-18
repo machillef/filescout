@@ -1587,7 +1587,7 @@ namespace winrt::FileScoutNative::implementation
             StatusTextBlock().Text(
                 ToHString(std::to_wstring(items.size()) + L" drive(s) available."));
         }
-        catch (std::exception const&)
+        catch (...)
         {
             StatusTextBlock().Text(L"Drive enumeration failed.");
         }

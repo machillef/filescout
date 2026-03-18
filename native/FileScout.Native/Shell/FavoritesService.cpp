@@ -9,6 +9,9 @@ namespace FileScoutNative::Shell
         struct CoTaskMemWString
         {
             wchar_t* ptr{ nullptr };
+            CoTaskMemWString() = default;
+            CoTaskMemWString(CoTaskMemWString const&) = delete;
+            CoTaskMemWString& operator=(CoTaskMemWString const&) = delete;
             ~CoTaskMemWString() { if (ptr) CoTaskMemFree(ptr); }
         };
     }
@@ -59,22 +62,23 @@ namespace FileScoutNative::Shell
         // Standard known folders — skip entries whose paths could not be resolved.
         struct KnownFolderSpec
         {
-            KNOWNFOLDERID const* id;
+            KNOWNFOLDERID id;
             std::wstring_view name;
         };
 
-        static constexpr std::array<KnownFolderSpec, 6> knownFolders{ {
-            { &FOLDERID_Desktop,   L"Desktop"   },
-            { &FOLDERID_Documents, L"Documents" },
-            { &FOLDERID_Downloads, L"Downloads" },
-            { &FOLDERID_Pictures,  L"Pictures"  },
-            { &FOLDERID_Music,     L"Music"     },
-            { &FOLDERID_Videos,    L"Videos"    },
+        // KNOWNFOLDERID is a GUID (16 bytes); stored by value to avoid pointer-to-external-linkage.
+        static std::array<KnownFolderSpec, 6> const knownFolders{ {
+            { FOLDERID_Desktop,   L"Desktop"   },
+            { FOLDERID_Documents, L"Documents" },
+            { FOLDERID_Downloads, L"Downloads" },
+            { FOLDERID_Pictures,  L"Pictures"  },
+            { FOLDERID_Music,     L"Music"     },
+            { FOLDERID_Videos,    L"Videos"    },
         } };
 
         for (auto const& spec : knownFolders)
         {
-            auto path = ResolveKnownFolder(*spec.id);
+            auto path = ResolveKnownFolder(spec.id);
             if (!path.empty())
             {
                 favorites.push_back({ std::wstring{ spec.name }, std::move(path), false, false });
