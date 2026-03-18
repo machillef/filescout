@@ -1496,7 +1496,9 @@ namespace winrt::FileScoutNative::implementation
 
         m_activePaneIndex = paneIndex;
         UpdateActivePaneIndicator();
-        AddressTextBox().Text(ToHString(ActivePane().current_path.wstring()));
+        AddressTextBox().Text(ActivePane().is_drives_view
+            ? winrt::hstring{ L"This PC" }
+            : ToHString(ActivePane().current_path.wstring()));
     }
 
     void MainWindow::UpdateActivePaneIndicator()
