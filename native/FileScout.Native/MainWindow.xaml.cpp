@@ -1376,12 +1376,14 @@ namespace winrt::FileScoutNative::implementation
 
         auto const& tab = pane.tabs[pane.active_tab_index];
         pane.current_path = tab.path;
+        pane.is_drives_view = tab.is_drives_view;
         pane.items = tab.items;
         pane.selection = tab.selection;
 
-        AddressTextBox().Text(ToHString(pane.current_path.wstring()));
+        AddressTextBox().Text(tab.is_drives_view ? winrt::hstring{ L"This PC" }
+                                                 : ToHString(pane.current_path.wstring()));
 
-        if (pane.items.empty() && !tab.path.empty())
+        if (pane.items.empty() && !tab.path.empty() && !tab.is_drives_view)
         {
             // Tab hasn't loaded yet — navigate to its path now.
             LoadDirectory(tab.path);
@@ -1403,10 +1405,10 @@ namespace winrt::FileScoutNative::implementation
             ResetSelectionDetails();
         }
 
-        StatusTextBlock().Text(
-            ToHString(std::to_wstring(pane.items.size()) +
-                      L" shell-backed entries loaded from " +
-                      pane.current_path.wstring()));
+        auto const statusSuffix = tab.is_drives_view
+            ? std::wstring{ L" drive(s) available." }
+            : L" shell-backed entries loaded from " + pane.current_path.wstring();
+        StatusTextBlock().Text(ToHString(std::to_wstring(pane.items.size()) + statusSuffix));
     }
 
     void MainWindow::UpdateTabHeader(int32_t const index)
