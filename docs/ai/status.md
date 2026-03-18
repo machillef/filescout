@@ -558,5 +558,66 @@ Last updated: 2026-03-18
 - None
 
 ### Next recommended step
-- Continue with `R9b`: view mode toggle (compact card vs. details list)
-- Or continue with `R10`: preview and inspect surface
+- Continue with `R9b`: view mode toggle (compact card vs. details list) — Complete
+- Continue with `R10`: preview and inspect surface — Complete
+
+## Slice R9b: View Mode Toggle (Cards / List)
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- Added `ViewMode` enum (`Cards`, `List`) to `MainWindow.xaml.h` and `PaneContext`
+- Split `CreateRowView` into `CreateCardRow` (rich 68px card with icon tile, name, metadata) and
+  `CreateListRow` (compact 5-column grid: 20px icon | name 3* | type 1.8* | size 1.2* | date 2.0*)
+- `UpdateRows` passes `pane.view_mode == ViewMode::List` to `CreateRowView`
+- `BuildSortHeader` gains trailing "Cards"/"List" toggle buttons (accent on active);
+  List mode prepends a 28px icon spacer column for approximate header/row alignment
+- `SetViewMode` rebuilds sort header and calls `RebuildAllTabRowsForPane`
+- `RebuildAllTabRowsForPane`: uses `pane.items` for the active tab (live), cached items
+  for background tabs; bounds-guarded with `(std::min)()` to prevent Windows `min` macro
+- `FileRowItemStyle` `Margin` set to `0`; gap is embedded per row element (8px for cards, 0 for list)
+
+### What was validated
+- Clean build (`0 Error(s)`, `0 Warning(s)`) — pass
+
+### What remains unverified
+- Manual click of Cards/List toggle and visual inspection of both modes
+- Header/row alignment in list mode at various window widths
+
+### Blockers
+- None
+
+## Slice R10: Preview And Inspect Surface
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- Added to `ShellItemRef`: `is_image`, `date_created_available/str`,
+  `file_attributes_available`, `file_attributes` (uint32_t)
+- `ShellInteropService::EnumerateDirectory` populates all new fields via
+  `GetFileAttributesExW` (creation time, attributes) and extension matching
+  (`std::wstring_view` array for 9 image extensions)
+- XAML sidebar: `PreviewBorder`/`PreviewImage` (image preview, collapsed by default),
+  `SelectionIconBorder` (named for code-behind toggle), `SelectionCreatedTextBlock`,
+  `SelectionAttributesTextBlock`
+- `LoadImagePreviewAsync`: `fire_and_forget` with `m_previewGeneration` counter to
+  discard stale loads; uses `StorageFile::GetFileFromPathAsync + SetSourceAsync` to
+  correctly handle paths with spaces and Unicode (avoids URI percent-encoding issues)
+- `UpdateSelectionDetails`: shows image thumbnail for image files, created date, and
+  attribute badges (Read-only / Hidden / System / Archive)
+- `ResetSelectionDetails`: increments generation counter, hides new elements
+- `pch.h`: added `winrt/Windows.Storage.Streams.h` for `OpenReadAsync` return type
+
+### What was validated
+- Clean build (`0 Error(s)`, `0 Warning(s)`) — pass
+
+### What remains unverified
+- Manual image preview for jpg/png/gif/bmp/webp with paths containing spaces
+- Created date and attribute rendering for various file types
+- Graceful fallback to icon tile when image load fails (access denied, corrupt)
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R11`: archive mode (browse zip/7z/tar as virtual views)

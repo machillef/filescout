@@ -90,13 +90,18 @@ buttons for Home/Desktop/Documents/Downloads/Pictures/Music/Videos/This PC/Recyc
 ## R9: Sort/Group/View Mode Parity
 **Goal:** Explorer-class list behavior for sort, grouping, and presentation.
 **Status:** In Progress
-**Completed sub-slices:** `R9a` sort column/direction with clickable column headers,
-folders-first on all columns, date-modified field, per-pane sort state
+**Completed sub-slices:**
+- `R9a` sort column/direction with clickable column headers, folders-first on all columns,
+  date-modified field, per-pane sort state
+- `R9b` view mode toggle (Cards/List) with per-pane state, compact list rows,
+  `RebuildAllTabRowsForPane` with live-item correctness for active tab
 **Depends on:** `R2`
 
 ## R10: Preview And Inspect Surface
 **Goal:** Native preview and metadata inspection.
-**Status:** Not Started
+**Status:** Complete
+**Completed sub-slices:** `R10` sidebar image preview via `StorageFile`+`SetSourceAsync`
+(generation-counter cancellation), created date, file attributes, is_image detection
 **Depends on:** `R2`
 
 ## R11: Archive Mode

@@ -28,7 +28,8 @@
 - [x] `R8` favorites, sidebar tree, and pinned locations
 - [ ] `R9` sort/group/view mode parity
   - [x] `R9a` sort column/direction with clickable column headers
-- [ ] `R10` preview and inspect surface
+  - [x] `R9b` view mode toggle (Cards / List) with per-pane state
+- [x] `R10` preview and inspect surface
 
 ## Phase 3: Differentiated Features
 - [ ] `R11` archive mode
