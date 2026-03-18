@@ -662,6 +662,8 @@ namespace winrt::FileScoutNative::implementation
     {
         Title(L"FileScout Native");
 
+        SystemBackdrop(winrt::Microsoft::UI::Xaml::Media::MicaBackdrop{});
+
         const auto hwnd = GetWindowHandle();
         const UINT dpi = GetDpiForWindow(hwnd);
         const float scale = static_cast<float>(dpi) / 96.0f;
