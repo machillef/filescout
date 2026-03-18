@@ -26,9 +26,10 @@
 - [x] `R6` tabs
 - [x] `R7` dual-pane layout
 - [x] `R8` favorites, sidebar tree, and pinned locations
-- [ ] `R9` sort/group/view mode parity
+- [x] `R9` sort/group/view mode parity
   - [x] `R9a` sort column/direction with clickable column headers
   - [x] `R9b` view mode toggle (Cards / List) with per-pane state
+  - [x] `R9c` grouped rows tied to the active sort column
 - [x] `R10` preview and inspect surface
 
 ## Phase 3: Differentiated Features
@@ -45,6 +46,6 @@
   behavior as input
 - Do not add new durable initiative state for Rust-only slices
 - `native/` is now tracked in git; keep further alpha work isolated there
-- Resolve the `R4d` native startup abort before widening into `R5`
-- Treat any future launch claims as invalid until the app opens without the
-  VC++ runtime abort dialog in the current local environment
+- Phase 2 baseline is complete; continue with `R11` archive mode next
+- Keep the pre-existing `MSB8027` + `LNK4042` WinAppSDK duplicate-object warning
+  visible in validation reports until the upstream warning path is removed

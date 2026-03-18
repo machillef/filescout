@@ -89,12 +89,16 @@ buttons for Home/Desktop/Documents/Downloads/Pictures/Music/Videos/This PC/Recyc
 
 ## R9: Sort/Group/View Mode Parity
 **Goal:** Explorer-class list behavior for sort, grouping, and presentation.
-**Status:** In Progress
+**Status:** Complete
 **Completed sub-slices:**
 - `R9a` sort column/direction with clickable column headers, folders-first on all columns,
   date-modified field, per-pane sort state
 - `R9b` view mode toggle (Cards/List) with per-pane state, compact list rows,
   `RebuildAllTabRowsForPane` with live-item correctness for active tab
+- `R9c` group toggle tied to the active sort column, lightweight in-row group headers that
+  preserve ListView selection/indexing, and background-tab sort refresh for shared pane state
+**Follow-up note:** manual validation of grouped rendering, per-pane group toggles, and
+group-label quality on filesystem and "This PC" views is still recommended before widening into R11
 **Depends on:** `R2`
 
 ## R10: Preview And Inspect Surface

@@ -39,6 +39,8 @@ namespace winrt::FileScoutNative::implementation
         // Sort state — shared across all tabs in this pane (same as Explorer behaviour).
         SortColumn sort_column{ SortColumn::Name };
         SortDirection sort_direction{ SortDirection::Ascending };
+        // When true, rows render group headers derived from the active sort column.
+        bool group_by_sort_column{ false };
         // View mode — cards (rich cards) or list (compact rows).
         ViewMode view_mode{ ViewMode::Cards };
         // Incremented each time LoadDirectory is called; lets background loads detect stale results.
@@ -156,6 +158,7 @@ namespace winrt::FileScoutNative::implementation
         void SetSortColumn(int32_t paneIndex, SortColumn column);
         void SortItems(std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
                        SortColumn column, SortDirection direction) const;
+        void SetGroupingEnabled(int32_t paneIndex, bool enabled);
 
         // View mode helpers (R9b).
         void SetViewMode(int32_t paneIndex, ViewMode mode);

@@ -12,6 +12,8 @@
 
 namespace
 {
+    using SortColumn = winrt::FileScoutNative::implementation::SortColumn;
+
     winrt::hstring ToHString(std::wstring const& value)
     {
         return winrt::hstring{ value };
@@ -124,6 +126,190 @@ namespace
 
         auto const end = value.find_last_not_of(L" \t\r\n");
         return value.substr(begin, end - begin + 1);
+    }
+
+    std::wstring SortColumnLabel(SortColumn const column)
+    {
+        switch (column)
+        {
+        case SortColumn::Name:
+            return L"Name";
+        case SortColumn::Type:
+            return L"Type";
+        case SortColumn::Size:
+            return L"Size";
+        case SortColumn::DateModified:
+            return L"Date Modified";
+        default:
+            return L"Name";
+        }
+    }
+
+    std::wstring BuildNameGroupLabel(::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        std::wstring prefix = item.is_folder ? L"Folders - " : L"Files - ";
+        if (item.display_name.empty())
+        {
+            return prefix + L"#";
+        }
+
+        wchar_t ch = static_cast<wchar_t>(::towupper(item.display_name.front()));
+        if (::iswalnum(ch))
+        {
+            return prefix + std::wstring{ 1, ch };
+        }
+
+        return prefix + L"#";
+    }
+
+    std::wstring BuildSizeGroupLabel(::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        if (item.is_folder)
+        {
+            return L"Folders";
+        }
+
+        if (!item.size_available)
+        {
+            return L"No Size";
+        }
+
+        auto const size = item.size_bytes;
+        if (size == 0)
+        {
+            return L"Empty";
+        }
+        if (size < 100ull * 1024ull)
+        {
+            return L"Tiny (< 100 KB)";
+        }
+        if (size < 1024ull * 1024ull)
+        {
+            return L"Small (< 1 MB)";
+        }
+        if (size < 16ull * 1024ull * 1024ull)
+        {
+            return L"Medium (< 16 MB)";
+        }
+        if (size < 128ull * 1024ull * 1024ull)
+        {
+            return L"Large (< 128 MB)";
+        }
+
+        return L"Huge (>= 128 MB)";
+    }
+
+    std::wstring BuildDateModifiedGroupLabel(::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        std::wstring prefix = item.is_folder ? L"Folders - " : L"Files - ";
+        if (!item.date_modified_available)
+        {
+            return prefix + L"No Date";
+        }
+
+        auto const ticks = static_cast<ULONGLONG>(item.date_modified.time_since_epoch().count());
+        FILETIME ft{};
+        ft.dwLowDateTime = static_cast<DWORD>(ticks & 0xFFFFFFFFULL);
+        ft.dwHighDateTime = static_cast<DWORD>(ticks >> 32);
+
+        SYSTEMTIME utc{};
+        SYSTEMTIME local{};
+        if (!FileTimeToSystemTime(&ft, &utc) ||
+            !SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
+        {
+            return prefix + L"No Date";
+        }
+
+        SYSTEMTIME now{};
+        GetLocalTime(&now);
+
+        if (local.wYear == now.wYear && local.wMonth == now.wMonth && local.wDay == now.wDay)
+        {
+            return prefix + L"Today";
+        }
+
+        FILETIME itemLocalFt{};
+        FILETIME nowLocalFt{};
+        if (!SystemTimeToFileTime(&local, &itemLocalFt) || !SystemTimeToFileTime(&now, &nowLocalFt))
+        {
+            return prefix + L"Older";
+        }
+
+        ULARGE_INTEGER itemTicks{};
+        itemTicks.LowPart = itemLocalFt.dwLowDateTime;
+        itemTicks.HighPart = itemLocalFt.dwHighDateTime;
+
+        ULARGE_INTEGER nowTicks{};
+        nowTicks.LowPart = nowLocalFt.dwLowDateTime;
+        nowTicks.HighPart = nowLocalFt.dwHighDateTime;
+
+        constexpr ULONGLONG dayTicks = 24ull * 60ull * 60ull * 10000000ull;
+        if (nowTicks.QuadPart >= itemTicks.QuadPart)
+        {
+            auto const diffDays = (nowTicks.QuadPart - itemTicks.QuadPart) / dayTicks;
+            if (diffDays <= 1)
+            {
+                return prefix + L"Yesterday";
+            }
+        }
+
+        if (local.wYear == now.wYear && local.wMonth == now.wMonth)
+        {
+            return prefix + L"This Month";
+        }
+
+        if (local.wYear == now.wYear)
+        {
+            return prefix + L"Earlier This Year";
+        }
+
+        return prefix + L"Older";
+    }
+
+    std::wstring BuildGroupLabel(
+        ::FileScoutNative::Domain::ShellItemRef const& item,
+        SortColumn const sortColumn)
+    {
+        switch (sortColumn)
+        {
+        case SortColumn::Name:
+            return BuildNameGroupLabel(item);
+        case SortColumn::Type:
+            return item.is_folder ? std::wstring{ L"Folders" }
+                                  : (item.kind_label.empty() ? std::wstring{ L"Unknown Type" } : item.kind_label);
+        case SortColumn::Size:
+            return BuildSizeGroupLabel(item);
+        case SortColumn::DateModified:
+            return BuildDateModifiedGroupLabel(item);
+        default:
+            return BuildNameGroupLabel(item);
+        }
+    }
+
+    winrt::Microsoft::UI::Xaml::FrameworkElement WrapRowWithGroupHeader(
+        winrt::Microsoft::UI::Xaml::FrameworkElement const& row,
+        std::optional<std::wstring> const& groupLabel,
+        bool const listView)
+    {
+        if (!groupLabel.has_value() || groupLabel->empty())
+        {
+            return row;
+        }
+
+        auto host = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+        host.Spacing(listView ? 2 : 4);
+
+        auto header = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        header.Text(ToHString(*groupLabel));
+        header.Margin({ 4.0, listView ? 10.0 : 12.0, 0.0, 0.0 });
+        header.Opacity(0.72);
+        header.FontSize(11);
+        header.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+        header.CharacterSpacing(20);
+
+        host.Children().Append(header);
+        host.Children().Append(row);
+        return host;
     }
 
     // Creates a rich card row (Cards view mode).
@@ -291,9 +477,11 @@ namespace
 
     winrt::Microsoft::UI::Xaml::FrameworkElement CreateRowView(
         ::FileScoutNative::Domain::ShellItemRef const& item,
-        bool const listView)
+        bool const listView,
+        std::optional<std::wstring> const& groupLabel = std::nullopt)
     {
-        return listView ? CreateListRow(item) : CreateCardRow(item);
+        auto row = listView ? CreateListRow(item) : CreateCardRow(item);
+        return WrapRowWithGroupHeader(row, groupLabel, listView);
     }
 }
 
@@ -860,9 +1048,22 @@ namespace winrt::FileScoutNative::implementation
         bool const listMode = (pane.view_mode == ViewMode::List);
         auto& rows = pane.tab_rows[pane.active_tab_index];
         rows.Clear();
+
+        std::wstring previousGroupLabel;
         for (auto const& item : items)
         {
-            rows.Append(CreateRowView(item, listMode));
+            std::optional<std::wstring> groupLabel;
+            if (pane.group_by_sort_column)
+            {
+                auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
+                if (rows.Size() == 0 || currentGroupLabel != previousGroupLabel)
+                {
+                    groupLabel = currentGroupLabel;
+                }
+                previousGroupLabel = std::move(currentGroupLabel);
+            }
+
+            rows.Append(CreateRowView(item, listMode, groupLabel));
         }
     }
 
@@ -1977,9 +2178,8 @@ namespace winrt::FileScoutNative::implementation
         toggleStack.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
         toggleStack.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
 
-        auto addToggleBtn = [&](std::wstring_view label, ViewMode targetMode)
+        auto addHeaderButton = [&](std::wstring_view label, bool isActive, auto&& onClick)
         {
-            bool const isActive = (pane.view_mode == targetMode);
             auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
             btn.Content(winrt::box_value(winrt::hstring{ label }));
             btn.Padding({ 8, 4, 8, 4 });
@@ -2001,13 +2201,25 @@ namespace winrt::FileScoutNative::implementation
                 btn.Style(style);
             }
             catch (...) {}
+            btn.Click(std::forward<decltype(onClick)>(onClick));
+            toggleStack.Children().Append(btn);
+        };
+
+        addHeaderButton(L"Group", pane.group_by_sort_column, [this, paneIndex](auto const&, auto const&)
+            {
+                SetActivePaneIndex(paneIndex);
+                SetGroupingEnabled(paneIndex, !m_panes[paneIndex].group_by_sort_column);
+            });
+
+        auto addToggleBtn = [&](std::wstring_view label, ViewMode targetMode)
+        {
+            bool const isActive = (pane.view_mode == targetMode);
             auto const capturedMode = targetMode;
-            btn.Click([this, paneIndex, capturedMode](auto const&, auto const&)
+            addHeaderButton(label, isActive, [this, paneIndex, capturedMode](auto const&, auto const&)
                 {
                     SetActivePaneIndex(paneIndex);
                     SetViewMode(paneIndex, capturedMode);
                 });
-            toggleStack.Children().Append(btn);
         };
 
         addToggleBtn(L"Cards", ViewMode::Cards);
@@ -2043,31 +2255,42 @@ namespace winrt::FileScoutNative::implementation
 
         BuildSortHeader(paneIndex);
 
-        // Re-sort the current items and refresh the rows without re-enumerating disk.
-        SortItems(pane.items, pane.sort_column, pane.sort_direction);
-
-        // Also sync the active tab's cached items so RestoreActiveTab stays consistent.
-        if (pane.active_tab_index >= 0 && pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
+        for (auto& tab : pane.tabs)
         {
-            pane.tabs[pane.active_tab_index].items = pane.items;
+            SortItems(tab.items, pane.sort_column, pane.sort_direction);
         }
 
-        UpdateRows(paneIndex, pane.items);
+        if (pane.active_tab_index >= 0 && pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
+        {
+            pane.items = pane.tabs[pane.active_tab_index].items;
+        }
+
+        RebuildAllTabRowsForPane(paneIndex);
 
         StatusTextBlock().Text(ToHString(
             std::to_wstring(pane.items.size()) + L" items  ·  sorted by "
-            + [column]() -> std::wstring
-              {
-                  switch (column)
-                  {
-                  case SortColumn::Name:         return L"Name";
-                  case SortColumn::Type:         return L"Type";
-                  case SortColumn::Size:         return L"Size";
-                  case SortColumn::DateModified: return L"Date Modified";
-                  default:                       return L"Name";
-                  }
-              }()
-            + (pane.sort_direction == SortDirection::Ascending ? L"  \u2191" : L"  \u2193")));
+            + SortColumnLabel(column)
+            + (pane.sort_direction == SortDirection::Ascending ? L"  \u2191" : L"  \u2193")
+            + (pane.group_by_sort_column ? L"  ·  grouped" : L"")));
+    }
+
+    void MainWindow::SetGroupingEnabled(int32_t const paneIndex, bool const enabled)
+    {
+        auto& pane = m_panes[paneIndex];
+        if (pane.group_by_sort_column == enabled)
+        {
+            return;
+        }
+
+        pane.group_by_sort_column = enabled;
+        BuildSortHeader(paneIndex);
+        RebuildAllTabRowsForPane(paneIndex);
+
+        StatusTextBlock().Text(ToHString(
+            std::to_wstring(pane.items.size()) +
+            (enabled
+                ? L" items  ·  grouped by " + SortColumnLabel(pane.sort_column)
+                : L" items  ·  grouping off")));
     }
 
     winrt::fire_and_forget MainWindow::LoadImagePreviewAsync(
@@ -2138,9 +2361,21 @@ namespace winrt::FileScoutNative::implementation
 
             auto& rows = pane.tab_rows[i];
             rows.Clear();
+            std::wstring previousGroupLabel;
             for (auto const& item : source)
             {
-                rows.Append(CreateRowView(item, listMode));
+                std::optional<std::wstring> groupLabel;
+                if (pane.group_by_sort_column)
+                {
+                    auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
+                    if (rows.Size() == 0 || currentGroupLabel != previousGroupLabel)
+                    {
+                        groupLabel = currentGroupLabel;
+                    }
+                    previousGroupLabel = std::move(currentGroupLabel);
+                }
+
+                rows.Append(CreateRowView(item, listMode, groupLabel));
             }
         }
     }
