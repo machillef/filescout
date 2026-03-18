@@ -11,10 +11,11 @@
 
     <Grid>
         <Grid.Resources>
+            <!-- Margin is intentionally 0 here; row elements embed their own spacing. -->
             <Style x:Key="FileRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Margin" Value="0,0,0,8" />
+                <Setter Property="Margin" Value="0" />
                 <Setter Property="MinHeight" Value="0" />
             </Style>
         </Grid.Resources>
@@ -90,7 +91,19 @@
                     <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" />
                     <Border Height="1" Margin="0,4,0,4" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
                     <TextBlock Text="Selection" FontSize="18" FontWeight="SemiBold" />
-                    <Border Width="48"
+                    <!-- Image preview — shown when an image file is selected (R10). -->
+                    <Border x:Name="PreviewBorder"
+                            MaxHeight="160"
+                            CornerRadius="8"
+                            Background="#22000000"
+                            Visibility="Collapsed">
+                        <Image x:Name="PreviewImage"
+                               MaxHeight="160"
+                               Stretch="Uniform" />
+                    </Border>
+                    <!-- Icon tile — shown when no image preview is available. -->
+                    <Border x:Name="SelectionIconBorder"
+                            Width="48"
                             Height="48"
                             CornerRadius="14"
                             Background="#FFFFFFFF">
@@ -109,6 +122,15 @@
                                Text="Pick a folder or file to inspect its shell-backed details."
                                Opacity="0.72"
                                TextWrapping="Wrap" />
+                    <TextBlock x:Name="SelectionCreatedTextBlock"
+                               Opacity="0.58"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed" />
+                    <TextBlock x:Name="SelectionAttributesTextBlock"
+                               Opacity="0.55"
+                               FontSize="11"
+                               Visibility="Collapsed" />
                     <TextBlock x:Name="SelectionPathTextBlock"
                                Text="Selection path will appear here."
                                Opacity="0.58"

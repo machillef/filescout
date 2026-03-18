@@ -273,6 +273,47 @@ namespace FileScoutNative::Shell
                 }
             }
 
+            // Populate creation time, file attributes, and image flag via GetFileAttributesExW.
+            // This is one Win32 call per item; acceptable given the heavier SHGetFileInfoW above.
+            // Store the wstring in a named local so the pointer lifetime is explicit.
+            WIN32_FILE_ATTRIBUTE_DATA attrData{};
+            auto const itemPathStr = item.path.wstring();
+            if (GetFileAttributesExW(itemPathStr.c_str(), GetFileExInfoStandard, &attrData))
+            {
+                item.file_attributes = static_cast<uint32_t>(attrData.dwFileAttributes);
+                item.file_attributes_available = true;
+
+                SYSTEMTIME utc{};
+                SYSTEMTIME local{};
+                if (FileTimeToSystemTime(&attrData.ftCreationTime, &utc) &&
+                    SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
+                {
+                    wchar_t dateBuf[64]{};
+                    wchar_t timeBuf[64]{};
+                    GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE,
+                                    &local, nullptr, dateBuf, 64, nullptr);
+                    GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS,
+                                    &local, nullptr, timeBuf, 64);
+                    item.date_created_str = std::wstring{ dateBuf } + L"  " + std::wstring{ timeBuf };
+                    item.date_created_available = true;
+                }
+            }
+
+            // Detect image files by extension for the preview panel.
+            if (!item.is_folder)
+            {
+                auto ext = item.path.extension().wstring();
+                std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t const ch)
+                    { return static_cast<wchar_t>(towlower(ch)); });
+                // Use string_view for safe, unambiguous string comparison (not pointer comparison).
+                static constexpr std::array<std::wstring_view, 9> imgExts{
+                    L".jpg", L".jpeg", L".png", L".gif", L".bmp",
+                    L".ico", L".webp", L".tiff", L".tif",
+                };
+                item.is_image = std::ranges::any_of(imgExts, [&ext](std::wstring_view e)
+                    { return ext == e; });
+            }
+
             items.push_back(std::move(item));
         }
 

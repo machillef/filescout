@@ -20,6 +20,9 @@ namespace winrt::FileScoutNative::implementation
     // Sort direction applied to a file-list pane.
     enum class SortDirection { Ascending, Descending };
 
+    // Presentation mode for the file list — cards show rich cards; list shows compact rows.
+    enum class ViewMode { Cards, List };
+
     // Per-pane UI and browse state. One instance per visible pane.
     struct PaneContext
     {
@@ -36,6 +39,8 @@ namespace winrt::FileScoutNative::implementation
         // Sort state — shared across all tabs in this pane (same as Explorer behaviour).
         SortColumn sort_column{ SortColumn::Name };
         SortDirection sort_direction{ SortDirection::Ascending };
+        // View mode — cards (rich cards) or list (compact rows).
+        ViewMode view_mode{ ViewMode::Cards };
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -134,12 +139,21 @@ namespace winrt::FileScoutNative::implementation
         void BuildSidebarFavorites();
         void LoadDrivesView();
 
+        // R10: async image preview with a generation counter to cancel stale loads.
+        uint32_t m_previewGeneration{ 0 };
+        winrt::fire_and_forget LoadImagePreviewAsync(
+            std::filesystem::path path, uint32_t generation);
+
         // Sort header helpers.
         void BuildSortHeader(int32_t paneIndex);
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::Border SortHeaderForPane(int32_t paneIndex);
         void SetSortColumn(int32_t paneIndex, SortColumn column);
         void SortItems(std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
                        SortColumn column, SortDirection direction) const;
+
+        // View mode helpers (R9b).
+        void SetViewMode(int32_t paneIndex, ViewMode mode);
+        void RebuildAllTabRowsForPane(int32_t paneIndex);
 
         winrt::Microsoft::UI::Xaml::Controls::ListView CreateTabListView(
             winrt::Windows::Foundation::Collections::IObservableVector<

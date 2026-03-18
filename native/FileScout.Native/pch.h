@@ -54,5 +54,6 @@
 #include <winrt/Microsoft.UI.Xaml.Navigation.h>
 
 #include <winrt/Windows.Storage.h>
+#include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.DragDrop.h>

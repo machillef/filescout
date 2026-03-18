@@ -111,9 +111,11 @@ namespace
         return value.substr(begin, end - begin + 1);
     }
 
-    winrt::Microsoft::UI::Xaml::FrameworkElement CreateRowView(::FileScoutNative::Domain::ShellItemRef const& item)
+    // Creates a rich card row (Cards view mode).
+    winrt::Microsoft::UI::Xaml::FrameworkElement CreateCardRow(
+        ::FileScoutNative::Domain::ShellItemRef const& item)
     {
-        // Build the detail chip: "Type  |  Size"
+        // Build the detail chip: "Type  ·  Size"
         std::wstring details = item.kind_label;
         if (item.size_available)
         {
@@ -123,6 +125,7 @@ namespace
         // Card container — clean modern card with subtle stroke.
         auto rowBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
         rowBorder.Padding({ 12, 10, 12, 10 });
+        rowBorder.Margin({ 0, 0, 0, 8 });  // Gap between cards — embedded here, not in ItemContainerStyle.
         rowBorder.CornerRadius({ 8, 8, 8, 8 });
         rowBorder.BorderThickness({ 1, 1, 1, 1 });
         rowBorder.BorderBrush(LookupBrush(L"CardStrokeColorDefaultBrush"));
@@ -206,6 +209,76 @@ namespace
 
         rowBorder.Child(rowGrid);
         return rowBorder;
+    }
+
+    // Creates a compact list row (List view mode). Columns: icon | name | type | size | date.
+    // Column proportions match BuildSortHeader's star ratios so headers align approximately.
+    winrt::Microsoft::UI::Xaml::FrameworkElement CreateListRow(
+        ::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        auto rowBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        rowBorder.Padding({ 12, 5, 12, 5 });
+
+        auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        rowGrid.ColumnSpacing(8);
+
+        // Columns: [20px icon] [3* name] [1.8* type] [1.2* size] [2.0* date]
+        struct ColSpec { double width; winrt::Microsoft::UI::Xaml::GridUnitType unit; };
+        static constexpr std::array<ColSpec, 5> cols{{
+            { 20.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel },
+            {  3.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star  },
+            {  1.8, winrt::Microsoft::UI::Xaml::GridUnitType::Star  },
+            {  1.2, winrt::Microsoft::UI::Xaml::GridUnitType::Star  },
+            {  2.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star  },
+        }};
+        for (auto const& col : cols)
+        {
+            auto colDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            colDef.Width({ col.width, col.unit });
+            rowGrid.ColumnDefinitions().Append(colDef);
+        }
+
+        // Icon — small, flat, no tile background.
+        auto iconImage = winrt::Microsoft::UI::Xaml::Controls::Image{};
+        iconImage.Width(16);
+        iconImage.Height(16);
+        iconImage.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+        iconImage.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+        iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
+        iconImage.Source(BuildIconSource(item.icon));
+        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconImage, 0);
+        rowGrid.Children().Append(iconImage);
+
+        auto addTextCell = [&](std::wstring const& text, int32_t col, double opacity, double fontSize)
+        {
+            auto tb = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+            tb.Text(ToHString(text));
+            tb.FontSize(fontSize);
+            tb.Opacity(opacity);
+            tb.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+            tb.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(tb, col);
+            rowGrid.Children().Append(tb);
+        };
+
+        addTextCell(item.display_name, 1, 1.0, 13.0);
+        addTextCell(item.kind_label, 2, 0.68, 12.0);
+        addTextCell(item.size_available ? FormatSize(item.size_bytes) : std::wstring{}, 3, 0.68, 12.0);
+        addTextCell(
+            (item.date_modified_available && !item.date_modified_str.empty())
+                ? item.date_modified_str
+                : std::wstring{},
+            4, 0.68, 12.0);
+
+        rowBorder.Child(rowGrid);
+        return rowBorder;
+    }
+
+    winrt::Microsoft::UI::Xaml::FrameworkElement CreateRowView(
+        ::FileScoutNative::Domain::ShellItemRef const& item,
+        bool const listView)
+    {
+        return listView ? CreateListRow(item) : CreateCardRow(item);
     }
 }
 
@@ -660,11 +733,12 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::UpdateRows(std::vector<::FileScoutNative::Domain::ShellItemRef> const& items)
     {
         auto& pane = ActivePane();
+        bool const listView = (pane.view_mode == ViewMode::List);
         pane.tab_rows[pane.active_tab_index].Clear();
 
         for (auto const& item : items)
         {
-            pane.tab_rows[pane.active_tab_index].Append(CreateRowView(item));
+            pane.tab_rows[pane.active_tab_index].Append(CreateRowView(item, listView));
         }
     }
 
@@ -692,17 +766,47 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::ResetSelectionDetails()
     {
+        // Cancel any in-flight image preview load.
+        ++m_previewGeneration;
+
+        // Hide image preview and restore the icon tile.
+        PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        PreviewImage().Source(nullptr);
+        SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+
         SelectionIconImage().Source(nullptr);
         SelectionTitleTextBlock().Text(L"No item selected");
         SelectionMetaTextBlock().Text(L"Pick a folder or file to inspect its shell-backed details.");
+        SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         SelectionPathTextBlock().Text(L"Selection path will appear here.");
     }
 
     void MainWindow::UpdateSelectionDetails(::FileScoutNative::Domain::ShellItemRef const& item)
     {
-        SelectionIconImage().Source(BuildIconSource(item.icon));
         SelectionTitleTextBlock().Text(ToHString(item.display_name));
 
+        // R10: image preview — show thumbnail for recognised image files via async StorageFile
+        // load. This avoids URI percent-encoding issues for paths with spaces or Unicode.
+        if (item.is_image)
+        {
+            // Show the icon tile immediately while the async load is in-flight.
+            // Cancel any previous load by incrementing the generation counter.
+            auto const gen = ++m_previewGeneration;
+            PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            SelectionIconImage().Source(BuildIconSource(item.icon));
+            LoadImagePreviewAsync(item.path, gen);
+        }
+        else
+        {
+            ++m_previewGeneration;  // Cancel any in-flight load from a previous image selection.
+            PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            SelectionIconImage().Source(BuildIconSource(item.icon));
+        }
+
+        // Primary metadata line: type + size (or folder hint).
         auto metadata = item.kind_label;
         if (item.size_available)
         {
@@ -712,8 +816,49 @@ namespace winrt::FileScoutNative::implementation
         {
             metadata += L"  |  Double-click to enter";
         }
-
         SelectionMetaTextBlock().Text(ToHString(metadata));
+
+        // R10: Created date.
+        if (item.date_created_available && !item.date_created_str.empty())
+        {
+            SelectionCreatedTextBlock().Text(ToHString(L"Created: " + item.date_created_str));
+            SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        }
+        else
+        {
+            SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        }
+
+        // R10: File attributes (read-only, hidden, system, archive).
+        if (item.file_attributes_available)
+        {
+            std::wstring attrStr;
+            auto const appendAttr = [&attrStr](std::wstring_view label)
+            {
+                if (!attrStr.empty()) { attrStr += L"  ·  "; }
+                attrStr += label;
+            };
+
+            if (item.file_attributes & FILE_ATTRIBUTE_READONLY) { appendAttr(L"Read-only"); }
+            if (item.file_attributes & FILE_ATTRIBUTE_HIDDEN)   { appendAttr(L"Hidden");    }
+            if (item.file_attributes & FILE_ATTRIBUTE_SYSTEM)   { appendAttr(L"System");    }
+            if (item.file_attributes & FILE_ATTRIBUTE_ARCHIVE)  { appendAttr(L"Archive");   }
+
+            if (!attrStr.empty())
+            {
+                SelectionAttributesTextBlock().Text(ToHString(attrStr));
+                SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            }
+            else
+            {
+                SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            }
+        }
+        else
+        {
+            SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        }
+
         SelectionPathTextBlock().Text(ToHString(item.path.wstring()));
     }
 
@@ -1620,6 +1765,20 @@ namespace winrt::FileScoutNative::implementation
         auto headerBorder = SortHeaderForPane(paneIndex);
 
         auto headerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        auto const& pane = m_panes[paneIndex];
+
+        // In list mode, prepend a fixed-width column matching the row icon (20px + 8px spacing).
+        // This keeps sort button labels approximately aligned with the list row data columns.
+        int32_t colOffset = 0;
+        if (pane.view_mode == ViewMode::List)
+        {
+            auto iconSpacerCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            iconSpacerCol.Width({ 28.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+            headerGrid.ColumnDefinitions().Append(iconSpacerCol);
+            colOffset = 1;
+        }
+
+        // Four sort columns (star-proportioned).
         for (auto const& col : columns)
         {
             auto colDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
@@ -1627,14 +1786,17 @@ namespace winrt::FileScoutNative::implementation
             headerGrid.ColumnDefinitions().Append(colDef);
         }
 
-        auto const& pane = m_panes[paneIndex];
+        // Trailing Auto column for the view-mode toggle buttons.
+        auto toggleColDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+        toggleColDef.Width({ 0, winrt::Microsoft::UI::Xaml::GridUnitType::Auto });
+        headerGrid.ColumnDefinitions().Append(toggleColDef);
 
+        // Sort column buttons.
         for (int32_t colIdx = 0; colIdx < static_cast<int32_t>(columns.size()); ++colIdx)
         {
             auto const& colDef = columns[static_cast<std::size_t>(colIdx)];
             bool const isActive = (pane.sort_column == colDef.column);
 
-            // Compose label text: "Name ↑" / "Name ↓" when active, plain label when inactive.
             std::wstring labelText{ colDef.label };
             if (isActive)
             {
@@ -1651,14 +1813,12 @@ namespace winrt::FileScoutNative::implementation
                 ? winrt::Microsoft::UI::Text::FontWeights::SemiBold()
                 : winrt::Microsoft::UI::Text::FontWeights::Normal());
 
-            // Subtle accent on active column.
             if (isActive)
             {
                 btn.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
                     winrt::Windows::UI::Color{ 0xFF, 0x00, 0x78, 0xD4 }));
             }
 
-            // Flat button style — remove default padding/chrome so it looks like a header cell.
             try
             {
                 auto const style = winrt::Microsoft::UI::Xaml::Application::Current()
@@ -1676,9 +1836,55 @@ namespace winrt::FileScoutNative::implementation
                     SetSortColumn(paneIndex, targetCol);
                 });
 
-            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(btn, colIdx);
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(btn, colIdx + colOffset);
             headerGrid.Children().Append(btn);
         }
+
+        // View-mode toggle buttons: "Cards" and "List".
+        auto toggleStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+        toggleStack.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
+        toggleStack.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+
+        auto addToggleBtn = [&](std::wstring_view label, ViewMode targetMode)
+        {
+            bool const isActive = (pane.view_mode == targetMode);
+            auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
+            btn.Content(winrt::box_value(winrt::hstring{ label }));
+            btn.Padding({ 8, 4, 8, 4 });
+            btn.FontSize(12);
+            btn.FontWeight(isActive
+                ? winrt::Microsoft::UI::Text::FontWeights::SemiBold()
+                : winrt::Microsoft::UI::Text::FontWeights::Normal());
+            if (isActive)
+            {
+                btn.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                    winrt::Windows::UI::Color{ 0xFF, 0x00, 0x78, 0xD4 }));
+            }
+            try
+            {
+                auto const style = winrt::Microsoft::UI::Xaml::Application::Current()
+                    .Resources()
+                    .Lookup(winrt::box_value(winrt::hstring{ L"SubtleButtonStyle" }))
+                    .as<winrt::Microsoft::UI::Xaml::Style>();
+                btn.Style(style);
+            }
+            catch (...) {}
+            auto const capturedMode = targetMode;
+            btn.Click([this, paneIndex, capturedMode](auto const&, auto const&)
+                {
+                    SetActivePaneIndex(paneIndex);
+                    SetViewMode(paneIndex, capturedMode);
+                });
+            toggleStack.Children().Append(btn);
+        };
+
+        addToggleBtn(L"Cards", ViewMode::Cards);
+        addToggleBtn(L"List",  ViewMode::List);
+
+        // Place the toggle stack in the trailing column.
+        auto const toggleColIdx = static_cast<int32_t>(columns.size()) + colOffset;
+        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(toggleStack, toggleColIdx);
+        headerGrid.Children().Append(toggleStack);
 
         headerBorder.Child(headerGrid);
     }
@@ -1734,6 +1940,85 @@ namespace winrt::FileScoutNative::implementation
                   }
               }()
             + (pane.sort_direction == SortDirection::Ascending ? L"  \u2191" : L"  \u2193")));
+    }
+
+    winrt::fire_and_forget MainWindow::LoadImagePreviewAsync(
+        std::filesystem::path path,
+        uint32_t const generation)
+    {
+        auto lifetime = get_strong();
+
+        try
+        {
+            auto file = co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(
+                winrt::hstring{ path.wstring() });
+
+            // Abort if a newer selection has arrived while we were opening the file.
+            if (m_previewGeneration != generation) { co_return; }
+
+            auto stream = co_await file.OpenReadAsync();
+            if (m_previewGeneration != generation) { co_return; }
+
+            auto bmpImage = winrt::Microsoft::UI::Xaml::Media::Imaging::BitmapImage{};
+            co_await bmpImage.SetSourceAsync(stream);
+            if (m_previewGeneration != generation) { co_return; }
+
+            PreviewImage().Source(bmpImage);
+            PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        }
+        catch (...)
+        {
+            // If the load fails (access denied, corrupt image, etc.) leave the icon tile visible.
+            if (m_previewGeneration == generation)
+            {
+                PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+                SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+            }
+        }
+    }
+
+    void MainWindow::SetViewMode(int32_t const paneIndex, ViewMode const mode)
+    {
+        auto& pane = m_panes[paneIndex];
+        if (pane.view_mode == mode)
+        {
+            return;
+        }
+
+        pane.view_mode = mode;
+        BuildSortHeader(paneIndex);
+        RebuildAllTabRowsForPane(paneIndex);
+
+        StatusTextBlock().Text(ToHString(
+            std::to_wstring(pane.items.size()) +
+            (mode == ViewMode::Cards ? L" items  ·  cards view" : L" items  ·  list view")));
+    }
+
+    void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
+    {
+        auto& pane = m_panes[paneIndex];
+        bool const listView = (pane.view_mode == ViewMode::List);
+
+        // pane.tabs and pane.tab_rows are maintained in parallel and must be the same size.
+        // Guard against divergence introduced by future refactoring.
+        // Use (std::min)() to prevent expansion of the Windows.h min() macro.
+        auto const tabCount = (std::min)(pane.tabs.size(), pane.tab_rows.size());
+        for (std::size_t i = 0; i < tabCount; ++i)
+        {
+            // pane.items is the live, up-to-date vector for the active tab.
+            // Background tabs use their cached copy.
+            auto const& source = (static_cast<int32_t>(i) == pane.active_tab_index)
+                ? pane.items
+                : pane.tabs[i].items;
+
+            auto& rows = pane.tab_rows[i];
+            rows.Clear();
+            for (auto const& item : source)
+            {
+                rows.Append(CreateRowView(item, listView));
+            }
+        }
     }
 
     void MainWindow::BuildSidebarFavorites()
