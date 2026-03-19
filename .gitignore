@@ -1,3 +1,6 @@
+# Brainstorming visual companion
+.superpowers/
+
 # Editor/IDE
 .vscode/
 .idea/
@@ -16,7 +19,9 @@ desktop.ini
 .env*.local
 
 # Claude Code config and AI session files (private tooling)
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 
 # AI-assisted development notes (private session docs)
 docs/ai/
