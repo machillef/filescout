@@ -28,14 +28,49 @@ namespace FileScoutNative::Domain
             Focus(*m_selected.begin());
         }
 
+        void ReplaceWith(
+            std::span<std::wstring const> ids,
+            std::optional<std::wstring> focus = std::nullopt)
+        {
+            m_selected.clear();
+            for (auto const& id : ids)
+            {
+                if (!id.empty())
+                {
+                    m_selected.insert(id);
+                }
+            }
+
+            if (m_selected.empty())
+            {
+                m_focus.reset();
+                m_anchor.reset();
+                return;
+            }
+
+            if (focus.has_value() && IsSelected(*focus))
+            {
+                m_focus = std::move(focus);
+            }
+            else
+            {
+                m_focus = *m_selected.begin();
+            }
+
+            if (!m_anchor.has_value() || !IsSelected(*m_anchor))
+            {
+                m_anchor = m_focus;
+            }
+        }
+
         [[nodiscard]] bool IsSelected(std::wstring const& id) const
         {
             return m_selected.find(id) != m_selected.end();
         }
 
-        [[nodiscard]] std::optional<std::wstring> const& Focused() const
+        [[nodiscard]] std::vector<std::wstring> SelectedIds() const
         {
-            return m_focus;
+            return std::vector<std::wstring>{ m_selected.begin(), m_selected.end() };
         }
 
     private:

@@ -18,120 +18,227 @@
                 <Setter Property="Margin" Value="0" />
                 <Setter Property="MinHeight" Value="0" />
             </Style>
+            <Style x:Key="ChromeToolbarButtonStyle" TargetType="Button">
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="MinWidth" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Setter Property="HorizontalAlignment" Value="Left" />
+            </Style>
+            <Style x:Key="ChromePrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource ChromeToolbarButtonStyle}">
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+            </Style>
+            <Style x:Key="ChromeAddressTextBoxStyle" TargetType="TextBox">
+                <Setter Property="MinHeight" Value="38" />
+                <Setter Property="Padding" Value="12,0,12,0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+            </Style>
         </Grid.Resources>
         <Grid.Background>
             <SolidColorBrush Color="Transparent" />
         </Grid.Background>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Padding="20,16,20,8">
+        <Grid Grid.Row="0"
+              x:Name="TitleBarDragHost"
+              Background="Transparent"
+              Loaded="TitleBarDragHost_Loaded"
+              SizeChanged="TitleBarDragHost_SizeChanged">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="TitleBarLeftInsetColumn" Width="0" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="TitleBarRightInsetColumn" Width="0" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel Spacing="4">
-                <TextBlock Text="FileScout Native" FontSize="28" FontWeight="SemiBold" />
-                <TextBlock Text="Windows 11 native rewrite: shell-backed directory browsing with modern explorer framing."
-                           Opacity="0.72"
-                           TextWrapping="Wrap" />
-            </StackPanel>
+            <Grid Grid.Column="1" Padding="0,0,0,8">
+                <Grid Padding="12,6,12,10"
+                      RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-            <Border Grid.Column="1"
-                    Padding="10,4"
-                    CornerRadius="999"
-                    VerticalAlignment="Top"
-                    Background="#E1513A">
-                <TextBlock Text="Alpha"
-                           Foreground="White"
-                           FontWeight="SemiBold" />
-            </Border>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="8"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="FileScout"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Opacity="0.82"
+                                       VerticalAlignment="Center" />
+                            <Border Padding="7,2"
+                                    CornerRadius="999"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource AccentFillColorSecondaryBrush}">
+                                <TextBlock Text="ALPHA"
+                                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                           FontSize="9"
+                                           FontWeight="SemiBold"
+                                           CharacterSpacing="40"
+                                           Opacity="0.94" />
+                            </Border>
+                        </StackPanel>
+
+                        <TextBlock x:Name="ActiveLocationTextBlock"
+                                   Grid.Column="1"
+                                   Text="LOCATION"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   CharacterSpacing="120"
+                                   Opacity="0.82" />
+                    </Grid>
+
+                    <Grid Grid.Row="1" ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="6"
+                                    VerticalAlignment="Center">
+                            <Button x:Name="BackButton"
+                                    Style="{StaticResource ChromeToolbarButtonStyle}"
+                                    IsEnabled="False"
+                                    AutomationProperties.Name="Back"
+                                    ToolTipService.ToolTip="Back">
+                                <FontIcon Glyph="&#xE76B;"
+                                          FontSize="14"
+                                          FontFamily="Segoe Fluent Icons" />
+                            </Button>
+                            <Button x:Name="ForwardButton"
+                                    Style="{StaticResource ChromeToolbarButtonStyle}"
+                                    IsEnabled="False"
+                                    AutomationProperties.Name="Forward"
+                                    ToolTipService.ToolTip="Forward">
+                                <FontIcon Glyph="&#xE76C;"
+                                          FontSize="14"
+                                          FontFamily="Segoe Fluent Icons" />
+                            </Button>
+                            <Button x:Name="RefreshButton"
+                                    Style="{StaticResource ChromePrimaryButtonStyle}"
+                                    Click="RefreshButton_Click"
+                                    AutomationProperties.Name="Refresh"
+                                    ToolTipService.ToolTip="Refresh">
+                                <FontIcon Glyph="&#xE72C;"
+                                          FontSize="14"
+                                          FontFamily="Segoe Fluent Icons" />
+                            </Button>
+                        </StackPanel>
+
+                        <TextBox x:Name="AddressTextBox"
+                                 Grid.Column="1"
+                                 AutomationProperties.LabeledBy="{Binding ElementName=ActiveLocationTextBlock}"
+                                 Style="{StaticResource ChromeAddressTextBoxStyle}"
+                                 PlaceholderText="Enter a filesystem path"
+                                 KeyDown="AddressTextBox_KeyDown" />
+                    </Grid>
+                </Grid>
+                <Border Height="1"
+                        Margin="12,0,12,0"
+                        VerticalAlignment="Bottom"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            </Grid>
         </Grid>
 
-        <Grid Grid.Row="1" Padding="20,0,20,12" ColumnSpacing="10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-
-            <Button Content="Back" IsEnabled="False" MinWidth="72" />
-            <Button Grid.Column="1" Content="Forward" IsEnabled="False" MinWidth="72" />
-            <TextBox Grid.Column="2"
-                     x:Name="AddressTextBox"
-                     Header="Location"
-                     PlaceholderText="Enter a filesystem path"
-                     KeyDown="AddressTextBox_KeyDown" />
-            <Button Grid.Column="3" Content="Refresh" Click="RefreshButton_Click" MinWidth="96" />
-        </Grid>
-
-        <Grid Grid.Row="2" Padding="20,0,20,12" ColumnSpacing="16">
+        <Grid Grid.Row="1" Padding="20,0,20,12" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="260" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Padding="18"
-                    CornerRadius="12"
-                    Background="{ThemeResource LayerFillColorDefaultBrush}">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="Places" FontSize="18" FontWeight="SemiBold" />
-                    <!-- Sidebar navigation items are populated programmatically in BuildSidebarFavorites(). -->
-                    <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" />
-                    <Border Height="1" Margin="0,4,0,4" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                    <TextBlock Text="Selection" FontSize="18" FontWeight="SemiBold" />
-                    <!-- Image preview — shown when an image file is selected (R10). -->
-                    <Border x:Name="PreviewBorder"
-                            MaxHeight="160"
-                            CornerRadius="8"
-                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                            Visibility="Collapsed">
-                        <Image x:Name="PreviewImage"
-                               MaxHeight="160"
-                               Stretch="Uniform" />
-                    </Border>
-                    <!-- Icon tile — shown when no image preview is available. -->
-                    <Border x:Name="SelectionIconBorder"
-                            Width="48"
-                            Height="48"
-                            CornerRadius="14"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                        <Image x:Name="SelectionIconImage"
-                               Width="20"
-                               Height="20"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Stretch="Uniform" />
-                    </Border>
-                    <TextBlock x:Name="SelectionTitleTextBlock"
-                               Text="No item selected"
-                               FontWeight="SemiBold"
-                               TextWrapping="Wrap" />
-                    <TextBlock x:Name="SelectionMetaTextBlock"
-                               Text="Pick a folder or file to inspect its shell-backed details."
-                               Opacity="0.72"
-                               TextWrapping="Wrap" />
-                    <TextBlock x:Name="SelectionCreatedTextBlock"
-                               Opacity="0.58"
-                               FontSize="12"
-                               TextWrapping="Wrap"
-                               Visibility="Collapsed" />
-                    <TextBlock x:Name="SelectionAttributesTextBlock"
-                               Opacity="0.55"
-                               FontSize="11"
-                               Visibility="Collapsed" />
-                    <TextBlock x:Name="SelectionPathTextBlock"
-                               Text="Selection path will appear here."
-                               Opacity="0.58"
-                               TextWrapping="WrapWholeWords" />
-                </StackPanel>
+            <Border Padding="14,16,14,12"
+                    CornerRadius="0"
+                    BorderThickness="0,0,1,0"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              VerticalScrollMode="Auto">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="PLACES"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   CharacterSpacing="120"
+                                   Opacity="0.82" />
+                        <!-- Sidebar navigation items are populated programmatically in BuildSidebarFavorites(). -->
+                        <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" />
+                        <Border Height="1" Margin="0,6,0,4" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                        <TextBlock Text="SELECTION"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   CharacterSpacing="120"
+                                   Opacity="0.82" />
+                        <!-- Image preview — shown when an image file is selected (R10). -->
+                        <Border x:Name="PreviewBorder"
+                                MaxHeight="160"
+                                CornerRadius="8"
+                                Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                Visibility="Collapsed">
+                            <Image x:Name="PreviewImage"
+                                   MaxHeight="160"
+                                   Stretch="Uniform" />
+                        </Border>
+                        <!-- Icon tile — shown when no image preview is available. -->
+                        <Border x:Name="SelectionIconBorder"
+                                Width="48"
+                                Height="48"
+                                CornerRadius="10"
+                                BorderThickness="1"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                            <Image x:Name="SelectionIconImage"
+                                   Width="20"
+                                   Height="20"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Stretch="Uniform" />
+                        </Border>
+                        <TextBlock x:Name="SelectionTitleTextBlock"
+                                   Text="No item selected"
+                                   FontWeight="SemiBold"
+                                   TextWrapping="Wrap" />
+                        <TextBlock x:Name="SelectionMetaTextBlock"
+                                   Text="Pick a folder or file to inspect its shell-backed details."
+                                   Opacity="0.72"
+                                   TextWrapping="Wrap" />
+                        <TextBlock x:Name="SelectionCreatedTextBlock"
+                                   Opacity="0.58"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Visibility="Collapsed" />
+                        <TextBlock x:Name="SelectionAttributesTextBlock"
+                                   Opacity="0.55"
+                                   FontSize="11"
+                                   Visibility="Collapsed" />
+                        <TextBlock x:Name="SelectionPathTextBlock"
+                                   Text="Selection path will appear here."
+                                   Opacity="0.58"
+                                   TextWrapping="WrapWholeWords" />
+                    </StackPanel>
+                </ScrollViewer>
             </Border>
 
             <!-- Left pane — active indicator applied as a 2-px border -->
@@ -139,7 +246,7 @@
                     x:Name="LeftPaneBorder"
                     CornerRadius="8"
                     BorderThickness="2"
-                    BorderBrush="#FF0078D4">
+                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -165,8 +272,8 @@
             <Border Grid.Column="2"
                     x:Name="RightPaneBorder"
                     CornerRadius="8"
-                    BorderThickness="2"
-                    BorderBrush="Transparent">
+                    BorderThickness="1"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -189,12 +296,22 @@
             </Border>
         </Grid>
 
-        <Border Grid.Row="3"
-                Padding="20,10"
+        <Border Grid.Row="2"
+                Padding="16,8"
                 Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <TextBlock x:Name="StatusTextBlock"
-                       Text="Bootstrapping shell-backed directory view..."
-                       Opacity="0.72" />
+            <StackPanel Orientation="Horizontal"
+                        Spacing="6"
+                        VerticalAlignment="Center">
+                <TextBlock x:Name="StatusIconTextBlock"
+                           FontFamily="Segoe Fluent Icons"
+                           FontSize="12"
+                           VerticalAlignment="Center"
+                           Opacity="0.72" />
+                <TextBlock x:Name="StatusTextBlock"
+                           Text="Bootstrapping shell-backed directory view..."
+                           VerticalAlignment="Center"
+                           Opacity="0.72" />
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

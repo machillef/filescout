@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <!-- Share the packages directory with FileScout.Native -->
+    <NugetPackageDirectory Condition="'$(NugetPackageDirectory)'==''">..\packages</NugetPackageDirectory>
+  </PropertyGroup>
+
+  <!-- GoogleTest NuGet: compiled with v140 runtime, compatible with v143 via /MD linkage -->
+  <Import Project="$(NugetPackageDirectory)\Microsoft.googletest.v140.windesktop.msvcstl.dyn.rt-dyn.1.8.1.7\build\native\Microsoft.googletest.v140.windesktop.msvcstl.dyn.rt-dyn.props"
+          Condition="Exists('$(NugetPackageDirectory)\Microsoft.googletest.v140.windesktop.msvcstl.dyn.rt-dyn.1.8.1.7\build\native\Microsoft.googletest.v140.windesktop.msvcstl.dyn.rt-dyn.props')" />
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{F47AC10B-58CC-4372-A567-0E02B2C3D479}</ProjectGuid>
+    <ProjectName>FileScout.Tests</ProjectName>
+    <RootNamespace>FileScoutTests</RootNamespace>
+    <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>
+    <AppContainerApplication>false</AppContainerApplication>
+    <AppxPackage>false</AppxPackage>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <LanguageStandard>stdcpp20</LanguageStandard>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\Tests\</OutDir>
+    <IntDir>$(ProjectDir)obj\$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\Tests\</OutDir>
+    <IntDir>$(ProjectDir)obj\$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            Label="LocalAppDataPlatform" />
+  </ImportGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <!-- Include the main project root so domain/shell headers resolve correctly -->
+      <!-- Include Generated Files for winrt/base.h (winrt::com_ptr used in ShellInteropService) -->
+      <AdditionalIncludeDirectories>$(ProjectDir)..\FileScout.Native;$(ProjectDir)..\FileScout.Native\Generated Files;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- Use dynamic runtime to match GoogleTest NuGet (dyn.rt-dyn variant) -->
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>Shell32.lib;Gdi32.lib;Ole32.lib;runtimeobject.lib;$(NugetPackageDirectory)\Microsoft.Windows.CppWinRT.2.0.250303.1\build\native\lib\x64\cppwinrt_fast_forwarder.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+
+  <!-- Precompiled header creation -->
+  <ItemGroup>
+    <ClCompile Include="pch.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+
+  <!-- Production sources compiled into the test binary (shared source approach) -->
+  <ItemGroup>
+    <ClCompile Include="..\FileScout.Native\Shell\ContextMenuService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\FavoritesService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\ShellInteropService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\ShellFileOperationService.cpp" />
+  </ItemGroup>
+
+  <!-- Test sources -->
+  <ItemGroup>
+    <ClCompile Include="tests\ContextMenuServiceTests.cpp" />
+    <ClCompile Include="tests\FavoritesServiceTests.cpp" />
+    <ClCompile Include="tests\ShellInteropServiceTests.cpp" />
+    <ClCompile Include="tests\ShellFileOperationServiceTests.cpp" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(NugetPackageDirectory)\Microsoft.googletest.v140.windesktop.msvcstl.dyn.rt-dyn.1.8.1.7\build\native\Microsoft.googletest.v140.windesktop.msvcstl.dyn.rt-dyn.targets"
+            Condition="Exists('$(NugetPackageDirectory)\Microsoft.googletest.v140.windesktop.msvcstl.dyn.rt-dyn.1.8.1.7\build\native\Microsoft.googletest.v140.windesktop.msvcstl.dyn.rt-dyn.targets')" />
+  </ImportGroup>
+</Project>

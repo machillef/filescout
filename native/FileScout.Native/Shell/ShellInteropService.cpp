@@ -38,6 +38,48 @@ namespace FileScoutNative::Shell
             return extension + L" file";
         }
 
+        std::optional<std::wstring> TryGetArchiveKindLabel(std::filesystem::path const& path)
+        {
+            auto name = path.filename().wstring();
+            if (name.empty())
+            {
+                return std::nullopt;
+            }
+
+            std::transform(name.begin(), name.end(), name.begin(), [](wchar_t const ch)
+                {
+                    return static_cast<wchar_t>(towlower(ch));
+                });
+
+            static constexpr std::array<std::pair<std::wstring_view, std::wstring_view>, 14> archiveSuffixes{{
+                { L".tar.gz",  L"TAR.GZ"  },
+                { L".tar.bz2", L"TAR.BZ2" },
+                { L".tar.xz",  L"TAR.XZ"  },
+                { L".tgz",     L"TGZ"     },
+                { L".tbz",     L"TBZ"     },
+                { L".tbz2",    L"TBZ2"    },
+                { L".txz",     L"TXZ"     },
+                { L".zip",     L"ZIP"     },
+                { L".tar",     L"TAR"     },
+                { L".7z",      L"7Z"      },
+                { L".rar",     L"RAR"     },
+                { L".gz",      L"GZ"      },
+                { L".bz2",     L"BZ2"     },
+                { L".xz",      L"XZ"      },
+            }};
+
+            for (auto const& [suffix, label] : archiveSuffixes)
+            {
+                if (name.size() >= suffix.size() &&
+                    name.compare(name.size() - suffix.size(), suffix.size(), suffix.data()) == 0)
+                {
+                    return std::wstring{ label } + L" archive";
+                }
+            }
+
+            return std::nullopt;
+        }
+
         std::wstring BuildIconCacheKey(std::filesystem::path const& path, bool const isFolder)
         {
             if (isFolder)
@@ -179,11 +221,70 @@ namespace FileScoutNative::Shell
                 std::move(pixels),
             };
         }
+
+        std::optional<std::wstring> TryGetShellString(
+            IShellItem* const shellItem,
+            SIGDN const displayNameKind)
+        {
+            PWSTR value{};
+            if (FAILED(shellItem->GetDisplayName(displayNameKind, &value)) || value == nullptr)
+            {
+                return std::nullopt;
+            }
+
+            std::wstring result{ value };
+            CoTaskMemFree(value);
+            return result;
+        }
+
+        std::optional<std::wstring> TryGetShellPropertyString(
+            IShellItem2* const shellItem,
+            PROPERTYKEY const& key)
+        {
+            PWSTR value{};
+            if (FAILED(shellItem->GetString(key, &value)) || value == nullptr)
+            {
+                return std::nullopt;
+            }
+
+            std::wstring result{ value };
+            CoTaskMemFree(value);
+            return result;
+        }
+
+        std::optional<std::wstring> FormatShellDateTime(FILETIME const& ft)
+        {
+            SYSTEMTIME utc{};
+            SYSTEMTIME local{};
+            if (!FileTimeToSystemTime(&ft, &utc) ||
+                !SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
+            {
+                return std::nullopt;
+            }
+
+            wchar_t dateBuf[64]{};
+            wchar_t timeBuf[64]{};
+            GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE,
+                            &local, nullptr, dateBuf, 64, nullptr);
+            GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS,
+                            &local, nullptr, timeBuf, 64);
+            return std::wstring{ dateBuf } + L"  " + std::wstring{ timeBuf };
+        }
+
+        std::filesystem::file_time_type FileTimeToChrono(FILETIME const& ft)
+        {
+            ULARGE_INTEGER ticks{};
+            ticks.LowPart = ft.dwLowDateTime;
+            ticks.HighPart = ft.dwHighDateTime;
+            return std::filesystem::file_time_type{
+                std::filesystem::file_time_type::duration{
+                    static_cast<std::filesystem::file_time_type::rep>(ticks.QuadPart) } };
+        }
     }
 
     FileScoutNative::Domain::IconBitmap ShellInteropService::GetIconForItem(
         std::filesystem::path const& path,
-        bool const isFolder)
+        bool const isFolder) const
     {
         const auto cacheKey = BuildIconCacheKey(path, isFolder);
         {
@@ -237,6 +338,17 @@ namespace FileScoutNative::Shell
             item.is_folder = entry.is_directory();
             item.kind_label = BuildKindLabel(entry.path(), item.is_folder);
             item.icon = GetIconForItem(item.path, item.is_folder);
+
+            if (!item.is_folder)
+            {
+                if (auto const archiveKindLabel = TryGetArchiveKindLabel(item.path);
+                    archiveKindLabel.has_value())
+                {
+                    item.is_archive_candidate = true;
+                    item.kind_label = *archiveKindLabel;
+                    item.is_supported_archive = CanEnumerateShellNamespace(item.path);
+                }
+            }
 
             if (!item.is_folder)
             {
@@ -388,5 +500,219 @@ namespace FileScoutNative::Shell
         }
 
         return drives;
+    }
+
+    FileScoutNative::Domain::IconBitmap ShellInteropService::GetItemIcon(
+        std::filesystem::path const& path,
+        bool const isFolder) const
+    {
+        return GetIconForItem(path, isFolder);
+    }
+
+    bool ShellInteropService::CanEnumerateShellNamespace(
+        std::filesystem::path const& path) const
+    {
+        std::error_code absoluteError;
+        auto const absolute = std::filesystem::absolute(path, absoluteError).lexically_normal();
+        if (absoluteError)
+        {
+            return false;
+        }
+
+        auto const cacheKey = absolute.wstring();
+        {
+            std::scoped_lock lock(m_archiveCapabilityMutex);
+            if (auto const cached = m_archiveCapabilityCache.find(cacheKey);
+                cached != m_archiveCapabilityCache.end())
+            {
+                return cached->second;
+            }
+        }
+
+        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        bool const shouldUninitialize = SUCCEEDED(initHr);
+        bool supported = false;
+
+        if (SUCCEEDED(initHr) || initHr == RPC_E_CHANGED_MODE)
+        {
+            winrt::com_ptr<IShellItem> shellItem;
+            if (SUCCEEDED(SHCreateItemFromParsingName(
+                cacheKey.c_str(),
+                nullptr,
+                IID_PPV_ARGS(shellItem.put()))))
+            {
+                winrt::com_ptr<IEnumShellItems> enumerator;
+                supported = SUCCEEDED(shellItem->BindToHandler(
+                    nullptr,
+                    BHID_EnumItems,
+                    IID_PPV_ARGS(enumerator.put())));
+            }
+        }
+
+        if (shouldUninitialize)
+        {
+            CoUninitialize();
+        }
+
+        {
+            std::scoped_lock lock(m_archiveCapabilityMutex);
+            m_archiveCapabilityCache.insert_or_assign(cacheKey, supported);
+        }
+
+        return supported;
+    }
+
+    bool ShellInteropService::IsSupportedArchiveFile(std::filesystem::path const& path) const
+    {
+        std::error_code fileError;
+        return std::filesystem::is_regular_file(path, fileError) &&
+               !fileError &&
+               CanEnumerateShellNamespace(path);
+    }
+
+    std::optional<ResolvedArchivePath> ShellInteropService::ResolveArchivePath(
+        std::filesystem::path const& path) const
+    {
+        std::error_code absoluteError;
+        auto const absolute = std::filesystem::absolute(path, absoluteError).lexically_normal();
+        if (absoluteError)
+        {
+            return std::nullopt;
+        }
+
+        for (auto cursor = absolute;;)
+        {
+            if (IsSupportedArchiveFile(cursor))
+            {
+                return ResolvedArchivePath{
+                    cursor,
+                    absolute,
+                };
+            }
+
+            auto const parent = cursor.parent_path();
+            if (parent.empty() || parent == cursor)
+            {
+                break;
+            }
+
+            cursor = parent;
+        }
+
+        return std::nullopt;
+    }
+
+    bool ShellInteropService::IsArchivePath(std::filesystem::path const& path) const
+    {
+        return ResolveArchivePath(path).has_value();
+    }
+
+    std::optional<ResolvedArchivePath> ShellInteropService::TryResolveArchivePath(
+        std::filesystem::path const& path) const
+    {
+        return ResolveArchivePath(path);
+    }
+
+    std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateArchiveDirectory(
+        std::filesystem::path const& path) const
+    {
+        auto const resolved = ResolveArchivePath(path);
+        if (!resolved.has_value())
+        {
+            throw std::runtime_error("Unsupported archive path.");
+        }
+
+        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        bool const shouldUninitialize = SUCCEEDED(initHr);
+
+        std::vector<FileScoutNative::Domain::ShellItemRef> items;
+        try
+        {
+            winrt::com_ptr<IShellItem> folderItem;
+            winrt::check_hresult(SHCreateItemFromParsingName(
+                resolved->virtual_path.wstring().c_str(),
+                nullptr,
+                IID_PPV_ARGS(folderItem.put())));
+
+            winrt::com_ptr<IEnumShellItems> enumerator;
+            winrt::check_hresult(folderItem->BindToHandler(
+                nullptr,
+                BHID_EnumItems,
+                IID_PPV_ARGS(enumerator.put())));
+
+            while (true)
+            {
+                winrt::com_ptr<IShellItem> child;
+                ULONG fetched{};
+                auto const nextHr = enumerator->Next(1, child.put(), &fetched);
+                if (nextHr == S_FALSE || fetched == 0)
+                {
+                    break;
+                }
+                winrt::check_hresult(nextHr);
+
+                auto parsingName = TryGetShellString(child.get(), SIGDN_DESKTOPABSOLUTEPARSING);
+                if (!parsingName.has_value())
+                {
+                    continue;
+                }
+
+                auto displayName = TryGetShellString(child.get(), SIGDN_NORMALDISPLAY)
+                    .value_or(std::filesystem::path{ *parsingName }.filename().wstring());
+
+                SFGAOF attributes = SFGAO_FOLDER;
+                child->GetAttributes(SFGAO_FOLDER, &attributes);
+
+                FileScoutNative::Domain::ShellItemRef item;
+                item.path = std::filesystem::path{ *parsingName };
+                item.parsing_name = *parsingName;
+                item.display_name = std::move(displayName);
+                item.is_folder = (attributes & SFGAO_FOLDER) != 0;
+                item.kind_label = BuildKindLabel(item.path, item.is_folder);
+                item.icon = GetIconForItem(item.path, item.is_folder);
+
+                winrt::com_ptr<IShellItem2> child2;
+                if (SUCCEEDED(child->QueryInterface(IID_PPV_ARGS(child2.put()))))
+                {
+                    if (auto kindLabel = TryGetShellPropertyString(child2.get(), PKEY_ItemTypeText);
+                        kindLabel.has_value() && !kindLabel->empty())
+                    {
+                        item.kind_label = *kindLabel;
+                    }
+
+                    ULONGLONG sizeBytes{};
+                    if (SUCCEEDED(child2->GetUInt64(PKEY_Size, &sizeBytes)))
+                    {
+                        item.size_available = true;
+                        item.size_bytes = sizeBytes;
+                    }
+
+                    FILETIME modified{};
+                    if (SUCCEEDED(child2->GetFileTime(PKEY_DateModified, &modified)))
+                    {
+                        item.date_modified_available = true;
+                        item.date_modified = FileTimeToChrono(modified);
+                        item.date_modified_str = FormatShellDateTime(modified).value_or(L"");
+                    }
+                }
+
+                items.push_back(std::move(item));
+            }
+        }
+        catch (...)
+        {
+            if (shouldUninitialize)
+            {
+                CoUninitialize();
+            }
+            throw;
+        }
+
+        if (shouldUninitialize)
+        {
+            CoUninitialize();
+        }
+
+        return items;
     }
 }

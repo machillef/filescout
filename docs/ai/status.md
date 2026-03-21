@@ -4,13 +4,20 @@
 
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Target: unpackaged Windows 11 x64 desktop app
-- `native/` is now tracked in git; unrelated Rust work remains untouched
-- Legacy Rust prototype under `crates/` is reference material only and is no
-  longer part of the active implementation plan
-- Current phase: Phase 1, Explorer parity foundation
+- `native/` is now tracked in git and is the only active implementation track
+- Current phase: Phase 3, Differentiated features (`R12` batch rename complete,
+  `R8b` sidebar Places polish complete, `R16a` + `R16b` Explorer-inspired chrome
+  polish complete)
 - Current blocker: none
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
-- App launches and shows window as of 2026-03-18 (launch crash fixed)
+- App launches and shows window as of 2026-03-20
+- R16a: custom integrated title bar, hero card removed, toolbar Fluent icons,
+  pane activation borders, shell-backed-first sidebar icons (2026-03-21)
+- R16b: sidebar background changed to `CardBackgroundFillColorDefaultBrush` for
+  stronger contrast against Mica backdrop (2026-03-21)
+- Perf staged row publication (Tasks 1–3) complete 2026-03-21; Task 4 (manual
+  benchmark acceptance) pending — launch app and observe TraceLog PerfLoad lines
+  on a 1k–5k item folder to capture before/after timings and close the slice
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete
@@ -522,6 +529,55 @@ Last updated: 2026-03-18
 ### Next recommended step
 - Continue with `R9`: sort/group/view mode parity
 
+## Slice R8b: Sidebar Places Polish, Pinning, And Drive Usage Cards
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Extended `native/FileScout.Native/Domain/FavoriteEntry.h` and
+  `native/FileScout.Native/Shell/FavoritesService.h/.cpp` so sidebar favorites
+  now support persisted custom pinned entries in addition to the built-in
+  Places list, stored under `%LOCALAPPDATA%\FileScoutNative\pinned-places.txt`
+- Updated `native/FileScout.Native/Shell/ContextMenuService.h/.cpp` and
+  `native/FileScout.Native/MainWindow.xaml.cpp` so the FileScout-owned
+  right-click menu can expose `Pin to Places` for a single folder selection or
+  the current folder when it is not already present in the sidebar
+- Reworked `native/FileScout.Native/MainWindow.xaml.cpp` so sidebar Place
+  buttons render small icon tiles, custom pinned entries get a distinct
+  `Pinned` section and badge, mojibake-prone separator copy uses ASCII-safe
+  formatting, and the sidebar adds compact drive-usage cards with capacity text
+  and progress bars
+- Made the new drive-usage cards actionable in
+  `native/FileScout.Native/MainWindow.xaml.cpp`, so clicking a drive card
+  loads that drive into the active pane instead of presenting a dead status-only
+  widget
+- Added dedicated coverage in
+  `native/FileScout.Tests/tests/FavoritesServiceTests.cpp` for persisted pinned
+  Places behavior, including successful persistence, duplicate rejection, and
+  built-in favorite dedupe; updated
+  `native/FileScout.Tests/tests/ContextMenuServiceTests.cpp` to cover the new
+  `Pin to Places` command paths
+
+### What was validated
+- `cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal'` - pass (with only the pre-existing `MSB8027` / `LNK4042` WinAppSDK duplicate-object warnings)
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`54` tests, `0` failures)
+
+### What remains unverified
+- Manual sidebar readability and click targets for the new icon tiles, pinned
+  section, and drive-usage cards in the running WinUI host
+- Manual `Pin to Places` discoverability and end-to-end feel from real
+  right-click flows in the host
+- Manual confirmation that the drive cards feel visually balanced in the
+  sidebar at smaller window widths
+
+### Blockers
+- None
+
+### Next recommended step
+- Run one focused host-side UI pass for sidebar navigation, pinning, and drive
+  cards, then decide whether to close sidebar polish or take one more narrow
+  visual pass before moving on
+
 ## Slice R9a: Sort Column And Direction With Clickable Column Headers
 Status: Complete
 Last updated: 2026-03-18
@@ -588,6 +644,44 @@ Last updated: 2026-03-18
 ### Blockers
 - None
 
+## Slice R9c: Grouped Rows Tied To The Active Sort Column
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- Added `group_by_sort_column` to `PaneContext` in
+  `native/FileScout.Native/MainWindow.xaml.h` and introduced
+  `SetGroupingEnabled()` in `native/FileScout.Native/MainWindow.xaml.cpp`
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` with a per-pane `Group`
+  toggle in `BuildSortHeader()` so grouping follows the currently selected sort
+  column instead of adding a second independent grouping model
+- Extended `CreateRowView()` in `native/FileScout.Native/MainWindow.xaml.cpp`
+  with lightweight in-row group headers for Name/Type/Size/Date Modified
+  groupings, preserving the existing one-row-per-item `ListView` index mapping
+  used by selection, activation, drag/drop, and context menus
+- Updated `SetSortColumn()` and `RebuildAllTabRowsForPane()` in
+  `native/FileScout.Native/MainWindow.xaml.cpp` so shared pane sort/group state
+  re-sorts cached inactive tabs and rebuilds their rows instead of leaving them
+  stale until the next disk reload
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for
+  `native/x64/Debug/FileScout.Native/FileScoutNative.exe` - pass
+
+### What remains unverified
+- Manual `Group` toggle behavior in both panes and in both Cards/List modes
+- Manual validation of Name/Size/Date Modified group labels on normal folders and
+  the "This PC" drives view
+- Manual validation that inactive tabs reflect shared pane sort/group changes
+  after tab switches
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R11`: archive mode (browse zip/7z/tar as virtual views)
+
 ## Slice R10: Preview And Inspect Surface
 Status: Complete
 Last updated: 2026-03-18
@@ -623,6 +717,473 @@ Last updated: 2026-03-18
 ### Next recommended step
 - Continue with `R11`: archive mode (browse zip/7z/tar as virtual views)
 
+## Slice R11a: ZIP Archive Virtual View Foundation
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- Added archive-path detection plus ZIP shell-namespace enumeration to
+  `native/FileScout.Native/Shell/ShellInteropService.h` and
+  `native/FileScout.Native/Shell/ShellInteropService.cpp`; `LoadDirectory` can
+  now treat `*.zip` roots and nested `*.zip\subfolder` paths as virtual folders
+- Extended `native/FileScout.Native/Domain/TabState.h`,
+  `native/FileScout.Native/MainWindow.xaml.h`, and
+  `native/FileScout.Native/MainWindow.xaml.cpp` with per-tab/per-pane
+  `is_archive_view` state so archive tabs restore correctly and status text
+  distinguishes archive rows from filesystem rows
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` so double-click and
+  `Open` enter ZIP roots/folders as virtual views, while drag/drop, paste,
+  rename, delete, new-folder, shell overflow, and archived-file activation are
+  explicitly blocked with read-only archive-mode status text
+- Updated `native/FileScout.Native/Shell/ContextMenuService.h` and
+  `native/FileScout.Native/Shell/ContextMenuService.cpp` so archive views show a
+  minimal read-only context menu (`Open` for folders, `Refresh`) instead of
+  misleading filesystem mutations
+- Added `propkey.h` to `native/FileScout.Native/pch.h` so ZIP entries can pick
+  up shell properties such as item type, size, and modified date when the
+  compressed-folder namespace exposes them
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for `native/x64/Debug/FileScout.Native/FileScoutNative.exe` - pass
+- Local PowerShell probe of Windows `Shell.Application.NameSpace()` against a
+  temp ZIP root and nested ZIP folder - pass
+
+### What remains unverified
+- Manual open/navigation flow for ZIP roots and nested folders in the running
+  WinUI app
+- Manual sort/group/view behavior against ZIP entries, including rows where the
+  shell does not expose size/date metadata
+- Archived-file activation/extract behavior and non-ZIP formats (`7z`/`tar`)
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R11b`: archived-file open/extract behavior and broader archive
+  affordances before widening into `7z` and `tar`
+
+## Slice R11b: Archived-File Temp Extraction And Shell Open
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- Added `TryResolveArchivePath` to
+  `native/FileScout.Native/Shell/ShellInteropService.h` and
+  `native/FileScout.Native/Shell/ShellInteropService.cpp` so the UI layer can
+  resolve a ZIP entry back to its archive root plus virtual in-archive path
+- Updated `native/FileScout.Native/MainWindow.xaml.h` and
+  `native/FileScout.Native/MainWindow.xaml.cpp` with
+  `OpenArchiveItemAsync`, plus temp-session path helpers that extract a selected
+  archive file into `%TEMP%\\FileScoutNative\\ArchiveOpen\\...` before handing it
+  off to the normal shell `Open` path
+- Updated archive double-click and archive-view `Open` command handling in
+  `native/FileScout.Native/MainWindow.xaml.cpp` so ZIP files now extract and
+  open instead of stopping at a placeholder read-only message
+- Updated `native/FileScout.Native/Shell/ContextMenuService.cpp` so read-only
+  archive views expose `Open` for archived files as well as folders, while
+  keeping mutation verbs hidden
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for `native/x64/Debug/FileScout.Native/FileScoutNative.exe` - pass
+- Local PowerShell probe of Windows `Shell.Application.NameSpace().CopyHere()` against temp ZIP file and folder entries - pass
+
+### What remains unverified
+- Manual activation of archived files from ZIP views in the running WinUI app
+- Manual repeated-open behavior for the temp extraction workspace and resulting temp-file cleanup expectations
+- Explicit extract/reveal UX, overwrite/conflict semantics, and non-ZIP archive formats (`7z`/`tar`)
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R11c`: explicit extract/reveal affordances and conflict semantics before widening archive coverage
+
+## Slice R11c: Explicit Extract/Reveal Affordances And Conflict-Safe Extraction
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- Added `CopyItemFromPath` to
+  `native/FileScout.Native/Shell/ShellFileOperationService.h` and
+  `native/FileScout.Native/Shell/ShellFileOperationService.cpp` so archive
+  extraction can copy a single shell item into a target directory under a
+  caller-chosen output name
+- Updated `native/FileScout.Native/Shell/ContextMenuService.cpp` so read-only
+  archive views expose `Extract to archive folder` and `Extract and reveal`
+  alongside the existing `Open` action
+- Updated `native/FileScout.Native/MainWindow.xaml.h` and
+  `native/FileScout.Native/MainWindow.xaml.cpp` with
+  `ExtractArchiveItemAsync`, archive-relative path validation, and deterministic
+  conflict handling: explicit extraction now preserves the in-archive relative
+  path under the archive's parent folder and never overwrites an existing item,
+  instead choosing a unique sibling name such as `name (2)`
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` so `Extract and reveal`
+  navigates the active pane to the extracted item's parent directory and
+  reselects the extracted file or folder after the shell copy completes
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for `native/x64/Debug/FileScout.Native/FileScoutNative.exe` - pass
+
+### What remains unverified
+- Manual archive context-menu extraction flows in the running WinUI app for both files and folders
+- Manual repeated extraction against existing filesystem items to confirm the unique-name conflict policy feels correct in practice
+- Additional archive formats (`7z`/`tar`) and any richer extract destination picker UX
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R11d`: widen archive coverage beyond ZIP while preserving the current non-overwriting extract semantics
+
+## Slice R11d: Shell-Capability-Based Archive Detection Beyond ZIP
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Updated `native/FileScout.Native/Shell/ShellInteropService.h` and
+  `native/FileScout.Native/Shell/ShellInteropService.cpp` so archive detection
+  is no longer hardcoded to `.zip`
+- Added a shell-capability probe plus cache in
+  `native/FileScout.Native/Shell/ShellInteropService.cpp`; regular files are now
+  treated as archive roots only when `SHCreateItemFromParsingName(...)->BindToHandler(BHID_EnumItems)`
+  succeeds, which keeps normal files out while letting shell-backed archive
+  formats participate automatically
+- Updated archive-path resolution in
+  `native/FileScout.Native/Shell/ShellInteropService.cpp` so the existing
+  archive browse, open, temp-extract, and explicit extract/reveal flows work for
+  any shell-enumerable archive root, not just ZIP
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"` - pass
+- Launch smoke for `native/x64/Debug/FileScout.Native/FileScoutNative.exe` - pass
+- Local PowerShell probe of `Shell.Application.NameSpace()` with temp `.zip` and `.tar` archives plus folder extraction from `.tar` - pass
+
+### What remains unverified
+- Manual browsing, file open, and explicit extraction for TAR archives in the running WinUI app
+- Any archive formats that require third-party shell extensions (`7z`, `rar`, etc.) on machines where those extensions may or may not be installed
+- Visual affordances that distinguish shell-backed archive files from ordinary files in non-archive directory listings
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R11e`: add explicit unsupported-archive feedback and polish for archive roots that the shell cannot enumerate
+
+## Slice R11e: Unsupported-Archive Feedback And Archive Listing Polish
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Extended `native/FileScout.Native/Domain/ShellItemRef.h` with
+  `is_archive_candidate` and `is_supported_archive` flags so normal directory
+  listings can distinguish archive-like files from ordinary files without
+  crossing the domain/COM boundary
+- Updated `native/FileScout.Native/Shell/ShellInteropService.cpp` to classify
+  common archive-like filenames (`.zip`, `.tar`, `.7z`, `.rar`, `.tar.gz`,
+  `.tgz`, `.bz2`, `.xz`, etc.), label them as `... archive`, and mark whether
+  the host shell can actually enumerate them as browsable archive roots
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` so selection details and
+  status text now surface archive-specific affordances in normal listings:
+  supported archives show a browse hint, while unsupported archives explicitly
+  explain that FileScout cannot browse them on the current machine and that the
+  file is being opened with Windows instead
+- Added deterministic coverage in
+  `native/FileScout.Tests/tests/ShellInteropServiceTests.cpp` for archive-like
+  classification and labeling in ordinary directory enumeration
+
+### What was validated
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal"` - pass
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`31` tests, `0` failures)
+
+### What remains unverified
+- Manual selection and double-click behavior for supported archives in a normal
+  directory listing (confirm the new browse hint matches the actual transition
+  into archive mode)
+- Manual double-click behavior for unsupported archive-like files on a machine
+  without third-party shell archive extensions (confirm the new status text is
+  visible and the Windows fallback still feels intentional)
+- Additional archive formats that depend on third-party shell extensions
+  (`7z`, `rar`, etc.) across machines with different extension sets installed
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R12`: batch rename in the native shell
+
+## Slice R12a: Multi-Selection Batch Rename Foundation
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Added a pure sequential batch rename planner in
+  `native/FileScout.Native/Domain/BatchRenamePlan.h` that preserves file
+  extensions, numbers selections in list order, and blocks sibling-name
+  collisions before any shell mutation runs
+- Extended `native/FileScout.Native/Shell/ShellFileOperationService.h` and
+  `native/FileScout.Native/Shell/ShellFileOperationService.cpp` with bulk
+  `RenameItems` and `DeleteItems` helpers so multi-item mutations execute
+  through one shell `IFileOperation`
+- Updated `native/FileScout.Native/MainWindow.xaml.h` and
+  `native/FileScout.Native/MainWindow.xaml.cpp` to switch file panes into
+  extended selection mode, preserve multi-selection on right-click, surface
+  multi-selection details, route `F2` / `Rename` into a batch rename dialog for
+  multi-selection, and apply selection-aware copy/cut/delete/drag behavior
+- Updated `native/FileScout.Native/Shell/ContextMenuService.h` and
+  `native/FileScout.Native/Shell/ContextMenuService.cpp` so multi-selection
+  context menus advertise `Batch rename...` and hide single-item-only inspect
+  actions
+- Added coverage in
+  `native/FileScout.Tests/tests/ContextMenuServiceTests.cpp` and
+  `native/FileScout.Tests/tests/ShellFileOperationServiceTests.cpp` for
+  multi-selection menu shaping, sequential rename planning, bulk rename, and
+  bulk delete behavior
+
+### What was validated
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal"` - pass
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`36` tests, `0` failures)
+
+### What remains unverified
+- Manual Ctrl/Shift multi-selection behavior across both panes and restored tabs
+- Manual batch rename dialog behavior for mixed file/folder selections and larger selections
+- Manual multi-item drag/drop and recycle-bin delete UX in the WinUI host
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R12b`: richer rename patterns and preview/polish for the batch rename dialog
+
+## Slice R12b: Sequential Pattern Controls And Live Preview Polish
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Extended `native/FileScout.Native/Domain/BatchRenamePlan.h` with
+  `BatchRenameOptions` so the sequential planner now supports custom start
+  numbers, optional zero padding, and the same preflight sibling-conflict
+  checks before shell mutation
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` so the batch rename
+  dialog now captures `Start number` and `Zero padding`, validates those fields
+  live, disables the primary action while the plan is invalid, and renders a
+  preview of the first few rename results before the shell operation runs
+- Added coverage in
+  `native/FileScout.Tests/tests/ShellFileOperationServiceTests.cpp` for custom
+  numbering/padding output and rejection of invalid zero start numbers
+
+### What was validated
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal"` - pass
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`38` tests, `0` failures)
+
+### What remains unverified
+- Manual batch rename dialog layout and preview readability in the WinUI host,
+  especially for larger selections
+- Manual rename execution with non-default start-number and zero-padding values
+  across mixed file/folder selections
+
+### Blockers
+- None
+
+### Next recommended step
+- Manually validate the polished batch rename dialog in the WinUI host, then
+  continue with `R12c`: broader rename presets such as prefix/suffix or
+  find/replace without widening into a free-form rename DSL
+
+## Slice R12c: Prefix/Suffix Batch Rename Presets
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Extended `native/FileScout.Native/Domain/BatchRenamePlan.h` with shared
+  generated-name validation plus new `BuildPrefixBatchRenamePlan` and
+  `BuildSuffixBatchRenamePlan` helpers so affix-based renames preserve file
+  extensions, rename folders sensibly, and reuse the same duplicate/conflict
+  checks as the sequential planner
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` so the batch rename
+  dialog now includes a `Preset` picker with `Sequential numbers`, `Add
+  prefix`, and `Add suffix` modes; the dialog switches its visible controls,
+  reuses the existing live preview, and still routes execution through the same
+  shell bulk-rename path
+- Added coverage in
+  `native/FileScout.Tests/tests/ShellFileOperationServiceTests.cpp` for prefix
+  planning, suffix placement before file extensions, and sibling-conflict
+  rejection for affix presets
+
+### What was validated
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal"` - pass
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`40` tests, `0` failures)
+
+### What remains unverified
+- Manual preset switching and preview readability in the WinUI batch rename
+  dialog
+- Manual prefix/suffix rename execution for mixed file/folder selections and
+  names with multiple dots
+
+### Blockers
+- None
+
+### Next recommended step
+- Manually validate the affix presets in the WinUI host, then continue with
+  `R12d`: a narrow find/replace preset without widening into a full rename DSL
+
+## Slice R12d: Literal Find/Replace Batch Rename Preset
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Extended `native/FileScout.Native/Domain/BatchRenamePlan.h` with a literal
+  `BuildFindReplaceBatchRenamePlan` plus shared rename-context helpers so
+  find/replace operates on folder names and file stems, preserves file
+  extensions, rejects no-op selections, and still catches collisions against
+  unchanged selected items
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` so the batch rename
+  dialog now includes a `Find and replace` preset with dedicated `Find` and
+  `Replace with` fields, preset-specific explanatory text, and the same live
+  preview/validation flow used by the existing sequential and affix presets
+- Tightened the shared batch-rename execution path in
+  `native/FileScout.Native/MainWindow.xaml.cpp` so unchanged plan entries are
+  skipped before calling the shell bulk rename operation
+- Added coverage in
+  `native/FileScout.Tests/tests/ShellFileOperationServiceTests.cpp` for literal
+  find/replace behavior, no-op rejection, and duplicate-name detection when a
+  changed item collides with an unchanged selected item
+
+### What was validated
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal"` - pass
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`43` tests, `0` failures)
+
+### What remains unverified
+- Manual `Find and replace` preset behavior in the WinUI dialog, especially
+  empty replacement text and mixed file/folder selections
+- Manual literal matching behavior for names with repeated segments or multiple
+  dots
+
+### Blockers
+- None
+
+### Next recommended step
+- Manually validate the find/replace preset in the WinUI host, then continue
+  with `R12e`: case-transform presets such as upper/lower/title case
+
+## Slice R12e: Case-Transform Batch Rename Preset
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Extended `native/FileScout.Native/Domain/BatchRenamePlan.h` with
+  `BatchRenameCaseTransform` and `BuildCaseTransformBatchRenamePlan` so batch
+  rename can apply lowercase, uppercase, or title case to folder names and
+  file stems while preserving existing file extensions, rejecting no-op
+  selections, and still catching duplicate-name collisions
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` so the batch rename
+  dialog now includes a `Change case` preset plus a secondary `Case` picker for
+  `lowercase`, `UPPERCASE`, and `Title Case`, reusing the existing live preview
+  and shared shell bulk-rename execution path
+- Added coverage in
+  `native/FileScout.Tests/tests/ShellFileOperationServiceTests.cpp` for case
+  transforms across files and folders, title-case behavior, no-op rejection,
+  and duplicate detection when case normalization would collapse names
+
+### What was validated
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal"` - pass
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`47` tests, `0` failures)
+
+### What remains unverified
+- Manual `Change case` preset behavior in the WinUI dialog, especially preset
+  switching between lowercase, uppercase, and title case on mixed file/folder
+  selections
+- Manual title-case readability for names that include punctuation, repeated
+  separators, or non-ASCII characters
+
+### Blockers
+- None
+
+### Next recommended step
+- Manually validate the full batch rename dialog in the WinUI host, then decide
+  whether `R12` is ready to close or needs one final narrow preset/polish slice
+
+## Slice R12f: Shared Windows Filename Validation Parity
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Added `native/FileScout.Native/Domain/FileNameValidation.h` as a pure shared
+  validator for Windows file-name rules, including control characters,
+  reserved device names, `.` / `..`, and trailing space/period rejection
+- Updated `native/FileScout.Native/Domain/BatchRenamePlan.h` so batch rename
+  preview and preflight validation now use the shared validator instead of a
+  local duplicate helper
+- Updated `native/FileScout.Native/MainWindow.xaml.cpp` and
+  `native/FileScout.Native/MainWindow.xaml.h` so single-item `New folder` and
+  `Rename` flows reuse the same shared validation path and no longer drift from
+  batch rename behavior
+- Added coverage in
+  `native/FileScout.Tests/tests/ShellFileOperationServiceTests.cpp` for shared
+  file-name validation and the batch-rename validation hook that consumes it
+
+### What was validated
+- `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal"` - pass (with only the pre-existing `MSB8027` / `LNK4042` WinAppSDK duplicate-object warnings)
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`50` tests, `0` failures)
+
+### What remains unverified
+- Manual batch rename dialog behavior when affix/find-replace presets generate
+  invalid names and the dialog now blocks the operation preflight
+- Manual single-item `New folder` / `Rename` behavior for the new `.` / `..`
+  and trailing space/period validation messages in the WinUI host
+
+### Blockers
+- None
+
+### Next recommended step
+- Manually validate the full batch rename dialog plus single-item rename/create
+  error states in the WinUI host, then decide whether `R12` is ready to close
+  or needs one final UX-only polish slice
+
+## Slice R12g: Batch Rename Dialog Layout And Preview Polish
+Status: Complete
+Last updated: 2026-03-19
+
+### What was implemented
+- Reworked `native/FileScout.Native/MainWindow.xaml.cpp` so the batch rename
+  dialog now opens with a structured selection summary that surfaces item
+  counts, folder/file breakdown, current folder, and representative sample
+  names before the user edits any preset fields
+- Replaced the prior flat control stack with a two-column WinUI dialog layout:
+  a dedicated `Rename setup` panel for preset-specific inputs and a separate
+  `Live preview` panel for result review, both wrapped in themed cards with
+  clearer visual hierarchy
+- Upgraded preview feedback in
+  `native/FileScout.Native/MainWindow.xaml.cpp` so invalid states disable the
+  primary action with explicit error text, while valid states show compact
+  preview cards that distinguish renamed items from unchanged ones and summarize
+  how many generated entries are ready
+- Wrapped the dialog content in scrollable containers so larger selections keep
+  the preview readable without collapsing the control layout on shorter windows
+
+### What was validated
+- `cmd /c --% ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal"` - pass (with only the pre-existing `MSB8027` / `LNK4042` WinAppSDK duplicate-object warnings)
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` - pass (`50` tests, `0` failures)
+
+### What remains unverified
+- Manual readability and spacing of the redesigned batch rename dialog in the
+  running WinUI host, especially on shorter window heights and larger
+  multi-selection sets
+- Manual preset switching flow to confirm the new setup/preview split feels
+  natural when moving between sequential, affix, find/replace, and case-change
+  modes
+- Manual confirmation that the preview card treatment makes unchanged items and
+  blocked invalid states feel obvious enough without extra copy
+
+### Blockers
+- None
+
+### Next recommended step
+- Manually validate the redesigned batch rename dialog in the running WinUI
+  host, then close `R12` and move to `R13` if the host-level UX holds up
+
 ## Launch Crash Fix (post-R10 infrastructure fix)
 Status: Complete
 Last updated: 2026-03-18
@@ -653,3 +1214,151 @@ URI unresolvable — silently swallowing startup and preventing `OnLaunched` fro
 
 ### Remaining items to verify
 - Manual inspection of R9b (Cards/List toggle), R10 (image preview, created date, attributes)
+
+## Perf Fix: Background Directory Enumeration
+Status: Complete
+Last updated: 2026-03-18
+
+### What was implemented
+- `LoadDirectory` is now a thin wrapper that calls `LoadDirectoryAsync` (fire_and_forget)
+- `LoadDirectoryAsync` clears UI immediately on the UI thread, then `co_await resume_background()`
+  to enumerate on a background thread; posts results back via `m_dispatcherQueue.TryEnqueue`
+- Per-pane `load_generation` counter discards stale results from rapid navigation
+- `m_dispatcherQueue` captured in constructor via `DispatcherQueue::GetForCurrentThread()`
+- `ShellInteropService::m_iconCache` protected by `std::mutex m_cacheMutex` for
+  concurrent two-pane background enumeration
+- `selectAfter` optional path parameter added to `LoadDirectory` / `LoadDirectoryAsync`
+  to replace the prior `LoadDirectory(); SelectItemByPath()` pattern
+- `UpdateRows` and `SetSortColumn` updated to take `paneIndex` parameter
+- Dark theme applied: `RequestedTheme="Dark"` on Application, `MicaBackdrop` system
+  backdrop, all hardcoded light hex colors replaced with `{ThemeResource}` references
+
+### Attempted and reverted: ContainerContentChanging virtualization
+- Tried replacing UIElement items with boxed int32 indices + `ContainerContentChanging`
+  to create rows on demand — ListView rendered items as raw number strings; reverted
+- `UpdateRows` and `RebuildAllTabRowsForPane` now use `CreateRowView` directly (same
+  as before), keeping background enumeration as the sole perf improvement this slice
+
+### What was validated
+- Clean build (`0 Error(s)`, `0 Warning(s)`) — pass
+- App now loads directories without freezing the UI thread
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R11`: archive mode (browse zip/7z/tar as virtual views)
+
+## Slice R16a: Visual Polish — Chrome Restructure
+Status: Complete
+Last updated: 2026-03-21
+
+### What was implemented
+- Removed hero card from `MainWindow.xaml`; reduced `Grid.RowDefinitions` from 4 to 3
+- Added `TitleBarDragHost` as a named draggable title-bar region with
+  `TitleBarLeftInsetColumn` / `TitleBarRightInsetColumn` inset columns
+- Added `ConfigureTitleBar()` in `MainWindow.xaml.cpp`: extends app content into the
+  title bar via `SetTitleBar(TitleBarDragHost())`, wires `AppWindow`, and handles
+  `TitleBarDragHost_Loaded` / `TitleBarDragHost_SizeChanged` to track caption button insets
+- Merged toolbar into title-bar row: FileScout + ALPHA badge branding in leftmost
+  column, Back/Forward/Refresh with Fluent glyph icons (`E76B`/`E76C`/`E72C`),
+  address text box; `ChromeToolbarButtonStyle` / `ChromeAddressTextBoxStyle` styles added
+- Updated `UpdateActivePaneIndicator()` to manage `BorderThickness` as well as
+  `BorderBrush` — active pane gets 2px `AccentFillColorDefaultBrush`, inactive pane gets
+  1px `CardStrokeColorDefaultBrush` (set in both XAML defaults and runtime toggle)
+- Added `BuildSidebarFontIcon()` and `KnownFolderGlyph()` helpers; updated
+  `BuildSidebarGlyph()` with shell-backed-first priority: shell-extracted bitmap →
+  Fluent glyph fallback → text monogram; `BuildSidebarDriveGlyph()` now tries
+  shell-extracted icon then falls back to `EDA2` HardDrive glyph
+
+### What was validated
+- Build: pass (0 errors, only pre-existing MSB8027/LNK4042 warnings)
+- Tests: 57 passed, 0 failures
+- Smoke validation: app launched and showed window with integrated title bar (dark mode)
+
+### What remains unverified
+- Light-theme validation (sidebar bg, title-bar, pane borders) in Windows Settings
+- Drag region interaction inside the title-bar host (click-drag to move window,
+  caption button coexistence) — blocked by existing `filescout-ui-automation` bug
+
+### Blockers
+- None
+
+### Next recommended step
+- Continue with `R16b`: sidebar background fix
+
+## Slice R16b: Explorer Chrome — Sidebar Background
+Status: Complete
+Last updated: 2026-03-21
+
+### What was implemented
+- Changed sidebar `Border` background in `MainWindow.xaml` from
+  `LayerFillColorAltBrush` to `CardBackgroundFillColorDefaultBrush`; this gives
+  the left sidebar more visible separation from the Mica backdrop in both dark
+  and light themes, matching the Explorer-inspired chrome goal
+- No code-side icon changes needed: `BuildSidebarGlyph()` was already
+  shell-backed-first (shell bitmap → Fluent glyph fallback → text monogram)
+- Updated docs: slices.md closed R12, added R16 entry (R16a + R16b), plan.md updated
+
+### What was validated
+- Build: pass (0 errors, only pre-existing MSB8027/LNK4042 warnings)
+- Tests: 57 passed, 0 failures
+
+### What remains unverified
+- Manual sidebar contrast in dark theme vs Mica backdrop
+- Manual sidebar contrast in light theme
+- Manual validation of all R16 spec success criteria (white frame gone, sidebar
+  closer to Explorer, pane borders correct, Fluent glyph toolbar icons visible)
+
+### Blockers
+- None
+
+### Next recommended step
+- Manually validate the R16 visual changes in the running WinUI host (both themes),
+  then run the performance benchmark acceptance measurements
+
+## Perf: Staged Row Publication (Tasks 1–3)
+Status: In Progress
+Last updated: 2026-03-21
+
+### What was implemented
+- Added `awaiting_final_batch` and `user_interacted_after_first_batch` bool fields
+  to `PaneContext` in `native/FileScout.Native/MainWindow.xaml.h`
+- Replaced the single `UpdateRows()` call in `LoadDirectoryAsync`'s UI-thread callback
+  (`native/FileScout.Native/MainWindow.xaml.cpp`) with a staged publish:
+  - First dispatch builds rows for `min(150, total)` items (preserving group-label
+    continuity), records `first_batch_publish_tick`, resets
+    `user_interacted_after_first_batch = false`
+  - For folders ≤150 items: both timing points set to same tick (existing behaviour)
+  - For folders >150 items: `awaiting_final_batch = true`, then a second
+    `TryEnqueue` dispatch appends the remaining rows, records `final_publish_tick`,
+    and calls `SelectItemByPath` only if `!user_interacted_after_first_batch`
+- Added `pane.awaiting_final_batch = false` at start of `RebuildAllTabRowsForPane`
+  so any synchronous sort/group/viewmode change cancels the pending second dispatch
+  (prevents duplicate row appends)
+- Added `ActivePane().user_interacted_after_first_batch = true` in
+  `FileRowsListView_SelectionChanged` after the `tab_switching` early-return guard,
+  so live user selection wins over deferred `SelectItemByPath` restoration
+
+### What was validated
+- Build: pass (0 errors, only pre-existing MSB8027/LNK4042 warnings)
+- Tests: 57/57 pass (`native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no`)
+
+### What remains unverified
+- Manual runtime benchmark: 5× measurements of first-batch and full-completion
+  times on a 1k–5k item folder before and after staged publish
+  (spec: ≥25% or 150ms improvement on first-batch median; ≤10% regression on full-completion)
+- Manual validation: first rows appear earlier on large folders; pane remains
+  responsive while remaining rows complete; no stale-load flashes; no selection/scroll
+  clobber if user interacts after first batch appears; final ordering stable
+- Task 4 in `docs/superpowers/plans/2026-03-20-performance-benchmark.md` must be
+  run in the host to close this slice
+
+### Blockers
+- None (code complete; acceptance requires manual app execution)
+
+### Next recommended step
+- Launch `native/x64/Debug/FileScout.Native/FileScoutNative.exe`, navigate to a
+  folder with 1k–5k items, observe TraceLog output for `PerfLoad … first_batch_ms`
+  vs `full_completion_ms` to capture before/after baseline, then record results and
+  close the perf slice

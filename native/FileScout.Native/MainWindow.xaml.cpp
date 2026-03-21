@@ -1,9 +1,13 @@
 #include "pch.h"
 // IRandomAccessStreamWithContentType return type for co_await file.OpenReadAsync().
 // Included here rather than pch.h to avoid PCH bloat across all TUs.
+#include <cmath>
+#include <winrt/Microsoft.UI.Input.h>
+#include <winrt/Windows.Graphics.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
 #include "MainWindow.xaml.h"
+#include "Domain/FileNameValidation.h"
 #include "TraceHelper.h"
 
 #if __has_include("MainWindow.g.cpp")
@@ -33,6 +37,39 @@ namespace
             return winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
                 winrt::Windows::UI::Color{ 0xFF, 0xF3, 0xF4, 0xF6 });
         }
+    }
+
+    std::optional<winrt::Windows::Graphics::RectInt32> TryGetElementRect(
+        winrt::Microsoft::UI::Xaml::FrameworkElement const& element,
+        double const scale)
+    {
+        if (!element || element.Visibility() != winrt::Microsoft::UI::Xaml::Visibility::Visible)
+        {
+            return std::nullopt;
+        }
+
+        auto const width = element.ActualWidth();
+        auto const height = element.ActualHeight();
+        if (width <= 0.0 || height <= 0.0)
+        {
+            return std::nullopt;
+        }
+
+        auto const transform = element.TransformToVisual(nullptr);
+        auto const bounds = transform.TransformBounds(
+            winrt::Windows::Foundation::Rect{
+                0.0f,
+                0.0f,
+                static_cast<float>(width),
+                static_cast<float>(height),
+            });
+
+        return winrt::Windows::Graphics::RectInt32{
+            static_cast<int32_t>(std::lround(bounds.X * scale)),
+            static_cast<int32_t>(std::lround(bounds.Y * scale)),
+            static_cast<int32_t>(std::lround(bounds.Width * scale)),
+            static_cast<int32_t>(std::lround(bounds.Height * scale)),
+        };
     }
 
     // Synchronous: converts RGBA8-Straight icon pixels into a WriteableBitmap (BGRA8-Premultiplied).
@@ -104,6 +141,28 @@ namespace
         return stream.str() + L" " + std::wstring(suffixes[suffixIndex]);
     }
 
+    std::wstring FormatLoadTimingTrace(
+        std::filesystem::path const& path,
+        std::size_t const itemCount,
+        winrt::FileScoutNative::implementation::PaneLoadTiming const& timing)
+    {
+        auto const enumerationMs = timing.enumeration_end_tick >= timing.load_start_tick
+            ? timing.enumeration_end_tick - timing.load_start_tick
+            : 0;
+        auto const firstBatchMs = timing.first_batch_publish_tick >= timing.load_start_tick
+            ? timing.first_batch_publish_tick - timing.load_start_tick
+            : 0;
+        auto const fullCompletionMs = timing.final_publish_tick >= timing.load_start_tick
+            ? timing.final_publish_tick - timing.load_start_tick
+            : 0;
+
+        return L"PerfLoad path=\"" + path.wstring() +
+            L"\" items=" + std::to_wstring(itemCount) +
+            L" enumerate_ms=" + std::to_wstring(enumerationMs) +
+            L" first_batch_ms=" + std::to_wstring(firstBatchMs) +
+            L" full_completion_ms=" + std::to_wstring(fullCompletionMs);
+    }
+
     std::wstring BuildCommandStatus(
         std::wstring const& action,
         std::optional<::FileScoutNative::Domain::ShellItemRef> const& item)
@@ -116,6 +175,49 @@ namespace
         return action + L": " + item->display_name;
     }
 
+    bool IsSupportedArchiveItem(::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        return !item.is_folder && item.is_supported_archive;
+    }
+
+    bool IsUnsupportedArchiveItem(::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        return !item.is_folder && item.is_archive_candidate && !item.is_supported_archive;
+    }
+
+    std::wstring AppendArchiveBrowseHint(
+        std::wstring metadata,
+        ::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        if (IsSupportedArchiveItem(item))
+        {
+            metadata += L"  |  Double-click to browse";
+        }
+        else if (IsUnsupportedArchiveItem(item))
+        {
+            metadata += L"  |  Browse unavailable in FileScout on this machine";
+        }
+
+        return metadata;
+    }
+
+    std::wstring BuildUnsupportedArchiveOpenStatus(
+        ::FileScoutNative::Domain::ShellItemRef const& item,
+        bool const openSucceeded)
+    {
+        return openSucceeded
+            ? L"Archive browsing unavailable in FileScout on this machine. Opened " +
+                item.display_name + L" with Windows."
+            : L"Archive browsing unavailable in FileScout on this machine. Open failed for " +
+                item.display_name + L".";
+    }
+
+    std::wstring SuggestBatchRenameBaseName(std::filesystem::path const& currentPath)
+    {
+        auto const folderName = currentPath.filename().wstring();
+        return folderName.empty() ? std::wstring{ L"Renamed" } : folderName;
+    }
+
     std::wstring TrimFileName(std::wstring value)
     {
         auto const begin = value.find_first_not_of(L" \t\r\n");
@@ -126,6 +228,605 @@ namespace
 
         auto const end = value.find_last_not_of(L" \t\r\n");
         return value.substr(begin, end - begin + 1);
+    }
+
+    std::optional<uint32_t> TryParsePositiveInteger(std::wstring const& value)
+    {
+        auto const trimmed = TrimFileName(value);
+        if (trimmed.empty())
+        {
+            return std::nullopt;
+        }
+
+        wchar_t* end = nullptr;
+        auto const parsed = wcstoul(trimmed.c_str(), &end, 10);
+        if (end == nullptr || *end != L'\0' || parsed == 0)
+        {
+            return std::nullopt;
+        }
+
+        return static_cast<uint32_t>(parsed);
+    }
+
+    enum class BatchRenamePreset
+    {
+        Sequential = 0,
+        AddPrefix = 1,
+        AddSuffix = 2,
+        FindReplace = 3,
+        ChangeCase = 4,
+    };
+
+    ::FileScoutNative::Domain::BatchRenameCaseTransform BatchRenameCaseTransformFromSelectedIndex(
+        int32_t const selectedIndex)
+    {
+        switch (selectedIndex)
+        {
+        case 1:
+            return ::FileScoutNative::Domain::BatchRenameCaseTransform::Uppercase;
+        case 2:
+            return ::FileScoutNative::Domain::BatchRenameCaseTransform::TitleCase;
+        case 0:
+        default:
+            return ::FileScoutNative::Domain::BatchRenameCaseTransform::Lowercase;
+        }
+    }
+
+    BatchRenamePreset BatchRenamePresetFromSelectedIndex(int32_t const selectedIndex)
+    {
+        switch (selectedIndex)
+        {
+        case 1:
+            return BatchRenamePreset::AddPrefix;
+        case 2:
+            return BatchRenamePreset::AddSuffix;
+        case 3:
+            return BatchRenamePreset::FindReplace;
+        case 4:
+            return BatchRenamePreset::ChangeCase;
+        default:
+            return BatchRenamePreset::Sequential;
+        }
+    }
+
+    std::wstring BatchRenamePresetNote(BatchRenamePreset const preset)
+    {
+        switch (preset)
+        {
+        case BatchRenamePreset::AddPrefix:
+            return L"Adds text before each current item name. Files keep their existing extensions.";
+        case BatchRenamePreset::AddSuffix:
+            return L"Adds text before each file extension and at the end of folder names.";
+        case BatchRenamePreset::FindReplace:
+            return L"Replaces all literal, case-sensitive matches in each selected item name. Files keep their existing extensions.";
+        case BatchRenamePreset::ChangeCase:
+            return L"Changes letter casing for each selected item name. Files keep their existing extensions.";
+        case BatchRenamePreset::Sequential:
+        default:
+            return L"Selected items are renamed in the current list order. Files keep their existing extensions.";
+        }
+    }
+
+    std::wstring BatchRenamePresetLabel(BatchRenamePreset const preset)
+    {
+        switch (preset)
+        {
+        case BatchRenamePreset::AddPrefix:
+            return L"Add prefix";
+        case BatchRenamePreset::AddSuffix:
+            return L"Add suffix";
+        case BatchRenamePreset::FindReplace:
+            return L"Find and replace";
+        case BatchRenamePreset::ChangeCase:
+            return L"Change case";
+        case BatchRenamePreset::Sequential:
+        default:
+            return L"Sequential numbers";
+        }
+    }
+
+    std::wstring BuildBatchRenameSelectionSummary(
+        std::span<::FileScoutNative::Domain::ShellItemRef const> const items)
+    {
+        auto const folderCount = std::count_if(
+            items.begin(),
+            items.end(),
+            [](auto const& item) { return item.is_folder; });
+        auto const fileCount = items.size() - static_cast<std::size_t>(folderCount);
+
+        std::wstring summary = std::to_wstring(items.size()) +
+            (items.size() == 1 ? L" item" : L" items");
+        summary += L"  |  " + std::to_wstring(folderCount) +
+            (folderCount == 1 ? L" folder" : L" folders");
+        summary += L"  |  " + std::to_wstring(fileCount) +
+            (fileCount == 1 ? L" file" : L" files");
+        return summary;
+    }
+
+    std::wstring BuildBatchRenameSelectionExamples(
+        std::span<::FileScoutNative::Domain::ShellItemRef const> const items)
+    {
+        if (items.empty())
+        {
+            return L"No items selected.";
+        }
+
+        std::wstring text = L"Includes ";
+        auto const sampleCount = (std::min)(items.size(), static_cast<std::size_t>(3));
+        for (std::size_t index = 0; index < sampleCount; ++index)
+        {
+            if (index > 0)
+            {
+                text += L", ";
+            }
+
+            text += items[index].display_name;
+        }
+
+        if (items.size() > sampleCount)
+        {
+            text += L", +" + std::to_wstring(items.size() - sampleCount) + L" more";
+        }
+
+        return text + L".";
+    }
+
+    struct SidebarDriveUsage
+    {
+        std::filesystem::path path;
+        std::wstring display_name;
+        bool has_usage{ false };
+        std::uintmax_t free_bytes{ 0 };
+        std::uintmax_t total_bytes{ 0 };
+        double used_ratio{ 0.0 };
+        ::FileScoutNative::Domain::IconBitmap icon;
+    };
+
+    std::vector<SidebarDriveUsage> BuildSidebarDriveUsage(
+        ::FileScoutNative::Shell::ShellInteropService& shellInterop)
+    {
+        std::vector<SidebarDriveUsage> usage;
+        for (auto const& drive : shellInterop.EnumerateDrives())
+        {
+            SidebarDriveUsage sidebarDrive{
+                .path = drive.path,
+                .display_name = drive.display_name,
+                .icon = drive.icon,
+            };
+
+            ULARGE_INTEGER freeBytesAvailable{};
+            ULARGE_INTEGER totalBytes{};
+            ULARGE_INTEGER totalFreeBytes{};
+            if (GetDiskFreeSpaceExW(
+                    drive.path.c_str(),
+                    &freeBytesAvailable,
+                    &totalBytes,
+                    &totalFreeBytes) &&
+                totalBytes.QuadPart > 0)
+            {
+                auto const total = static_cast<std::uintmax_t>(totalBytes.QuadPart);
+                auto const free = static_cast<std::uintmax_t>(totalFreeBytes.QuadPart);
+                auto const used = total > free ? total - free : 0;
+
+                sidebarDrive.has_usage = true;
+                sidebarDrive.free_bytes = free;
+                sidebarDrive.total_bytes = total;
+                sidebarDrive.used_ratio =
+                    std::clamp(static_cast<double>(used) / static_cast<double>(total), 0.0, 1.0);
+            }
+
+            usage.push_back(std::move(sidebarDrive));
+        }
+
+        return usage;
+    }
+
+    std::wstring SidebarFavoriteFallbackLabel(
+        ::FileScoutNative::Domain::FavoriteEntry const& entry)
+    {
+        if (entry.is_drives_view)
+        {
+            return L"PC";
+        }
+
+        if (entry.is_recycle_bin)
+        {
+            return L"RB";
+        }
+
+        return entry.is_pinned ? L"P" : L"F";
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::FontIcon BuildSidebarFontIcon(
+        std::wstring_view const glyph,
+        double const fontSize = 15.0)
+    {
+        auto icon = winrt::Microsoft::UI::Xaml::Controls::FontIcon{};
+        icon.Glyph(winrt::hstring{ glyph });
+        icon.FontFamily(winrt::Microsoft::UI::Xaml::Media::FontFamily(L"Segoe Fluent Icons"));
+        icon.FontSize(fontSize);
+        icon.Foreground(LookupBrush(L"TextFillColorSecondaryBrush"));
+        icon.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+        icon.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+        return icon;
+    }
+
+    // Maps domain icon_key strings to Segoe Fluent Icons Unicode glyphs.
+    std::wstring_view GlyphForMenuIconKey(std::wstring_view const iconKey)
+    {
+        using namespace std::literals;
+        if (iconKey == L"open"sv)                   return L"\uE838";
+        if (iconKey == L"openWith"sv)               return L"\uE7AC";
+        if (iconKey == L"rename"sv)                 return L"\uE8AC";
+        if (iconKey == L"delete"sv)                 return L"\uE74D";
+        if (iconKey == L"copy"sv)                   return L"\uE8C8";
+        if (iconKey == L"cut"sv)                    return L"\uE8C6";
+        if (iconKey == L"paste"sv)                  return L"\uE77F";
+        if (iconKey == L"newFolder"sv)              return L"\uE8F4";
+        if (iconKey == L"refresh"sv)                return L"\uE72C";
+        if (iconKey == L"pin"sv)                    return L"\uE840";
+        if (iconKey == L"properties"sv)             return L"\uE946";
+        if (iconKey == L"overflow"sv)               return L"\uE712";
+        if (iconKey == L"extractToArchiveFolder"sv) return L"\uE7B8";
+        if (iconKey == L"extractReveal"sv)          return L"\uED25";
+        return {};
+    }
+
+    std::wstring_view KnownFolderGlyph(std::wstring_view const displayName)
+    {
+        using namespace std::literals;
+        auto const equalsIgnoreCase = [](std::wstring_view const left, std::wstring_view const right)
+        {
+            return left.size() == right.size() &&
+                _wcsnicmp(left.data(), right.data(), left.size()) == 0;
+        };
+
+        if (equalsIgnoreCase(displayName, L"Home"sv) ||
+            equalsIgnoreCase(displayName, L"Quick access"sv))
+        {
+            return L"\uE80F";
+        }
+
+        if (equalsIgnoreCase(displayName, L"Desktop"sv))
+        {
+            return L"\uEC64";
+        }
+
+        if (equalsIgnoreCase(displayName, L"Documents"sv))
+        {
+            return L"\uE8A5";
+        }
+
+        if (equalsIgnoreCase(displayName, L"Downloads"sv))
+        {
+            return L"\uE896";
+        }
+
+        if (equalsIgnoreCase(displayName, L"Pictures"sv))
+        {
+            return L"\uEB9F";
+        }
+
+        if (equalsIgnoreCase(displayName, L"Music"sv))
+        {
+            return L"\uEC4F";
+        }
+
+        if (equalsIgnoreCase(displayName, L"Videos"sv))
+        {
+            return L"\uE8B2";
+        }
+
+        if (equalsIgnoreCase(displayName, L"This PC"sv))
+        {
+            return L"\uEDA2";
+        }
+
+        if (equalsIgnoreCase(displayName, L"Recycle Bin"sv))
+        {
+            return L"\uE74D";
+        }
+
+        return {};
+    }
+
+    winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarGlyph(
+        std::wstring const& displayName,
+        std::optional<::FileScoutNative::Domain::IconBitmap> const& icon,
+        std::wstring const& fallbackText)
+    {
+        if (icon.has_value())
+        {
+            auto image = winrt::Microsoft::UI::Xaml::Controls::Image{};
+            image.Width(16);
+            image.Height(16);
+            image.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
+            image.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+            image.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+            if (auto const source = BuildIconSource(*icon))
+            {
+                image.Source(source);
+                return image;
+            }
+        }
+
+        if (auto const glyph = KnownFolderGlyph(displayName); !glyph.empty())
+        {
+            return BuildSidebarFontIcon(glyph);
+        }
+
+        auto fallback = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        fallback.Text(ToHString(fallbackText));
+        fallback.FontSize(10);
+        fallback.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+        fallback.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+        fallback.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+        fallback.Opacity(0.82);
+        return fallback;
+    }
+
+    winrt::Microsoft::UI::Xaml::Media::Brush SolidBrush(
+        uint8_t const alpha,
+        uint8_t const red,
+        uint8_t const green,
+        uint8_t const blue)
+    {
+        return winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+            winrt::Windows::UI::Color{ alpha, red, green, blue });
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::Border BuildSidebarTile(
+        winrt::Microsoft::UI::Xaml::FrameworkElement const& child,
+        double const size)
+    {
+        auto tile = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        tile.Width(size);
+        tile.Height(size);
+        tile.CornerRadius({ size >= 28.0 ? 10.0f : 8.0f, size >= 28.0 ? 10.0f : 8.0f,
+                            size >= 28.0 ? 10.0f : 8.0f, size >= 28.0 ? 10.0f : 8.0f });
+        tile.Background(SolidBrush(0x00, 0x00, 0x00, 0x00));
+        tile.Child(child);
+        return tile;
+    }
+
+    void StyleSidebarButtonBase(winrt::Microsoft::UI::Xaml::Controls::Button const& button)
+    {
+        button.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
+        button.HorizontalContentAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
+        button.Padding({ 0, 0, 0, 0 });
+        button.BorderThickness({ 0, 0, 0, 0 });
+        button.Background(SolidBrush(0x00, 0x00, 0x00, 0x00));
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::Border BuildSidebarRowSurface(bool const emphasized)
+    {
+        auto surface = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        surface.Padding({ 8, 6, 8, 6 });
+        surface.CornerRadius({ 8, 8, 8, 8 });
+        surface.BorderThickness({ 0, 0, 0, 0 });
+        surface.Background(emphasized
+            ? LookupBrush(L"SubtleFillColorSecondaryBrush")
+            : SolidBrush(0x00, 0x00, 0x00, 0x00));
+        return surface;
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::TextBlock BuildSidebarSectionLabel(std::wstring const& label)
+    {
+        auto text = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        text.Text(ToHString(label));
+        text.FontSize(11);
+        text.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+        text.Foreground(LookupBrush(L"TextFillColorSecondaryBrush"));
+        text.Opacity(0.56);
+        text.CharacterSpacing(120);
+        return text;
+    }
+
+    winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarDriveGlyph(
+        SidebarDriveUsage const& drive)
+    {
+        if (!drive.icon.rgba.empty())
+        {
+            auto image = winrt::Microsoft::UI::Xaml::Controls::Image{};
+            image.Width(16);
+            image.Height(16);
+            image.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
+            image.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+            image.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+            if (auto const source = BuildIconSource(drive.icon))
+            {
+                image.Source(source);
+                return image;
+            }
+        }
+
+        return BuildSidebarFontIcon(L"\uEDA2", 16.0);
+    }
+
+    std::wstring BuildDriveUsageText(SidebarDriveUsage const& drive)
+    {
+        if (!drive.has_usage)
+        {
+            return L"Capacity unavailable";
+        }
+
+        return FormatSize(drive.free_bytes) + L" free of " + FormatSize(drive.total_bytes);
+    }
+
+    std::wstring NormalizeSidebarPath(std::filesystem::path const& path)
+    {
+        auto normalized = path.lexically_normal().wstring();
+        while (normalized.size() > 1 &&
+               (normalized.back() == L'\\' || normalized.back() == L'/'))
+        {
+            if (normalized.size() >= 2 && normalized[normalized.size() - 2] == L':')
+            {
+                break;
+            }
+
+            normalized.pop_back();
+        }
+
+        return normalized;
+    }
+
+    bool SidebarPathsEqual(
+        std::filesystem::path const& candidate,
+        std::filesystem::path const& current)
+    {
+        auto const normalizedCandidate = NormalizeSidebarPath(candidate);
+        auto const normalizedCurrent = NormalizeSidebarPath(current);
+        return _wcsicmp(normalizedCandidate.c_str(), normalizedCurrent.c_str()) == 0;
+    }
+
+    std::size_t SidebarPathMatchScore(
+        std::filesystem::path const& candidate,
+        std::filesystem::path const& current)
+    {
+        auto const normalizedCandidate = NormalizeSidebarPath(candidate);
+        auto const normalizedCurrent = NormalizeSidebarPath(current);
+        if (normalizedCandidate.empty() || normalizedCurrent.empty())
+        {
+            return 0;
+        }
+
+        if (_wcsicmp(normalizedCandidate.c_str(), normalizedCurrent.c_str()) == 0)
+        {
+            return normalizedCandidate.size();
+        }
+
+        if (normalizedCurrent.size() <= normalizedCandidate.size())
+        {
+            return 0;
+        }
+
+        if (_wcsnicmp(
+                normalizedCandidate.c_str(),
+                normalizedCurrent.c_str(),
+                normalizedCandidate.size()) != 0)
+        {
+            return 0;
+        }
+
+        auto const boundary = normalizedCurrent[normalizedCandidate.size()];
+        if (boundary != L'\\' && boundary != L'/')
+        {
+            return 0;
+        }
+
+        return normalizedCandidate.size();
+    }
+
+    std::wstring SanitizePathComponent(std::wstring value)
+    {
+        if (value.empty())
+        {
+            return L"archive";
+        }
+
+        for (auto& ch : value)
+        {
+            switch (ch)
+            {
+            case L'<':
+            case L'>':
+            case L':':
+            case L'"':
+            case L'/':
+            case L'\\':
+            case L'|':
+            case L'?':
+            case L'*':
+                ch = L'_';
+                break;
+            default:
+                break;
+            }
+        }
+
+        return value;
+    }
+
+    std::filesystem::path BuildArchiveOpenSessionRoot(std::filesystem::path const& archiveFilePath)
+    {
+        auto const archiveName = archiveFilePath.filename().wstring();
+        auto const sessionId =
+            std::to_wstring(GetTickCount64()) + L"-" +
+            std::to_wstring(GetCurrentProcessId()) + L"-" +
+            std::to_wstring(GetCurrentThreadId());
+
+        return std::filesystem::temp_directory_path() /
+               L"FileScoutNative" /
+               L"ArchiveOpen" /
+               SanitizePathComponent(archiveName.empty() ? L"archive.zip" : archiveName) /
+               sessionId;
+    }
+
+    bool HasParentTraversal(std::filesystem::path const& relativePath)
+    {
+        for (auto const& part : relativePath)
+        {
+            if (part == std::filesystem::path{ L".." })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    std::optional<std::filesystem::path> TryGetArchiveRelativePath(
+        ::FileScoutNative::Shell::ResolvedArchivePath const& resolved)
+    {
+        auto archiveRoot = resolved.archive_file_path.wstring();
+        if (!archiveRoot.empty() && archiveRoot.back() != L'\\')
+        {
+            archiveRoot += L'\\';
+        }
+
+        auto const virtualPath = resolved.virtual_path.wstring();
+        if (virtualPath.size() <= archiveRoot.size() ||
+            _wcsnicmp(virtualPath.c_str(), archiveRoot.c_str(), archiveRoot.size()) != 0)
+        {
+            return std::nullopt;
+        }
+
+        auto const relativePath =
+            std::filesystem::path{ virtualPath.substr(archiveRoot.size()) }.lexically_normal();
+        if (relativePath.empty() || relativePath.is_absolute() || HasParentTraversal(relativePath))
+        {
+            return std::nullopt;
+        }
+
+        return relativePath;
+    }
+
+    std::filesystem::path BuildUniqueDestinationPath(
+        std::filesystem::path const& desiredPath,
+        bool const isFolder)
+    {
+        std::error_code existsError;
+        if (!std::filesystem::exists(desiredPath, existsError))
+        {
+            return desiredPath;
+        }
+
+        auto const parentPath = desiredPath.parent_path();
+        auto const filename = desiredPath.filename().wstring();
+        auto const stem = isFolder ? filename : desiredPath.stem().wstring();
+        auto const extension = isFolder ? std::wstring{} : desiredPath.extension().wstring();
+
+        for (uint32_t suffix = 2;; ++suffix)
+        {
+            auto const candidateName =
+                stem + L" (" + std::to_wstring(suffix) + L")" + extension;
+            auto const candidatePath = parentPath / candidateName;
+            existsError.clear();
+            if (!std::filesystem::exists(candidatePath, existsError))
+            {
+                return candidatePath;
+            }
+        }
     }
 
     std::wstring SortColumnLabel(SortColumn const column)
@@ -316,11 +1017,11 @@ namespace
     winrt::Microsoft::UI::Xaml::FrameworkElement CreateCardRow(
         ::FileScoutNative::Domain::ShellItemRef const& item)
     {
-        // Build the detail chip: "Type  ·  Size"
+        // Build the detail chip: "Type  |  Size"
         std::wstring details = item.kind_label;
         if (item.size_available)
         {
-            details += L"  ·  " + FormatSize(item.size_bytes);
+            details += L"  |  " + FormatSize(item.size_bytes);
         }
 
         // Card container — clean modern card with subtle stroke.
@@ -528,10 +1229,30 @@ namespace winrt::FileScoutNative::implementation
         TraceLog(L"MainWindow ctor: complete.");
     }
 
+    void MainWindow::TitleBarDragHost_Loaded(
+        winrt::Windows::Foundation::IInspectable const&,
+        Microsoft::UI::Xaml::RoutedEventArgs const&)
+    {
+        UpdateTitleBarInteractiveRegions();
+    }
+
+    void MainWindow::TitleBarDragHost_SizeChanged(
+        winrt::Windows::Foundation::IInspectable const&,
+        Microsoft::UI::Xaml::SizeChangedEventArgs const&)
+    {
+        UpdateTitleBarInteractiveRegions();
+    }
+
     void MainWindow::RefreshButton_Click(
         winrt::Windows::Foundation::IInspectable const&,
         Microsoft::UI::Xaml::RoutedEventArgs const&)
     {
+        if (ActivePane().is_drives_view || ActivePane().current_path.empty())
+        {
+            LoadDrivesView();
+            return;
+        }
+
         LoadDirectory(ActivePane().current_path);
     }
 
@@ -544,7 +1265,15 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        LoadDirectory(AddressTextBox().Text().c_str());
+        auto const pathText = TrimFileName(AddressTextBox().Text().c_str());
+        if (_wcsicmp(pathText.c_str(), L"This PC") == 0)
+        {
+            LoadDrivesView();
+            args.Handled(true);
+            return;
+        }
+
+        LoadDirectory(pathText);
         args.Handled(true);
     }
 
@@ -557,7 +1286,24 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        SelectItemByIndex(ActivePane().active_list_view.SelectedIndex());
+        // Record live user interaction so the final-batch publish does not clobber selection state.
+        ActivePane().user_interacted_after_first_batch = true;
+        SyncSelectionFromListView();
+        auto const selectedIndices = GetSelectedItemIndices();
+        if (selectedIndices.empty())
+        {
+            ResetSelectionDetails();
+            StatusTextBlock().Text(L"No items selected.");
+            return;
+        }
+
+        if (selectedIndices.size() == 1)
+        {
+            SelectItemByIndex(selectedIndices.front());
+            return;
+        }
+
+        UpdateMultiSelectionDetails(selectedIndices);
     }
 
     void MainWindow::FileRowsListView_DoubleTapped(
@@ -571,27 +1317,55 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        const auto index = ActivePane().active_list_view.SelectedIndex();
-        if (index < 0 || index >= static_cast<int32_t>(ActivePane().items.size()))
+        auto const index = ResolveItemIndexFromSource(args.OriginalSource());
+        if (!index.has_value() ||
+            *index < 0 ||
+            *index >= static_cast<int32_t>(ActivePane().items.size()))
         {
             return;
         }
 
-        auto const& item = ActivePane().items[static_cast<std::size_t>(index)];
+        auto const& item = ActivePane().items[static_cast<std::size_t>(*index)];
+        if (!ActivePane().is_archive_view && m_shellInterop.IsArchivePath(item.path))
+        {
+            LoadDirectory(item.path);
+            return;
+        }
+
         if (item.is_folder)
         {
             LoadDirectory(item.path);
             return;
         }
 
+        if (ActivePane().is_archive_view)
+        {
+            OpenArchiveItemAsync(item);
+            return;
+        }
+
         try
         {
             m_shellFileOperationService.OpenPath(GetWindowHandle(), item.path);
-            StatusTextBlock().Text(ToHString(L"Opened " + item.display_name));
+            if (IsUnsupportedArchiveItem(item))
+            {
+                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(item, true)));
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(L"Opened " + item.display_name));
+            }
         }
         catch (std::exception const&)
         {
-            StatusTextBlock().Text(ToHString(L"Open failed: " + item.display_name));
+            if (IsUnsupportedArchiveItem(item))
+            {
+                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(item, false)));
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(L"Open failed: " + item.display_name));
+            }
         }
     }
 
@@ -608,8 +1382,25 @@ namespace winrt::FileScoutNative::implementation
         auto const itemIndex = ResolveItemIndexFromSource(args.OriginalSource());
         if (itemIndex.has_value() && ActivePane().active_list_view)
         {
-            ActivePane().active_list_view.SelectedIndex(*itemIndex);
-            SelectItemByIndex(*itemIndex);
+            auto const& item = ActivePane().items[static_cast<std::size_t>(*itemIndex)];
+            if (!ActivePane().selection.IsSelected(item.parsing_name))
+            {
+                ActivePane().active_list_view.SelectedIndex(*itemIndex);
+                SelectItemByIndex(*itemIndex);
+            }
+            else
+            {
+                SyncSelectionFromListView();
+                auto const selectedIndices = GetSelectedItemIndices();
+                if (selectedIndices.size() > 1)
+                {
+                    UpdateMultiSelectionDetails(selectedIndices);
+                }
+                else
+                {
+                    SelectItemByIndex(*itemIndex);
+                }
+            }
         }
         else if (ActivePane().active_list_view)
         {
@@ -618,10 +1409,31 @@ namespace winrt::FileScoutNative::implementation
         }
 
         ::FileScoutNative::Shell::ContextMenuScenario scenario;
-        scenario.can_paste = m_shellClipboardService.CanPasteInto(ActivePane().current_path);
+        scenario.can_paste =
+            !ActivePane().is_archive_view &&
+            m_shellClipboardService.CanPasteInto(ActivePane().current_path);
+        scenario.is_read_only_archive_view = ActivePane().is_archive_view;
+        scenario.selection_count = static_cast<uint32_t>(GetSelectedItemIndices().size());
         if (itemIndex.has_value())
         {
             scenario.focused_item = ActivePane().items[static_cast<std::size_t>(*itemIndex)];
+        }
+        if (scenario.selection_count <= 1)
+        {
+            if (scenario.focused_item.has_value() &&
+                scenario.focused_item->is_folder &&
+                !scenario.focused_item->path.empty() &&
+                !m_favoritesService.IsSidebarFavorite(scenario.focused_item->path))
+            {
+                scenario.can_pin_to_places = true;
+            }
+            else if (!scenario.focused_item.has_value() &&
+                     !ActivePane().current_path.empty() &&
+                     !ActivePane().is_archive_view &&
+                     !m_favoritesService.IsSidebarFavorite(ActivePane().current_path))
+            {
+                scenario.can_pin_to_places = true;
+            }
         }
 
         if (ActivePane().active_list_view)
@@ -639,49 +1451,61 @@ namespace winrt::FileScoutNative::implementation
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::Controls::DragItemsStartingEventArgs const& e)
     {
+        if (ActivePane().is_archive_view)
+        {
+            e.Cancel(true);
+            return;
+        }
+
         if (!ActivePane().active_list_view)
         {
             e.Cancel(true);
             return;
         }
 
-        auto const selectedIndex = ActivePane().active_list_view.SelectedIndex();
-        if (selectedIndex < 0 || selectedIndex >= static_cast<int32_t>(ActivePane().items.size()))
+        auto const selectedItems = GetSelectedItems();
+        if (selectedItems.empty())
         {
             e.Cancel(true);
             return;
         }
 
-        auto const& item = ActivePane().items[static_cast<std::size_t>(selectedIndex)];
-
         try
         {
-            auto const pathStr = winrt::hstring{ item.path.wstring() };
-            bool const isFolder = item.is_folder;
+            std::vector<std::pair<winrt::hstring, bool>> dragItems;
+            dragItems.reserve(selectedItems.size());
+            for (auto const& item : selectedItems)
+            {
+                dragItems.emplace_back(winrt::hstring{ item.path.wstring() }, item.is_folder);
+            }
 
             // SetDataProvider defers the async StorageItem lookup to a background thread
             // called by the drop target when it actually requests the data.
             // This avoids a blocking .get() call on the STA (UI) thread.
             e.Data().SetDataProvider(
                 winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems(),
-                [pathStr, isFolder](winrt::Windows::ApplicationModel::DataTransfer::DataProviderRequest const& request)
+                [dragItems = std::move(dragItems)](
+                    winrt::Windows::ApplicationModel::DataTransfer::DataProviderRequest const& request)
                 {
                     auto deferral = request.GetDeferral();
-                    [request, deferral, pathStr, isFolder]() mutable -> winrt::fire_and_forget
+                    [request, deferral, dragItems]() mutable -> winrt::fire_and_forget
                     {
                         co_await winrt::resume_background();
                         try
                         {
                             auto items = winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
-                            if (isFolder)
+                            for (auto const& [pathStr, isFolder] : dragItems)
                             {
-                                auto folder = co_await winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(pathStr);
-                                items.Append(folder);
-                            }
-                            else
-                            {
-                                auto file = co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(pathStr);
-                                items.Append(file);
+                                if (isFolder)
+                                {
+                                    auto folder = co_await winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(pathStr);
+                                    items.Append(folder);
+                                }
+                                else
+                                {
+                                    auto file = co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(pathStr);
+                                    items.Append(file);
+                                }
                             }
                             request.SetData(items.GetView());
                         }
@@ -703,6 +1527,13 @@ namespace winrt::FileScoutNative::implementation
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::DragEventArgs const& args)
     {
+        if (ActivePane().is_archive_view)
+        {
+            args.AcceptedOperation(
+                winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::None);
+            return;
+        }
+
         if (!args.DataView().Contains(
             winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems()))
         {
@@ -732,6 +1563,13 @@ namespace winrt::FileScoutNative::implementation
     {
         auto lifetime = get_strong();
         auto const deferral = args.GetDeferral();
+
+        if (ActivePane().is_archive_view)
+        {
+            StatusTextBlock().Text(L"Archive mode is read-only in this slice.");
+            deferral.Complete();
+            co_return;
+        }
 
         // Capture state before the co_await suspension point.
         auto const destinationPath = ActivePane().current_path;
@@ -827,6 +1665,8 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].selection = pane.selection;
             pane.tabs[pane.active_tab_index].selected_item_index =
                 pane.active_list_view.SelectedIndex();
+            pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
+            pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
         }
 
         pane.active_tab_index = newIndex;
@@ -847,11 +1687,90 @@ namespace winrt::FileScoutNative::implementation
         return m_hwnd;
     }
 
+    void MainWindow::ConfigureTitleBar()
+    {
+        ExtendsContentIntoTitleBar(true);
+
+        m_appWindow = this->AppWindow();
+        auto const titleBar = m_appWindow.TitleBar();
+        titleBar.ExtendsContentIntoTitleBar(true);
+        titleBar.PreferredHeightOption(winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Tall);
+
+        SetTitleBar(TitleBarDragHost());
+
+        m_titleBarPointerSource =
+            winrt::Microsoft::UI::Input::InputNonClientPointerSource::GetForWindowId(m_appWindow.Id());
+
+        UpdateTitleBarInteractiveRegions();
+    }
+
+    void MainWindow::UpdateTitleBarInteractiveRegions()
+    {
+        auto const host = TitleBarDragHost();
+        if (!ExtendsContentIntoTitleBar() || !host || !host.XamlRoot())
+        {
+            return;
+        }
+
+        if (!m_appWindow)
+        {
+            m_appWindow = this->AppWindow();
+        }
+
+        if (!m_titleBarPointerSource)
+        {
+            m_titleBarPointerSource =
+                winrt::Microsoft::UI::Input::InputNonClientPointerSource::GetForWindowId(m_appWindow.Id());
+        }
+
+        auto const scale = host.XamlRoot().RasterizationScale();
+        auto const titleBar = m_appWindow.TitleBar();
+        TitleBarLeftInsetColumn().Width(
+            winrt::Microsoft::UI::Xaml::GridLength{ titleBar.LeftInset() / scale });
+        TitleBarRightInsetColumn().Width(
+            winrt::Microsoft::UI::Xaml::GridLength{ titleBar.RightInset() / scale });
+
+        std::vector<winrt::Windows::Graphics::RectInt32> passthroughRects;
+        auto const appendRect =
+            [&](winrt::Microsoft::UI::Xaml::FrameworkElement const& element)
+            {
+                if (auto const control = element.try_as<winrt::Microsoft::UI::Xaml::Controls::Control>())
+                {
+                    if (!control.IsEnabled())
+                    {
+                        return;
+                    }
+                }
+
+                if (auto const rect = TryGetElementRect(element, scale))
+                {
+                    passthroughRects.push_back(*rect);
+                }
+            };
+
+        appendRect(BackButton());
+        appendRect(ForwardButton());
+        appendRect(AddressTextBox());
+        appendRect(RefreshButton());
+
+        if (passthroughRects.empty())
+        {
+            m_titleBarPointerSource.ClearRegionRects(
+                winrt::Microsoft::UI::Input::NonClientRegionKind::Passthrough);
+            return;
+        }
+
+        m_titleBarPointerSource.SetRegionRects(
+            winrt::Microsoft::UI::Input::NonClientRegionKind::Passthrough,
+            passthroughRects);
+    }
+
     void MainWindow::ConfigureWindow()
     {
         Title(L"FileScout Native");
 
         SystemBackdrop(winrt::Microsoft::UI::Xaml::Media::MicaBackdrop{});
+        ConfigureTitleBar();
 
         const auto hwnd = GetWindowHandle();
         const UINT dpi = GetDpiForWindow(hwnd);
@@ -940,6 +1859,9 @@ namespace winrt::FileScoutNative::implementation
         auto& pane = m_panes[paneIndex];
         uint32_t const generation = ++pane.load_generation;
         int32_t const tabIndex = pane.active_tab_index;
+        PaneLoadTiming timing{};
+        timing.load_start_tick = ::GetTickCount64();
+        pane.last_load_timing = timing;
 
         // Immediately clear stale content on the UI thread so the list goes blank
         // rather than showing outdated rows during enumeration.
@@ -963,10 +1885,20 @@ namespace winrt::FileScoutNative::implementation
 
         std::filesystem::path absolute;
         std::vector<::FileScoutNative::Domain::ShellItemRef> items;
+        bool isArchiveView = false;
         try
         {
-            absolute = std::filesystem::absolute(path);
-            items = m_shellInterop.EnumerateDirectory(absolute);
+            absolute = std::filesystem::absolute(path).lexically_normal();
+            if (m_shellInterop.IsArchivePath(absolute))
+            {
+                items = m_shellInterop.EnumerateArchiveDirectory(absolute);
+                isArchiveView = true;
+            }
+            else
+            {
+                items = m_shellInterop.EnumerateDirectory(absolute);
+            }
+            timing.enumeration_end_tick = ::GetTickCount64();
         }
         catch (...)
         {
@@ -984,7 +1916,7 @@ namespace winrt::FileScoutNative::implementation
         // Post results back to the UI thread.
         m_dispatcherQueue.TryEnqueue(
             [this, lifetime, paneIndex, tabIndex, generation,
-             absolute, selectAfter, items = std::move(items)]() mutable
+             absolute, selectAfter, isArchiveView, timing, items = std::move(items)]() mutable
             {
                 auto& pane = m_panes[paneIndex];
                 if (pane.load_generation != generation) return;
@@ -993,6 +1925,7 @@ namespace winrt::FileScoutNative::implementation
                 SortItems(items, pane.sort_column, pane.sort_direction);
                 pane.current_path = absolute;
                 pane.is_drives_view = false;
+                pane.is_archive_view = isArchiveView;
                 pane.items = items;
                 pane.selection.Clear();
 
@@ -1001,6 +1934,7 @@ namespace winrt::FileScoutNative::implementation
                 pane.tabs[tabIndex].selection = {};
                 pane.tabs[tabIndex].selected_item_index = -1;
                 pane.tabs[tabIndex].is_drives_view = false;
+                pane.tabs[tabIndex].is_archive_view = isArchiveView;
 
                 // Update tab header via TabViewForPane so we target the right pane
                 // regardless of which pane is currently active.
@@ -1018,7 +1952,34 @@ namespace winrt::FileScoutNative::implementation
                     AddressTextBox().Text(ToHString(absolute.wstring()));
                 }
 
-                UpdateRows(paneIndex, items);
+                // Build and publish the first visible batch of rows.
+                bool const listMode = (pane.view_mode == ViewMode::List);
+                auto& rows = pane.tab_rows[tabIndex];
+                rows.Clear();
+
+                constexpr std::size_t k_first_batch = 150;
+                std::size_t const totalItems = items.size();
+                std::size_t const firstBatchEnd = (std::min)(k_first_batch, totalItems);
+
+                std::wstring previousGroupLabel;
+                for (std::size_t i = 0; i < firstBatchEnd; ++i)
+                {
+                    auto const& item = items[i];
+                    std::optional<std::wstring> groupLabel;
+                    if (pane.group_by_sort_column)
+                    {
+                        auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
+                        if (rows.Size() == 0 || currentGroupLabel != previousGroupLabel)
+                        {
+                            groupLabel = currentGroupLabel;
+                        }
+                        previousGroupLabel = std::move(currentGroupLabel);
+                    }
+                    rows.Append(CreateRowView(item, listMode, groupLabel));
+                }
+
+                timing.first_batch_publish_tick = ::GetTickCount64();
+                pane.user_interacted_after_first_batch = false;
 
                 if (pane.active_list_view)
                 {
@@ -1030,14 +1991,75 @@ namespace winrt::FileScoutNative::implementation
                 if (m_activePaneIndex == paneIndex)
                 {
                     ResetSelectionDetails();
-                    StatusTextBlock().Text(ToHString(
-                        std::to_wstring(items.size()) + L" items in " + absolute.wstring()));
+                    if (isArchiveView)
+                    {
+                        StatusTextBlock().Text(ToHString(
+                            std::to_wstring(totalItems) +
+                            (totalItems == 1 ? L" archive entry in " : L" archive entries in ") +
+                            absolute.wstring()));
+                    }
+                    else
+                    {
+                        StatusTextBlock().Text(ToHString(
+                            std::to_wstring(totalItems) + L" items in " + absolute.wstring()));
+                    }
                 }
 
-                if (selectAfter.has_value())
+                if (totalItems <= k_first_batch)
                 {
-                    SelectItemByPath(*selectAfter);
+                    // Small folder — first batch covers everything; record final timing and done.
+                    timing.final_publish_tick = timing.first_batch_publish_tick;
+                    pane.last_load_timing = timing;
+                    TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                    if (selectAfter.has_value())
+                    {
+                        SelectItemByPath(*selectAfter);
+                    }
+                    return;
                 }
+
+                // Large folder — stage the remaining rows in a second dispatch so the UI thread
+                // can process the first-batch render before blocking on further row creation.
+                pane.awaiting_final_batch = true;
+                pane.last_load_timing = timing;
+                m_dispatcherQueue.TryEnqueue(
+                    [this, lifetime, paneIndex, tabIndex, generation, absolute, selectAfter,
+                     items = std::move(items), timing,
+                     previousGroupLabel = std::move(previousGroupLabel),
+                     listMode, firstBatchEnd]() mutable
+                    {
+                        auto& pane = m_panes[paneIndex];
+                        if (pane.load_generation != generation) return;
+                        if (pane.active_tab_index != tabIndex) return;
+                        if (!pane.awaiting_final_batch) return;
+                        pane.awaiting_final_batch = false;
+
+                        auto& rows = pane.tab_rows[tabIndex];
+                        std::size_t const totalItems = items.size();
+                        for (std::size_t i = firstBatchEnd; i < totalItems; ++i)
+                        {
+                            auto const& item = items[i];
+                            std::optional<std::wstring> groupLabel;
+                            if (pane.group_by_sort_column)
+                            {
+                                auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
+                                if (currentGroupLabel != previousGroupLabel)
+                                {
+                                    groupLabel = currentGroupLabel;
+                                }
+                                previousGroupLabel = std::move(currentGroupLabel);
+                            }
+                            rows.Append(CreateRowView(item, listMode, groupLabel));
+                        }
+
+                        timing.final_publish_tick = ::GetTickCount64();
+                        pane.last_load_timing = timing;
+                        TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                        if (!pane.user_interacted_after_first_batch && selectAfter.has_value())
+                        {
+                            SelectItemByPath(*selectAfter);
+                        }
+                    });
             });
     }
 
@@ -1067,6 +2089,97 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
+    std::vector<int32_t> MainWindow::GetSelectedItemIndices() const
+    {
+        std::vector<int32_t> indices;
+        if (!ActivePane().active_list_view)
+        {
+            return indices;
+        }
+
+        for (auto const& range : ActivePane().active_list_view.SelectedRanges())
+        {
+            for (uint32_t offset = 0; offset < range.Length(); ++offset)
+            {
+                auto const index = range.FirstIndex() + static_cast<int32_t>(offset);
+                if (index >= 0 && index < static_cast<int32_t>(ActivePane().items.size()))
+                {
+                    indices.push_back(index);
+                }
+            }
+        }
+
+        if (indices.empty())
+        {
+            auto const index = ActivePane().active_list_view.SelectedIndex();
+            if (index >= 0 && index < static_cast<int32_t>(ActivePane().items.size()))
+            {
+                indices.push_back(index);
+            }
+        }
+
+        std::ranges::sort(indices);
+        indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+        return indices;
+    }
+
+    std::vector<::FileScoutNative::Domain::ShellItemRef> MainWindow::GetSelectedItems() const
+    {
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items;
+        auto const selectedIndices = GetSelectedItemIndices();
+        items.reserve(selectedIndices.size());
+
+        for (auto const index : selectedIndices)
+        {
+            items.push_back(ActivePane().items[static_cast<std::size_t>(index)]);
+        }
+
+        return items;
+    }
+
+    void MainWindow::SyncSelectionFromListView()
+    {
+        auto selectedIndices = GetSelectedItemIndices();
+        if (selectedIndices.empty())
+        {
+            ActivePane().selection.Clear();
+            if (ActivePane().active_tab_index >= 0 &&
+                ActivePane().active_tab_index < static_cast<int32_t>(ActivePane().tabs.size()))
+            {
+                ActivePane().tabs[ActivePane().active_tab_index].selection = {};
+                ActivePane().tabs[ActivePane().active_tab_index].selected_item_index = -1;
+            }
+            return;
+        }
+
+        std::vector<std::wstring> selectedIds;
+        selectedIds.reserve(selectedIndices.size());
+        for (auto const index : selectedIndices)
+        {
+            selectedIds.push_back(ActivePane().items[static_cast<std::size_t>(index)].parsing_name);
+        }
+
+        std::optional<std::wstring> focusedId;
+        auto const focusedIndex = ActivePane().active_list_view.SelectedIndex();
+        if (focusedIndex >= 0 && focusedIndex < static_cast<int32_t>(ActivePane().items.size()))
+        {
+            focusedId = ActivePane().items[static_cast<std::size_t>(focusedIndex)].parsing_name;
+        }
+        else if (!selectedIds.empty())
+        {
+            focusedId = selectedIds.front();
+        }
+
+        ActivePane().selection.ReplaceWith(selectedIds, std::move(focusedId));
+        if (ActivePane().active_tab_index >= 0 &&
+            ActivePane().active_tab_index < static_cast<int32_t>(ActivePane().tabs.size()))
+        {
+            ActivePane().tabs[ActivePane().active_tab_index].selection = ActivePane().selection;
+            ActivePane().tabs[ActivePane().active_tab_index].selected_item_index =
+                focusedIndex >= 0 ? focusedIndex : selectedIndices.front();
+        }
+    }
+
     void MainWindow::SelectItemByIndex(int32_t const index)
     {
         if (index < 0 || index >= static_cast<int32_t>(ActivePane().items.size()))
@@ -1085,8 +2198,52 @@ namespace winrt::FileScoutNative::implementation
         {
             summary += L"  |  " + FormatSize(item.size_bytes);
         }
+        summary = AppendArchiveBrowseHint(std::move(summary), item);
 
         StatusTextBlock().Text(ToHString(L"Selected " + item.display_name + L"  |  " + summary));
+    }
+
+    void MainWindow::UpdateMultiSelectionDetails(std::vector<int32_t> const& indices)
+    {
+        auto const itemCount = indices.size();
+        auto const folderCount = static_cast<std::size_t>(std::count_if(
+            indices.begin(),
+            indices.end(),
+            [this](int32_t const index)
+            {
+                return ActivePane().items[static_cast<std::size_t>(index)].is_folder;
+            }));
+        auto const fileCount = itemCount - folderCount;
+
+        ++m_previewGeneration;
+        PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        PreviewImage().Source(nullptr);
+        SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        SelectionIconImage().Source(nullptr);
+        SelectionTitleTextBlock().Text(ToHString(
+            std::to_wstring(itemCount) + (itemCount == 1 ? L" item selected" : L" items selected")));
+
+        std::wstring metadata;
+        if (fileCount > 0)
+        {
+            metadata += std::to_wstring(fileCount) + (fileCount == 1 ? L" file" : L" files");
+        }
+        if (folderCount > 0)
+        {
+            if (!metadata.empty())
+            {
+                metadata += L"  |  ";
+            }
+            metadata += std::to_wstring(folderCount) + (folderCount == 1 ? L" folder" : L" folders");
+        }
+        metadata += L"  |  F2 to batch rename";
+        SelectionMetaTextBlock().Text(ToHString(metadata));
+
+        SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        SelectionPathTextBlock().Text(ToHString(ActivePane().current_path.wstring()));
+        StatusTextBlock().Text(ToHString(
+            std::to_wstring(itemCount) + (itemCount == 1 ? L" item selected." : L" items selected.")));
     }
 
     void MainWindow::ResetSelectionDetails()
@@ -1107,13 +2264,13 @@ namespace winrt::FileScoutNative::implementation
         TraceLog(L"ResetSelectionDetails: SelectionTitleTextBlock...");
         SelectionTitleTextBlock().Text(L"No item selected");
         TraceLog(L"ResetSelectionDetails: SelectionMetaTextBlock...");
-        SelectionMetaTextBlock().Text(L"Pick a folder or file to inspect its shell-backed details.");
+        SelectionMetaTextBlock().Text(L"Choose a folder or file to inspect its details, dates, and path.");
         TraceLog(L"ResetSelectionDetails: SelectionCreatedTextBlock...");
         SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         TraceLog(L"ResetSelectionDetails: SelectionAttributesTextBlock...");
         SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         TraceLog(L"ResetSelectionDetails: SelectionPathTextBlock...");
-        SelectionPathTextBlock().Text(L"Selection path will appear here.");
+        SelectionPathTextBlock().Text(L"Selection details follow the active pane.");
         TraceLog(L"ResetSelectionDetails: done.");
     }
 
@@ -1151,6 +2308,7 @@ namespace winrt::FileScoutNative::implementation
         {
             metadata += L"  |  Double-click to enter";
         }
+        metadata = AppendArchiveBrowseHint(std::move(metadata), item);
         SelectionMetaTextBlock().Text(ToHString(metadata));
 
         // R10: Created date.
@@ -1170,7 +2328,7 @@ namespace winrt::FileScoutNative::implementation
             std::wstring attrStr;
             auto const appendAttr = [&attrStr](std::wstring_view label)
             {
-                if (!attrStr.empty()) { attrStr += L"  ·  "; }
+                if (!attrStr.empty()) { attrStr += L"  |  "; }
                 attrStr += label;
             };
 
@@ -1269,6 +2427,21 @@ namespace winrt::FileScoutNative::implementation
 
             flyoutItem.IsEnabled(command.available);
 
+            auto const glyph = GlyphForMenuIconKey(command.icon_key);
+            if (!glyph.empty())
+            {
+                auto icon = winrt::Microsoft::UI::Xaml::Controls::FontIcon{};
+                icon.Glyph(winrt::hstring{ glyph });
+                icon.FontFamily(winrt::Microsoft::UI::Xaml::Media::FontFamily(L"Segoe Fluent Icons"));
+                icon.FontSize(14.0);
+                flyoutItem.Icon(icon);
+            }
+
+            if (command.is_destructive)
+            {
+                flyoutItem.Foreground(LookupBrush(L"SystemFillColorCriticalBrush"));
+            }
+
             auto const commandId = command.id;
             flyoutItem.Click([this, commandId, itemIndex](
                                  winrt::Windows::Foundation::IInspectable const&,
@@ -1285,16 +2458,46 @@ namespace winrt::FileScoutNative::implementation
         std::wstring const& commandId,
         std::optional<int32_t> const itemIndex)
     {
+        auto const selectedItems = GetSelectedItems();
         std::optional<::FileScoutNative::Domain::ShellItemRef> item;
         if (itemIndex.has_value() && *itemIndex >= 0 &&
             *itemIndex < static_cast<int32_t>(ActivePane().items.size()))
         {
             item = ActivePane().items[static_cast<std::size_t>(*itemIndex)];
         }
+        else if (selectedItems.size() == 1)
+        {
+            item = selectedItems.front();
+        }
+
+        auto const archiveReadOnlyCommand =
+            commandId == L"openWith" ||
+            commandId == L"rename" ||
+            commandId == L"delete" ||
+            commandId == L"copy" ||
+            commandId == L"cut" ||
+            commandId == L"paste" ||
+            commandId == L"properties" ||
+            commandId == L"moreWindowsActions" ||
+            commandId == L"newFolder";
+
+        if (ActivePane().is_archive_view && archiveReadOnlyCommand)
+        {
+            StatusTextBlock().Text(L"Archive mode is read-only in this slice.");
+            return;
+        }
 
         if (commandId == L"open")
         {
-            if (item.has_value() && item->is_folder)
+            if (selectedItems.size() > 1)
+            {
+                StatusTextBlock().Text(L"Open needs a single selected item.");
+                return;
+            }
+
+            if (item.has_value() &&
+                (item->is_folder ||
+                 (!ActivePane().is_archive_view && m_shellInterop.IsArchivePath(item->path))))
             {
                 LoadDirectory(item->path);
                 return;
@@ -1306,14 +2509,76 @@ namespace winrt::FileScoutNative::implementation
                 return;
             }
 
+            if (ActivePane().is_archive_view)
+            {
+                OpenArchiveItemAsync(*item);
+                return;
+            }
+
             try
             {
                 m_shellFileOperationService.OpenPath(GetWindowHandle(), item->path);
-                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Opened", item)));
+                if (IsUnsupportedArchiveItem(*item))
+                {
+                    StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, true)));
+                }
+                else
+                {
+                    StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Opened", item)));
+                }
             }
             catch (std::exception const&)
             {
-                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Open failed for", item)));
+                if (IsUnsupportedArchiveItem(*item))
+                {
+                    StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, false)));
+                }
+                else
+                {
+                    StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Open failed for", item)));
+                }
+            }
+            return;
+        }
+
+        if (commandId == L"pinToPlaces")
+        {
+            std::filesystem::path targetPath;
+            if (item.has_value() && item->is_folder && !item->path.empty())
+            {
+                targetPath = item->path;
+            }
+            else if (!ActivePane().current_path.empty())
+            {
+                targetPath = ActivePane().current_path;
+            }
+
+            if (targetPath.empty())
+            {
+                StatusTextBlock().Text(L"Pin to Places needs a folder.");
+                return;
+            }
+
+            if (m_favoritesService.IsSidebarFavorite(targetPath))
+            {
+                StatusTextBlock().Text(ToHString(
+                    targetPath.filename().wstring().empty()
+                        ? L"That place is already in the sidebar."
+                        : targetPath.filename().wstring() + L" is already in Places."));
+                return;
+            }
+
+            if (m_favoritesService.AddPinnedFavorite(targetPath))
+            {
+                BuildSidebarFavorites();
+                auto const label = targetPath.filename().wstring().empty()
+                    ? targetPath.wstring()
+                    : targetPath.filename().wstring();
+                StatusTextBlock().Text(ToHString(L"Pinned " + label + L" to Places."));
+            }
+            else
+            {
+                StatusTextBlock().Text(L"Pin to Places failed.");
             }
             return;
         }
@@ -1324,11 +2589,29 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        if (commandId == L"openWith")
+        if (commandId == L"extractToArchiveFolder" || commandId == L"extractReveal")
         {
             if (!item.has_value())
             {
-                StatusTextBlock().Text(L"Open With needs a selected item.");
+                StatusTextBlock().Text(L"Extract needs a selected archive item.");
+                return;
+            }
+
+            if (!ActivePane().is_archive_view)
+            {
+                StatusTextBlock().Text(L"Extract is only available inside archive views.");
+                return;
+            }
+
+            ExtractArchiveItemAsync(*item, commandId == L"extractReveal");
+            return;
+        }
+
+        if (commandId == L"openWith")
+        {
+            if (!item.has_value() || selectedItems.size() > 1)
+            {
+                StatusTextBlock().Text(L"Open With needs a single selected item.");
                 return;
             }
 
@@ -1346,31 +2629,45 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"rename")
         {
-            if (!item.has_value())
+            if (selectedItems.empty())
             {
                 StatusTextBlock().Text(L"Rename needs a selected item.");
                 return;
             }
 
-            ShowRenameDialogAsync(*item);
+            if (selectedItems.size() == 1)
+            {
+                ShowRenameDialogAsync(selectedItems.front());
+            }
+            else
+            {
+                ShowBatchRenameDialogAsync(selectedItems);
+            }
             return;
         }
 
         if (commandId == L"delete")
         {
-            if (!item.has_value())
+            if (selectedItems.empty())
             {
                 StatusTextBlock().Text(L"Delete needs a selected item.");
                 return;
             }
 
-            ShowDeleteDialogAsync(*item);
+            if (selectedItems.size() == 1)
+            {
+                ShowDeleteDialogAsync(selectedItems.front());
+            }
+            else
+            {
+                ShowDeleteDialogAsync(selectedItems);
+            }
             return;
         }
 
         if (commandId == L"copy")
         {
-            if (!item.has_value())
+            if (selectedItems.empty())
             {
                 StatusTextBlock().Text(L"Copy needs a selected item.");
                 return;
@@ -1378,20 +2675,23 @@ namespace winrt::FileScoutNative::implementation
 
             try
             {
-                std::array selection{ *item };
-                m_shellClipboardService.CopyShellItems(selection);
-                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Copied", item)));
+                m_shellClipboardService.CopyShellItems(selectedItems);
+                StatusTextBlock().Text(ToHString(
+                    L"Copied " + std::to_wstring(selectedItems.size()) +
+                    (selectedItems.size() == 1 ? L" item." : L" items.")));
             }
             catch (std::exception const&)
             {
-                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Copy failed for", item)));
+                StatusTextBlock().Text(ToHString(
+                    L"Copy failed for " + std::to_wstring(selectedItems.size()) +
+                    (selectedItems.size() == 1 ? L" item." : L" items.")));
             }
             return;
         }
 
         if (commandId == L"cut")
         {
-            if (!item.has_value())
+            if (selectedItems.empty())
             {
                 StatusTextBlock().Text(L"Cut needs a selected item.");
                 return;
@@ -1399,13 +2699,16 @@ namespace winrt::FileScoutNative::implementation
 
             try
             {
-                std::array selection{ *item };
-                m_shellClipboardService.CutShellItems(selection);
-                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Cut", item)));
+                m_shellClipboardService.CutShellItems(selectedItems);
+                StatusTextBlock().Text(ToHString(
+                    L"Cut " + std::to_wstring(selectedItems.size()) +
+                    (selectedItems.size() == 1 ? L" item." : L" items.")));
             }
             catch (std::exception const&)
             {
-                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Cut failed for", item)));
+                StatusTextBlock().Text(ToHString(
+                    L"Cut failed for " + std::to_wstring(selectedItems.size()) +
+                    (selectedItems.size() == 1 ? L" item." : L" items.")));
             }
             return;
         }
@@ -1440,9 +2743,9 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"properties")
         {
-            if (!item.has_value())
+            if (!item.has_value() || selectedItems.size() > 1)
             {
-                StatusTextBlock().Text(L"Properties needs a selected item.");
+                StatusTextBlock().Text(L"Properties needs a single selected item.");
                 return;
             }
 
@@ -1460,9 +2763,9 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"moreWindowsActions")
         {
-            if (!item.has_value())
+            if (!item.has_value() || selectedItems.size() > 1)
             {
-                StatusTextBlock().Text(L"Windows overflow menu needs a selected item.");
+                StatusTextBlock().Text(L"Windows overflow menu needs a single selected item.");
                 return;
             }
 
@@ -1522,7 +2825,9 @@ namespace winrt::FileScoutNative::implementation
         if (commandId == L"switchPane")
         {
             SetActivePaneIndex(1 - m_activePaneIndex);
-            AddressTextBox().Text(ToHString(ActivePane().current_path.wstring()));
+            AddressTextBox().Text(ActivePane().is_drives_view
+                ? winrt::hstring{ L"This PC" }
+                : ToHString(ActivePane().current_path.wstring()));
             return;
         }
     }
@@ -1549,7 +2854,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         auto const folderName = TrimFileName(textBox.Text().c_str());
-        if (auto const error = ValidateFileName(folderName); error.has_value())
+        if (auto const error = ::FileScoutNative::Domain::ValidateWindowsFileName(folderName); error.has_value())
         {
             StatusTextBlock().Text(ToHString(*error));
             co_return;
@@ -1593,7 +2898,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         auto const newName = TrimFileName(textBox.Text().c_str());
-        if (auto const error = ValidateFileName(newName); error.has_value())
+        if (auto const error = ::FileScoutNative::Domain::ValidateWindowsFileName(newName); error.has_value())
         {
             StatusTextBlock().Text(ToHString(*error));
             co_return;
@@ -1620,7 +2925,492 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
+    winrt::fire_and_forget MainWindow::ShowBatchRenameDialogAsync(
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items)
+    {
+        auto lifetime = get_strong();
+        auto const siblingItems = ActivePane().items;
+        auto const selectionSummary = BuildBatchRenameSelectionSummary(items);
+        auto const selectionExamples = BuildBatchRenameSelectionExamples(items);
+        auto const currentFolder = ActivePane().current_path.empty()
+            ? std::wstring{ L"This PC" }
+            : ActivePane().current_path.wstring();
+
+        auto presetBox = winrt::Microsoft::UI::Xaml::Controls::ComboBox{};
+        presetBox.Header(winrt::box_value(L"Preset"));
+        presetBox.Items().Append(winrt::box_value(L"Sequential numbers"));
+        presetBox.Items().Append(winrt::box_value(L"Add prefix"));
+        presetBox.Items().Append(winrt::box_value(L"Add suffix"));
+        presetBox.Items().Append(winrt::box_value(L"Find and replace"));
+        presetBox.Items().Append(winrt::box_value(L"Change case"));
+        presetBox.SelectedIndex(0);
+
+        auto baseNameBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        baseNameBox.Header(winrt::box_value(L"Base name"));
+        baseNameBox.Text(ToHString(SuggestBatchRenameBaseName(ActivePane().current_path)));
+        baseNameBox.SelectAll();
+
+        auto prefixBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        prefixBox.Header(winrt::box_value(L"Prefix"));
+        prefixBox.PlaceholderText(L"Example: Project - ");
+        prefixBox.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+        auto suffixBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        suffixBox.Header(winrt::box_value(L"Suffix"));
+        suffixBox.PlaceholderText(L"Example:  (edited)");
+        suffixBox.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+        auto findBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        findBox.Header(winrt::box_value(L"Find"));
+        findBox.PlaceholderText(L"Literal text");
+        findBox.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+        auto replaceBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        replaceBox.Header(winrt::box_value(L"Replace with"));
+        replaceBox.PlaceholderText(L"Leave blank to remove the text");
+        replaceBox.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+        auto caseModeBox = winrt::Microsoft::UI::Xaml::Controls::ComboBox{};
+        caseModeBox.Header(winrt::box_value(L"Case"));
+        caseModeBox.Items().Append(winrt::box_value(L"lowercase"));
+        caseModeBox.Items().Append(winrt::box_value(L"UPPERCASE"));
+        caseModeBox.Items().Append(winrt::box_value(L"Title Case"));
+        caseModeBox.SelectedIndex(2);
+        caseModeBox.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+        auto startBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        startBox.Header(winrt::box_value(L"Start number"));
+        startBox.Text(L"1");
+
+        auto paddingBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        paddingBox.Header(winrt::box_value(L"Zero padding"));
+        paddingBox.PlaceholderText(L"Auto");
+
+        auto note = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        note.Text(ToHString(BatchRenamePresetNote(BatchRenamePreset::Sequential)));
+        note.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+        note.Opacity(0.72);
+
+        auto summaryLabel = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        summaryLabel.Text(ToHString(selectionSummary));
+        summaryLabel.FontSize(18);
+        summaryLabel.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+
+        auto locationLabel = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        locationLabel.Text(ToHString(std::wstring{ L"Folder: " } + currentFolder));
+        locationLabel.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+        locationLabel.Opacity(0.72);
+
+        auto examplesLabel = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        examplesLabel.Text(ToHString(selectionExamples));
+        examplesLabel.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+        examplesLabel.Opacity(0.72);
+
+        auto summaryStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+        summaryStack.Spacing(6);
+        summaryStack.Children().Append(summaryLabel);
+        summaryStack.Children().Append(locationLabel);
+        summaryStack.Children().Append(examplesLabel);
+
+        auto summaryBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        summaryBorder.Padding({ 18, 16, 18, 16 });
+        summaryBorder.CornerRadius({ 16, 16, 16, 16 });
+        summaryBorder.BorderThickness({ 1, 1, 1, 1 });
+        summaryBorder.BorderBrush(LookupBrush(L"CardStrokeColorDefaultBrush"));
+        summaryBorder.Background(LookupBrush(L"LayerFillColorAltBrush"));
+        summaryBorder.Child(summaryStack);
+
+        auto controlsHeading = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        controlsHeading.Text(L"Rename setup");
+        controlsHeading.FontSize(16);
+        controlsHeading.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+
+        auto controlsSubheading = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        controlsSubheading.Text(L"Pick one preset and adjust only the fields that apply to that mode.");
+        controlsSubheading.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+        controlsSubheading.Opacity(0.68);
+
+        auto noteBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        noteBorder.Padding({ 12, 10, 12, 10 });
+        noteBorder.CornerRadius({ 12, 12, 12, 12 });
+        noteBorder.Background(LookupBrush(L"SubtleFillColorSecondaryBrush"));
+        noteBorder.Child(note);
+
+        auto controlsStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+        controlsStack.Spacing(12);
+        controlsStack.Children().Append(controlsHeading);
+        controlsStack.Children().Append(controlsSubheading);
+        controlsStack.Children().Append(presetBox);
+        controlsStack.Children().Append(baseNameBox);
+        controlsStack.Children().Append(prefixBox);
+        controlsStack.Children().Append(suffixBox);
+        controlsStack.Children().Append(findBox);
+        controlsStack.Children().Append(replaceBox);
+        controlsStack.Children().Append(caseModeBox);
+        controlsStack.Children().Append(startBox);
+        controlsStack.Children().Append(paddingBox);
+        controlsStack.Children().Append(noteBorder);
+
+        auto controlsBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        controlsBorder.Padding({ 18, 18, 18, 18 });
+        controlsBorder.CornerRadius({ 16, 16, 16, 16 });
+        controlsBorder.BorderThickness({ 1, 1, 1, 1 });
+        controlsBorder.BorderBrush(LookupBrush(L"CardStrokeColorDefaultBrush"));
+        controlsBorder.Background(LookupBrush(L"CardBackgroundFillColorSecondaryBrush"));
+        controlsBorder.Child(controlsStack);
+
+        auto previewHeading = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        previewHeading.Text(L"Live preview");
+        previewHeading.FontSize(16);
+        previewHeading.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+
+        auto previewSubheading = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        previewSubheading.Text(L"Review the first few generated names before committing the shell rename.");
+        previewSubheading.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+        previewSubheading.Opacity(0.68);
+
+        auto previewSummaryText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        previewSummaryText.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+        previewSummaryText.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+
+        auto previewErrorText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        previewErrorText.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+        previewErrorText.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+            winrt::Windows::UI::Color{ 0xFF, 0xC4, 0x2B, 0x1C }));
+        previewErrorText.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+        auto previewRows = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+        previewRows.Spacing(8);
+
+        auto previewScroll = winrt::Microsoft::UI::Xaml::Controls::ScrollViewer{};
+        previewScroll.VerticalScrollBarVisibility(
+            winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Auto);
+        previewScroll.HorizontalScrollBarVisibility(
+            winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Disabled);
+        previewScroll.MaxHeight(280);
+        previewScroll.Content(previewRows);
+
+        auto previewStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+        previewStack.Spacing(12);
+        previewStack.Children().Append(previewHeading);
+        previewStack.Children().Append(previewSubheading);
+        previewStack.Children().Append(previewSummaryText);
+        previewStack.Children().Append(previewErrorText);
+        previewStack.Children().Append(previewScroll);
+
+        auto previewBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        previewBorder.Padding({ 18, 18, 18, 18 });
+        previewBorder.CornerRadius({ 16, 16, 16, 16 });
+        previewBorder.BorderThickness({ 1, 1, 1, 1 });
+        previewBorder.BorderBrush(LookupBrush(L"CardStrokeColorDefaultBrush"));
+        previewBorder.Background(LookupBrush(L"CardBackgroundFillColorDefaultBrush"));
+        previewBorder.Child(previewStack);
+
+        auto bodyGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        bodyGrid.ColumnSpacing(16);
+        auto bodyLeft = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+        bodyLeft.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+        auto bodyRight = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+        bodyRight.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+        bodyGrid.ColumnDefinitions().Append(bodyLeft);
+        bodyGrid.ColumnDefinitions().Append(bodyRight);
+        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(controlsBorder, 0);
+        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(previewBorder, 1);
+        bodyGrid.Children().Append(controlsBorder);
+        bodyGrid.Children().Append(previewBorder);
+
+        auto contentRoot = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+        contentRoot.Spacing(16);
+        contentRoot.Width(760);
+        contentRoot.Children().Append(summaryBorder);
+        contentRoot.Children().Append(bodyGrid);
+
+        auto contentScroll = winrt::Microsoft::UI::Xaml::Controls::ScrollViewer{};
+        contentScroll.VerticalScrollBarVisibility(
+            winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Auto);
+        contentScroll.HorizontalScrollBarVisibility(
+            winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Disabled);
+        contentScroll.MaxHeight(640);
+        contentScroll.Content(contentRoot);
+
+        auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Title(winrt::box_value(L"Batch rename"));
+        dialog.PrimaryButtonText(ToHString(
+            std::wstring{ L"Rename " } + std::to_wstring(items.size()) +
+            (items.size() == 1 ? L" item" : L" items")));
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Primary);
+        dialog.Content(contentScroll);
+
+        auto const buildPlan =
+            [this, items, siblingItems, presetBox, baseNameBox, prefixBox, suffixBox, findBox, replaceBox, caseModeBox, startBox, paddingBox]()
+            -> ::FileScoutNative::Domain::BatchRenamePlan
+        {
+            auto const selectedPreset =
+                BatchRenamePresetFromSelectedIndex(presetBox.SelectedIndex());
+            switch (selectedPreset)
+            {
+            case BatchRenamePreset::AddPrefix:
+                return ::FileScoutNative::Domain::BuildPrefixBatchRenamePlan(
+                    std::span<::FileScoutNative::Domain::ShellItemRef const>{ items.data(), items.size() },
+                    std::span<::FileScoutNative::Domain::ShellItemRef const>{
+                        siblingItems.data(),
+                        siblingItems.size(),
+                    },
+                    std::wstring{ prefixBox.Text().c_str() });
+            case BatchRenamePreset::AddSuffix:
+                return ::FileScoutNative::Domain::BuildSuffixBatchRenamePlan(
+                    std::span<::FileScoutNative::Domain::ShellItemRef const>{ items.data(), items.size() },
+                    std::span<::FileScoutNative::Domain::ShellItemRef const>{
+                        siblingItems.data(),
+                        siblingItems.size(),
+                    },
+                    std::wstring{ suffixBox.Text().c_str() });
+            case BatchRenamePreset::FindReplace:
+                return ::FileScoutNative::Domain::BuildFindReplaceBatchRenamePlan(
+                    std::span<::FileScoutNative::Domain::ShellItemRef const>{ items.data(), items.size() },
+                    std::span<::FileScoutNative::Domain::ShellItemRef const>{
+                        siblingItems.data(),
+                        siblingItems.size(),
+                    },
+                    std::wstring{ findBox.Text().c_str() },
+                    std::wstring{ replaceBox.Text().c_str() });
+            case BatchRenamePreset::ChangeCase:
+                return ::FileScoutNative::Domain::BuildCaseTransformBatchRenamePlan(
+                    std::span<::FileScoutNative::Domain::ShellItemRef const>{ items.data(), items.size() },
+                    std::span<::FileScoutNative::Domain::ShellItemRef const>{
+                        siblingItems.data(),
+                        siblingItems.size(),
+                    },
+                    BatchRenameCaseTransformFromSelectedIndex(caseModeBox.SelectedIndex()));
+            case BatchRenamePreset::Sequential:
+            default:
+                break;
+            }
+
+            auto const startNumber = TryParsePositiveInteger(startBox.Text().c_str());
+            if (!startNumber.has_value())
+            {
+                return ::FileScoutNative::Domain::BatchRenamePlan{
+                    .error = std::wstring{ L"Start number must be a positive integer." },
+                };
+            }
+
+            uint32_t paddingWidth = 0;
+            if (!TrimFileName(paddingBox.Text().c_str()).empty())
+            {
+                auto const parsedPadding = TryParsePositiveInteger(paddingBox.Text().c_str());
+                if (!parsedPadding.has_value())
+                {
+                    return ::FileScoutNative::Domain::BatchRenamePlan{
+                        .error = std::wstring{ L"Zero padding must be blank or a positive integer." },
+                    };
+                }
+
+                paddingWidth = *parsedPadding;
+            }
+
+            return ::FileScoutNative::Domain::BuildSequentialBatchRenamePlan(
+                std::span<::FileScoutNative::Domain::ShellItemRef const>{ items.data(), items.size() },
+                std::span<::FileScoutNative::Domain::ShellItemRef const>{
+                    siblingItems.data(),
+                    siblingItems.size(),
+                },
+                ::FileScoutNative::Domain::BatchRenameOptions{
+                    .base_name = TrimFileName(baseNameBox.Text().c_str()),
+                    .start_number = *startNumber,
+                    .padding_width = paddingWidth,
+                });
+        };
+
+        auto const refreshPreview =
+            [dialog, presetBox, baseNameBox, prefixBox, suffixBox, findBox, replaceBox, caseModeBox, startBox, paddingBox, note, previewSummaryText, previewErrorText, previewRows, buildPlan]()
+        {
+            auto const selectedPreset =
+                BatchRenamePresetFromSelectedIndex(presetBox.SelectedIndex());
+            auto const sequentialVisibility =
+                selectedPreset == BatchRenamePreset::Sequential
+                    ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+                    : winrt::Microsoft::UI::Xaml::Visibility::Collapsed;
+            auto const prefixVisibility =
+                selectedPreset == BatchRenamePreset::AddPrefix
+                    ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+                    : winrt::Microsoft::UI::Xaml::Visibility::Collapsed;
+            auto const suffixVisibility =
+                selectedPreset == BatchRenamePreset::AddSuffix
+                    ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+                    : winrt::Microsoft::UI::Xaml::Visibility::Collapsed;
+            auto const findReplaceVisibility =
+                selectedPreset == BatchRenamePreset::FindReplace
+                    ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+                    : winrt::Microsoft::UI::Xaml::Visibility::Collapsed;
+            auto const caseTransformVisibility =
+                selectedPreset == BatchRenamePreset::ChangeCase
+                    ? winrt::Microsoft::UI::Xaml::Visibility::Visible
+                    : winrt::Microsoft::UI::Xaml::Visibility::Collapsed;
+
+            baseNameBox.Visibility(sequentialVisibility);
+            startBox.Visibility(sequentialVisibility);
+            paddingBox.Visibility(sequentialVisibility);
+            prefixBox.Visibility(prefixVisibility);
+            suffixBox.Visibility(suffixVisibility);
+            findBox.Visibility(findReplaceVisibility);
+            replaceBox.Visibility(findReplaceVisibility);
+            caseModeBox.Visibility(caseTransformVisibility);
+            note.Text(ToHString(BatchRenamePresetNote(selectedPreset)));
+            previewRows.Children().Clear();
+
+            auto const plan = buildPlan();
+            if (plan.error.has_value())
+            {
+                dialog.IsPrimaryButtonEnabled(false);
+                previewSummaryText.Text(ToHString(
+                    BatchRenamePresetLabel(selectedPreset) + L" is not ready yet."));
+                previewErrorText.Text(ToHString(*plan.error));
+                previewErrorText.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+                return;
+            }
+
+            dialog.IsPrimaryButtonEnabled(true);
+            previewErrorText.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            auto const changedCount = std::count_if(
+                plan.entries.begin(),
+                plan.entries.end(),
+                [](auto const& entry)
+                {
+                    return entry.target_name != entry.source_item.display_name;
+                });
+            auto const unchangedCount = plan.entries.size() - static_cast<std::size_t>(changedCount);
+            std::wstring summary = BatchRenamePresetLabel(selectedPreset) + L"  |  " +
+                std::to_wstring(changedCount) + (changedCount == 1 ? L" change ready" : L" changes ready");
+            if (unchangedCount > 0)
+            {
+                summary += L"  |  " + std::to_wstring(unchangedCount) +
+                    (unchangedCount == 1 ? L" item unchanged" : L" items unchanged");
+            }
+            previewSummaryText.Text(ToHString(summary));
+
+            auto const previewCount = std::min<std::size_t>(plan.entries.size(), 5);
+            for (std::size_t index = 0; index < previewCount; ++index)
+            {
+                auto const& entry = plan.entries[index];
+                auto rowStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+                rowStack.Spacing(4);
+
+                auto sourceText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+                sourceText.Text(ToHString(entry.source_item.display_name));
+                sourceText.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+                sourceText.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+
+                auto targetText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+                auto const changed = entry.target_name != entry.source_item.display_name;
+                targetText.Text(ToHString(
+                    changed ? std::wstring{ L"Rename to " } + entry.target_name
+                            : std::wstring{ L"No change for this item" }));
+                targetText.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+                targetText.Opacity(changed ? 0.82 : 0.6);
+
+                rowStack.Children().Append(sourceText);
+                rowStack.Children().Append(targetText);
+
+                auto rowBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
+                rowBorder.Padding({ 12, 10, 12, 10 });
+                rowBorder.CornerRadius({ 12, 12, 12, 12 });
+                rowBorder.Background(LookupBrush(
+                    changed ? L"SubtleFillColorSecondaryBrush" : L"CardBackgroundFillColorSecondaryBrush"));
+                rowBorder.Child(rowStack);
+                previewRows.Children().Append(rowBorder);
+            }
+
+            if (plan.entries.size() > previewCount)
+            {
+                auto moreText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+                moreText.Text(ToHString(
+                    std::wstring{ L"+" } + std::to_wstring(plan.entries.size() - previewCount) +
+                    L" more items follow the same preset logic."));
+                moreText.Opacity(0.68);
+                moreText.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
+                previewRows.Children().Append(moreText);
+            }
+        };
+
+        presetBox.SelectionChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        baseNameBox.TextChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        prefixBox.TextChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        suffixBox.TextChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        findBox.TextChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        replaceBox.TextChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        caseModeBox.SelectionChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        startBox.TextChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        paddingBox.TextChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
+        refreshPreview();
+
+        if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        {
+            co_return;
+        }
+
+        auto const plan = buildPlan();
+        if (plan.error.has_value())
+        {
+            StatusTextBlock().Text(ToHString(*plan.error));
+            co_return;
+        }
+
+        std::vector<::FileScoutNative::Shell::RenameRequest> requests;
+        requests.reserve(plan.entries.size());
+        for (auto const& entry : plan.entries)
+        {
+            if (entry.target_name == entry.source_item.display_name)
+            {
+                continue;
+            }
+
+            requests.push_back(::FileScoutNative::Shell::RenameRequest{
+                .path = entry.source_item.path,
+                .new_name = entry.target_name,
+            });
+        }
+
+        if (requests.empty())
+        {
+            StatusTextBlock().Text(L"Batch rename skipped: no names changed.");
+            co_return;
+        }
+
+        try
+        {
+            auto const renamedPaths = m_shellFileOperationService.RenameItems(
+                GetWindowHandle(),
+                std::span<::FileScoutNative::Shell::RenameRequest const>{ requests.data(), requests.size() });
+            std::optional<std::filesystem::path> selectAfter;
+            if (!renamedPaths.empty())
+            {
+                selectAfter = renamedPaths.front();
+            }
+
+            LoadDirectory(ActivePane().current_path, selectAfter);
+            StatusTextBlock().Text(ToHString(
+                L"Batch renamed " + std::to_wstring(requests.size()) +
+                (requests.size() == 1 ? L" item." : L" items.")));
+        }
+        catch (std::exception const&)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Batch rename failed for " + std::to_wstring(requests.size()) +
+                (requests.size() == 1 ? L" item." : L" items.")));
+        }
+    }
+
     winrt::fire_and_forget MainWindow::ShowDeleteDialogAsync(::FileScoutNative::Domain::ShellItemRef item)
+    {
+        ShowDeleteDialogAsync(std::vector<::FileScoutNative::Domain::ShellItemRef>{ std::move(item) });
+        co_return;
+    }
+
+    winrt::fire_and_forget MainWindow::ShowDeleteDialogAsync(
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items)
     {
         auto lifetime = get_strong();
 
@@ -1631,7 +3421,9 @@ namespace winrt::FileScoutNative::implementation
         dialog.CloseButtonText(L"Cancel");
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
         dialog.Content(winrt::box_value(
-            L"Move " + item.display_name + L" to the Recycle Bin?"));
+            items.size() == 1
+                ? L"Move " + items.front().display_name + L" to the Recycle Bin?"
+                : L"Move " + std::to_wstring(items.size()) + L" selected items to the Recycle Bin?"));
 
         if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
         {
@@ -1640,13 +3432,46 @@ namespace winrt::FileScoutNative::implementation
 
         try
         {
-            m_shellFileOperationService.DeleteItem(GetWindowHandle(), item.path);
+            if (items.size() == 1)
+            {
+                m_shellFileOperationService.DeleteItem(GetWindowHandle(), items.front().path);
+            }
+            else
+            {
+                std::vector<std::filesystem::path> paths;
+                paths.reserve(items.size());
+                for (auto const& item : items)
+                {
+                    paths.push_back(item.path);
+                }
+
+                m_shellFileOperationService.DeleteItems(
+                    GetWindowHandle(),
+                    std::span<std::filesystem::path const>{ paths.data(), paths.size() });
+            }
             LoadDirectory(ActivePane().current_path);
-            StatusTextBlock().Text(ToHString(L"Deleted " + item.display_name + L" to Recycle Bin"));
+            if (items.size() == 1)
+            {
+                StatusTextBlock().Text(ToHString(
+                    L"Deleted " + items.front().display_name + L" to Recycle Bin"));
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(
+                    L"Deleted " + std::to_wstring(items.size()) + L" items to Recycle Bin"));
+            }
         }
         catch (std::exception const&)
         {
-            StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Delete failed for", item)));
+            if (items.size() == 1)
+            {
+                StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Delete failed for", items.front())));
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(
+                    L"Delete failed for " + std::to_wstring(items.size()) + L" items."));
+            }
         }
     }
 
@@ -1735,62 +3560,192 @@ namespace winrt::FileScoutNative::implementation
         AddAccelerator(VK::Tab, VKM::Control, L"switchPane");
     }
 
-    std::optional<std::wstring> MainWindow::ValidateFileName(std::wstring const& name)
+    winrt::fire_and_forget MainWindow::OpenArchiveItemAsync(::FileScoutNative::Domain::ShellItemRef item)
     {
-        if (name.empty())
+        auto lifetime = get_strong();
+        auto const ownerWindow = GetWindowHandle();
+
+        StatusTextBlock().Text(ToHString(L"Extracting " + item.display_name + L"..."));
+
+        co_await winrt::resume_background();
+
+        std::filesystem::path extractedPath;
+        std::wstring errorText;
+
+        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        bool const shouldUninitialize = SUCCEEDED(initHr);
+        if (FAILED(initHr) && initHr != RPC_E_CHANGED_MODE)
         {
-            return std::wstring{ L"File name cannot be empty." };
+            errorText = L"Archive extraction failed to initialize COM.";
         }
 
-        static constexpr std::array<wchar_t, 9> invalidChars{ L'/', L'\\', L':', L'*', L'?', L'"', L'<', L'>', L'|' };
-        if (auto const invalidChar = std::ranges::find_if(name, [](wchar_t const character)
-                {
-                    return std::ranges::find(invalidChars, character) != invalidChars.end();
-                });
-            invalidChar != name.end())
+        try
         {
-            return std::wstring{ L"File name contains an invalid character." };
-        }
-
-        auto upper = name;
-        std::transform(upper.begin(), upper.end(), upper.begin(), [](wchar_t const character)
+            if (errorText.empty())
             {
-                return static_cast<wchar_t>(towupper(character));
-            });
+                auto const resolved = m_shellInterop.TryResolveArchivePath(item.path);
+                if (!resolved.has_value())
+                {
+                    errorText = L"Archive entry could not be resolved.";
+                }
+                else
+                {
+                    auto const relativePath = TryGetArchiveRelativePath(*resolved);
+                    if (!relativePath.has_value())
+                    {
+                        errorText = L"Archive entry path is invalid.";
+                    }
+                    else
+                    {
+                        auto const sessionRoot = BuildArchiveOpenSessionRoot(resolved->archive_file_path);
+                        extractedPath = sessionRoot / *relativePath;
+                        std::filesystem::create_directories(extractedPath.parent_path());
 
-        auto const extensionSeparator = upper.find(L'.');
-        auto const stem = upper.substr(0, extensionSeparator);
-        static constexpr std::array reservedNames{
-            L"CON",
-            L"PRN",
-            L"AUX",
-            L"NUL",
-            L"COM1",
-            L"COM2",
-            L"COM3",
-            L"COM4",
-            L"COM5",
-            L"COM6",
-            L"COM7",
-            L"COM8",
-            L"COM9",
-            L"LPT1",
-            L"LPT2",
-            L"LPT3",
-            L"LPT4",
-            L"LPT5",
-            L"LPT6",
-            L"LPT7",
-            L"LPT8",
-            L"LPT9",
-        };
+                        std::array<std::filesystem::path, 1> const sourcePaths{ item.path };
+                        m_shellFileOperationService.CopyItemsFromPaths(
+                            ownerWindow,
+                            sourcePaths,
+                            extractedPath.parent_path(),
+                            false);
 
-        if (std::ranges::find(reservedNames, stem) != reservedNames.end())
+                        if (!std::filesystem::exists(extractedPath))
+                        {
+                            errorText = L"Archive extraction completed without a visible output file.";
+                        }
+                    }
+                }
+            }
+        }
+        catch (...)
         {
-            return std::wstring{ L"That name is reserved on Windows." };
+            errorText = L"Archive extraction failed.";
         }
 
-        return std::nullopt;
+        if (shouldUninitialize)
+        {
+            CoUninitialize();
+        }
+
+        m_dispatcherQueue.TryEnqueue([this, lifetime, item = std::move(item),
+                                      extractedPath = std::move(extractedPath),
+                                      errorText = std::move(errorText)]() mutable
+        {
+            if (!errorText.empty())
+            {
+                StatusTextBlock().Text(ToHString(errorText));
+                return;
+            }
+
+            try
+            {
+                m_shellFileOperationService.OpenPath(GetWindowHandle(), extractedPath);
+                StatusTextBlock().Text(ToHString(
+                    L"Extracted and opened " + item.display_name + L" from archive."));
+            }
+            catch (...)
+            {
+                StatusTextBlock().Text(ToHString(
+                    L"Extracted " + item.display_name + L" but opening it failed."));
+            }
+        });
+    }
+
+    winrt::fire_and_forget MainWindow::ExtractArchiveItemAsync(
+        ::FileScoutNative::Domain::ShellItemRef item,
+        bool const revealAfterExtract)
+    {
+        auto lifetime = get_strong();
+        auto const ownerWindow = GetWindowHandle();
+
+        StatusTextBlock().Text(ToHString(L"Extracting " + item.display_name + L"..."));
+
+        co_await winrt::resume_background();
+
+        std::filesystem::path extractedPath;
+        std::filesystem::path requestedPath;
+        std::wstring errorText;
+
+        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        bool const shouldUninitialize = SUCCEEDED(initHr);
+        if (FAILED(initHr) && initHr != RPC_E_CHANGED_MODE)
+        {
+            errorText = L"Archive extraction failed to initialize COM.";
+        }
+
+        try
+        {
+            if (errorText.empty())
+            {
+                auto const resolved = m_shellInterop.TryResolveArchivePath(item.path);
+                if (!resolved.has_value())
+                {
+                    errorText = L"Archive entry could not be resolved.";
+                }
+                else if (auto const relativePath = TryGetArchiveRelativePath(*resolved);
+                         !relativePath.has_value())
+                {
+                    errorText = L"Archive entry path is invalid.";
+                }
+                else
+                {
+                    requestedPath = resolved->archive_file_path.parent_path() / *relativePath;
+                    std::filesystem::create_directories(requestedPath.parent_path());
+
+                    extractedPath = BuildUniqueDestinationPath(requestedPath, item.is_folder);
+                    m_shellFileOperationService.CopyItemFromPath(
+                        ownerWindow,
+                        item.path,
+                        extractedPath.parent_path(),
+                        extractedPath.filename().wstring());
+
+                    if (!std::filesystem::exists(extractedPath))
+                    {
+                        errorText = L"Archive extraction completed without a visible output item.";
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+            errorText = L"Archive extraction failed.";
+        }
+
+        if (shouldUninitialize)
+        {
+            CoUninitialize();
+        }
+
+        m_dispatcherQueue.TryEnqueue([this, lifetime, item = std::move(item),
+                                      extractedPath = std::move(extractedPath),
+                                      requestedPath = std::move(requestedPath),
+                                      errorText = std::move(errorText),
+                                      revealAfterExtract]() mutable
+        {
+            if (!errorText.empty())
+            {
+                StatusTextBlock().Text(ToHString(errorText));
+                return;
+            }
+
+            auto status = std::wstring{ L"Extracted " } + item.display_name;
+            if (!requestedPath.empty() &&
+                extractedPath.filename().wstring() != requestedPath.filename().wstring())
+            {
+                status += L" as " + extractedPath.filename().wstring();
+            }
+
+            if (revealAfterExtract)
+            {
+                LoadDirectory(extractedPath.parent_path(), extractedPath);
+                status += L" and revealed it.";
+            }
+            else
+            {
+                status += L" to " + extractedPath.parent_path().wstring() + L".";
+            }
+
+            StatusTextBlock().Text(ToHString(status));
+        });
     }
 
     winrt::Microsoft::UI::Xaml::Controls::ListView MainWindow::CreateTabListView(
@@ -1802,7 +3757,7 @@ namespace winrt::FileScoutNative::implementation
         listView.Margin({ 12, 0, 12, 12 });
         listView.AllowDrop(true);
         listView.CanDrag(true);
-        listView.SelectionMode(winrt::Microsoft::UI::Xaml::Controls::ListViewSelectionMode::Single);
+        listView.SelectionMode(winrt::Microsoft::UI::Xaml::Controls::ListViewSelectionMode::Extended);
         listView.ItemsSource(source);
 
         // Apply item container style from the root Grid's resources.
@@ -1872,6 +3827,8 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].selection = pane.selection;
             pane.tabs[pane.active_tab_index].selected_item_index =
                 pane.active_list_view.SelectedIndex();
+            pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
+            pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
         }
 
         auto newRows = winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>();
@@ -1944,6 +3901,7 @@ namespace winrt::FileScoutNative::implementation
         auto const& tab = pane.tabs[pane.active_tab_index];
         pane.current_path = tab.path;
         pane.is_drives_view = tab.is_drives_view;
+        pane.is_archive_view = tab.is_archive_view;
         pane.items = tab.items;
         pane.selection = tab.selection;
 
@@ -1958,14 +3916,16 @@ namespace winrt::FileScoutNative::implementation
         }
 
         // Restore the cached rows and selection without re-scanning the disk.
-        pane.tab_switching = true;
-        pane.active_list_view.SelectedIndex(tab.selected_item_index);
-        pane.tab_switching = false;
+        RestoreSelectionFromState(pane, tab.selection, tab.selected_item_index);
 
-        if (tab.selected_item_index >= 0 &&
-            tab.selected_item_index < static_cast<int32_t>(pane.items.size()))
+        auto const selectedIndices = GetSelectedItemIndices();
+        if (selectedIndices.size() == 1)
         {
-            SelectItemByIndex(tab.selected_item_index);
+            SelectItemByIndex(selectedIndices.front());
+        }
+        else if (selectedIndices.size() > 1)
+        {
+            UpdateMultiSelectionDetails(selectedIndices);
         }
         else
         {
@@ -1974,8 +3934,47 @@ namespace winrt::FileScoutNative::implementation
 
         auto const statusSuffix = tab.is_drives_view
             ? std::wstring{ L" drive(s) available." }
-            : L" shell-backed entries loaded from " + pane.current_path.wstring();
+            : (tab.is_archive_view
+                ? L" archive entries loaded from " + pane.current_path.wstring()
+                : L" shell-backed entries loaded from " + pane.current_path.wstring());
         StatusTextBlock().Text(ToHString(std::to_wstring(pane.items.size()) + statusSuffix));
+    }
+
+    void MainWindow::RestoreSelectionFromState(
+        PaneContext& pane,
+        ::FileScoutNative::Domain::PaneSelectionState const& selection,
+        int32_t const fallbackSelectedIndex)
+    {
+        if (!pane.active_list_view)
+        {
+            return;
+        }
+
+        pane.tab_switching = true;
+        pane.active_list_view.SelectedIndex(-1);
+
+        auto const selectedIds = selection.SelectedIds();
+        if (!selectedIds.empty())
+        {
+            for (std::size_t index = 0; index < pane.items.size(); ++index)
+            {
+                if (!selection.IsSelected(pane.items[index].parsing_name))
+                {
+                    continue;
+                }
+
+                pane.active_list_view.SelectRange(
+                    winrt::Microsoft::UI::Xaml::Data::ItemIndexRange(
+                        static_cast<int32_t>(index),
+                        1));
+            }
+        }
+        else
+        {
+            pane.active_list_view.SelectedIndex(fallbackSelectedIndex);
+        }
+
+        pane.tab_switching = false;
     }
 
     void MainWindow::UpdateTabHeader(int32_t const index)
@@ -2070,14 +4069,23 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::UpdateActivePaneIndicator()
     {
-        // Left pane: highlight when index 0 is active.
-        auto const accentBrush = winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-            winrt::Windows::UI::Color{ 0xFF, 0x00, 0x78, 0xD4 });
-        auto const transparentBrush = winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-            winrt::Windows::UI::Color{ 0x00, 0x00, 0x00, 0x00 });
+        auto const activeBrush = LookupBrush(L"AccentFillColorDefaultBrush");
+        auto const inactiveBrush = LookupBrush(L"CardStrokeColorDefaultBrush");
 
-        LeftPaneBorder().BorderBrush(m_activePaneIndex == 0 ? accentBrush : transparentBrush);
-        RightPaneBorder().BorderBrush(m_activePaneIndex == 1 ? accentBrush : transparentBrush);
+        if (m_activePaneIndex == 0)
+        {
+            LeftPaneBorder().BorderBrush(activeBrush);
+            LeftPaneBorder().BorderThickness({ 2, 2, 2, 2 });
+            RightPaneBorder().BorderBrush(inactiveBrush);
+            RightPaneBorder().BorderThickness({ 1, 1, 1, 1 });
+        }
+        else
+        {
+            LeftPaneBorder().BorderBrush(inactiveBrush);
+            LeftPaneBorder().BorderThickness({ 1, 1, 1, 1 });
+            RightPaneBorder().BorderBrush(activeBrush);
+            RightPaneBorder().BorderThickness({ 2, 2, 2, 2 });
+        }
     }
 
     winrt::Microsoft::UI::Xaml::Controls::Border MainWindow::SortHeaderForPane(int32_t const paneIndex)
@@ -2268,10 +4276,10 @@ namespace winrt::FileScoutNative::implementation
         RebuildAllTabRowsForPane(paneIndex);
 
         StatusTextBlock().Text(ToHString(
-            std::to_wstring(pane.items.size()) + L" items  ·  sorted by "
+            std::to_wstring(pane.items.size()) + L" items  |  sorted by "
             + SortColumnLabel(column)
             + (pane.sort_direction == SortDirection::Ascending ? L"  \u2191" : L"  \u2193")
-            + (pane.group_by_sort_column ? L"  ·  grouped" : L"")));
+            + (pane.group_by_sort_column ? L"  |  grouped" : L"")));
     }
 
     void MainWindow::SetGroupingEnabled(int32_t const paneIndex, bool const enabled)
@@ -2289,8 +4297,8 @@ namespace winrt::FileScoutNative::implementation
         StatusTextBlock().Text(ToHString(
             std::to_wstring(pane.items.size()) +
             (enabled
-                ? L" items  ·  grouped by " + SortColumnLabel(pane.sort_column)
-                : L" items  ·  grouping off")));
+                ? L" items  |  grouped by " + SortColumnLabel(pane.sort_column)
+                : L" items  |  grouping off")));
     }
 
     winrt::fire_and_forget MainWindow::LoadImagePreviewAsync(
@@ -2343,12 +4351,14 @@ namespace winrt::FileScoutNative::implementation
 
         StatusTextBlock().Text(ToHString(
             std::to_wstring(pane.items.size()) +
-            (mode == ViewMode::Cards ? L" items  ·  cards view" : L" items  ·  list view")));
+            (mode == ViewMode::Cards ? L" items  |  cards view" : L" items  |  list view")));
     }
 
     void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
     {
         auto& pane = m_panes[paneIndex];
+        // Cancel any pending staged-publish dispatch — this rebuild replaces it entirely.
+        pane.awaiting_final_batch = false;
         bool const listMode = (pane.view_mode == ViewMode::List);
 
         // Use (std::min)() to prevent expansion of the Windows.h min() macro.
@@ -2384,14 +4394,117 @@ namespace winrt::FileScoutNative::implementation
     {
         auto const panel = SidebarPlacesPanel();
         panel.Children().Clear();
+        bool addedPinnedHeader = false;
+        bool addedPrimaryHeader = false;
+        auto const& activePane = ActivePane();
+        auto const favorites = m_favoritesService.GetSidebarFavorites();
+        std::filesystem::path activeFavoritePath;
+        std::size_t activeFavoriteScore = 0;
 
-        for (auto const& entry : m_favoritesService.GetBuiltinFavorites())
+        if (!activePane.is_drives_view && !activePane.current_path.empty())
         {
+            for (auto const& favorite : favorites)
+            {
+                if (favorite.path.empty() || favorite.is_drives_view)
+                {
+                    continue;
+                }
+
+                auto const score = SidebarPathMatchScore(
+                    favorite.path,
+                    activePane.current_path);
+                if (score > activeFavoriteScore)
+                {
+                    activeFavoriteScore = score;
+                    activeFavoritePath = favorite.path;
+                }
+            }
+        }
+
+        for (auto const& entry : favorites)
+        {
+            if (!entry.is_pinned && !addedPrimaryHeader)
+            {
+                auto quickAccessHeader = BuildSidebarSectionLabel(L"QUICK ACCESS");
+                quickAccessHeader.Margin({ 2, 0, 0, 2 });
+                panel.Children().Append(quickAccessHeader);
+                addedPrimaryHeader = true;
+            }
+
+            if (entry.is_pinned && !addedPinnedHeader)
+            {
+                auto separator = winrt::Microsoft::UI::Xaml::Controls::Border{};
+                separator.Height(1);
+                separator.Margin({ 0, 8, 0, 8 });
+                separator.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+                panel.Children().Append(separator);
+
+                auto pinnedHeader = BuildSidebarSectionLabel(L"PINNED");
+                pinnedHeader.Margin({ 2, 0, 0, 2 });
+                panel.Children().Append(pinnedHeader);
+                addedPinnedHeader = true;
+            }
+
             auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
-            btn.Content(winrt::box_value(ToHString(entry.display_name)));
-            btn.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
-            btn.HorizontalContentAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
-            btn.Padding({ 8, 6, 8, 6 });
+            StyleSidebarButtonBase(btn);
+            btn.Margin({ 0, 0, 0, 2 });
+
+            auto const knownFolderDisplayName = entry.is_pinned ? std::wstring{} : entry.display_name;
+            std::optional<::FileScoutNative::Domain::IconBitmap> entryIcon;
+            if (!entry.path.empty())
+            {
+                winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+                    btn,
+                    winrt::box_value(ToHString(entry.path.wstring())));
+                entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
+            }
+
+            auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+            auto iconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            iconColumn.Width({ 20, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+            auto labelColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            labelColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+            auto badgeColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            badgeColumn.Width({ 0, winrt::Microsoft::UI::Xaml::GridUnitType::Auto });
+            rowGrid.ColumnDefinitions().Append(iconColumn);
+            rowGrid.ColumnDefinitions().Append(labelColumn);
+            rowGrid.ColumnDefinitions().Append(badgeColumn);
+            rowGrid.ColumnSpacing(8);
+
+            auto iconTile = BuildSidebarTile(
+                BuildSidebarGlyph(knownFolderDisplayName, entryIcon, SidebarFavoriteFallbackLabel(entry)),
+                20.0);
+
+            auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+            label.Text(ToHString(entry.display_name));
+            label.FontWeight(entry.is_pinned
+                ? winrt::Microsoft::UI::Text::FontWeights::SemiBold()
+                : winrt::Microsoft::UI::Text::FontWeights::Normal());
+            label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            label.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+            label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(label, 1);
+            rowGrid.Children().Append(iconTile);
+            rowGrid.Children().Append(label);
+
+            if (entry.is_pinned)
+            {
+                auto badge = BuildSidebarFontIcon(L"\uE718", 11.0);
+                badge.Opacity(0.58);
+                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(badge, 2);
+                rowGrid.Children().Append(badge);
+            }
+
+            auto const isSelected =
+                (entry.is_drives_view && activePane.is_drives_view) ||
+                (!entry.path.empty() && activeFavoriteScore > 0 &&
+                    SidebarPathsEqual(entry.path, activeFavoritePath));
+
+            auto surface = BuildSidebarRowSurface(isSelected);
+            surface.Child(rowGrid);
+            btn.Content(surface);
 
 
             if (entry.is_drives_view)
@@ -2418,6 +4531,100 @@ namespace winrt::FileScoutNative::implementation
 
             panel.Children().Append(btn);
         }
+
+        auto const drives = BuildSidebarDriveUsage(m_shellInterop);
+        if (!drives.empty())
+        {
+            auto separator = winrt::Microsoft::UI::Xaml::Controls::Border{};
+            separator.Height(1);
+            separator.Margin({ 0, 10, 0, 8 });
+            separator.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+            panel.Children().Append(separator);
+
+            auto storageLabel = BuildSidebarSectionLabel(L"STORAGE");
+            storageLabel.Margin({ 2, 0, 0, 2 });
+            panel.Children().Append(storageLabel);
+
+            for (auto const& drive : drives)
+            {
+                auto button = winrt::Microsoft::UI::Xaml::Controls::Button{};
+                StyleSidebarButtonBase(button);
+                button.Margin({ 0, 0, 0, 2 });
+                winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+                    button,
+                    winrt::box_value(ToHString(drive.path.wstring())));
+
+                auto const driveSelected =
+                    !activePane.is_drives_view &&
+                    !activePane.current_path.empty() &&
+                    _wcsnicmp(
+                        activePane.current_path.root_path().wstring().c_str(),
+                        drive.path.wstring().c_str(),
+                        drive.path.wstring().size()) == 0;
+
+                auto card = BuildSidebarRowSurface(driveSelected);
+                card.Padding({ 8, 6, 8, 6 });
+
+                auto stack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+                stack.Spacing(6);
+
+                auto headerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+                auto driveIconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+                driveIconColumn.Width({ 22, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+                auto driveLabelColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+                driveLabelColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+                headerGrid.ColumnDefinitions().Append(driveIconColumn);
+                headerGrid.ColumnDefinitions().Append(driveLabelColumn);
+                headerGrid.ColumnSpacing(8);
+
+                auto iconTile = BuildSidebarTile(
+                    BuildSidebarDriveGlyph(drive),
+                    18.0);
+
+                auto labelStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+                labelStack.Spacing(2);
+
+                auto title = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+                title.Text(ToHString(drive.display_name));
+                title.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+                title.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+
+                auto details = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+                details.Text(ToHString(BuildDriveUsageText(drive)));
+                details.FontSize(11);
+                details.Opacity(0.62);
+                details.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+
+                labelStack.Children().Append(title);
+                labelStack.Children().Append(details);
+
+                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
+                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(labelStack, 1);
+                headerGrid.Children().Append(iconTile);
+                headerGrid.Children().Append(labelStack);
+
+                stack.Children().Append(headerGrid);
+                if (drive.has_usage)
+                {
+                    auto bar = winrt::Microsoft::UI::Xaml::Controls::ProgressBar{};
+                    bar.Minimum(0);
+                    bar.Maximum(100);
+                    bar.Value(drive.used_ratio * 100.0);
+                    bar.Height(4);
+                    bar.Background(LookupBrush(L"SubtleFillColorSecondaryBrush"));
+                    stack.Children().Append(bar);
+                }
+                card.Child(stack);
+
+                auto const drivePath = drive.path;
+                button.Click([this, drivePath](auto const&, auto const&)
+                {
+                    LoadDirectory(drivePath);
+                });
+                button.Content(card);
+                panel.Children().Append(button);
+            }
+        }
     }
 
     void MainWindow::LoadDrivesView()
@@ -2432,6 +4639,7 @@ namespace winrt::FileScoutNative::implementation
             auto& pane = ActivePane();
             pane.current_path = std::filesystem::path{};
             pane.is_drives_view = true;
+            pane.is_archive_view = false;
             pane.items = items;
             pane.selection.Clear();
 
@@ -2440,6 +4648,7 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].selection = {};
             pane.tabs[pane.active_tab_index].selected_item_index = -1;
             pane.tabs[pane.active_tab_index].is_drives_view = true;
+            pane.tabs[pane.active_tab_index].is_archive_view = false;
             UpdateTabHeader(pane.active_tab_index);
 
             AddressTextBox().Text(L"This PC");

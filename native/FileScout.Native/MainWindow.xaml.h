@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MainWindow.g.h"
+#include "Domain\BatchRenamePlan.h"
 #include "Domain\ContextMenuModel.h"
 #include "Domain\PaneSelectionState.h"
 #include "Domain\ShellItemRef.h"
@@ -24,6 +25,14 @@ namespace winrt::FileScoutNative::implementation
     enum class ViewMode { Cards, List };
 
     // Per-pane UI and browse state. One instance per visible pane.
+    struct PaneLoadTiming
+    {
+        uint64_t load_start_tick{ 0 };
+        uint64_t enumeration_end_tick{ 0 };
+        uint64_t first_batch_publish_tick{ 0 };
+        uint64_t final_publish_tick{ 0 };
+    };
+
     struct PaneContext
     {
         std::filesystem::path current_path;
@@ -36,6 +45,7 @@ namespace winrt::FileScoutNative::implementation
         int32_t active_tab_index{ 0 };
         bool tab_switching{ false };
         bool is_drives_view{ false };   // True when the pane shows the "This PC" drives list.
+        bool is_archive_view{ false };  // True when the pane shows a virtual archive folder.
         // Sort state — shared across all tabs in this pane (same as Explorer behaviour).
         SortColumn sort_column{ SortColumn::Name };
         SortDirection sort_direction{ SortDirection::Ascending };
@@ -45,6 +55,13 @@ namespace winrt::FileScoutNative::implementation
         ViewMode view_mode{ ViewMode::Cards };
         // Incremented each time LoadDirectory is called; lets background loads detect stale results.
         uint32_t load_generation{ 0 };
+        PaneLoadTiming last_load_timing{};
+        // Set to true while a staged final-batch publish is still pending. Cleared by
+        // RebuildAllTabRowsForPane so any mid-load sort/group/view-mode change cancels the append.
+        bool awaiting_final_batch{ false };
+        // Set to true when the user interacts with the pane after the first batch appears.
+        // Prevents the final-batch publish from overwriting live selection/focus state.
+        bool user_interacted_after_first_batch{ false };
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -85,10 +102,18 @@ namespace winrt::FileScoutNative::implementation
         void PaneTabView_SelectionChanged(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
+        void TitleBarDragHost_Loaded(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+        void TitleBarDragHost_SizeChanged(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const&);
 
     private:
         HWND m_hwnd{ nullptr };
         winrt::Microsoft::UI::Dispatching::DispatcherQueue m_dispatcherQueue{ nullptr };
+        winrt::Microsoft::UI::Windowing::AppWindow m_appWindow{ nullptr };
+        winrt::Microsoft::UI::Input::InputNonClientPointerSource m_titleBarPointerSource{ nullptr };
 
         // Dual-pane state: index 0 = left, index 1 = right.
         std::array<PaneContext, 2> m_panes{};
@@ -116,13 +141,19 @@ namespace winrt::FileScoutNative::implementation
 
         HWND GetWindowHandle();
         void ConfigureWindow();
+        void ConfigureTitleBar();
+        void UpdateTitleBarInteractiveRegions();
         void SetupKeyboardAccelerators();
         void LoadDirectory(std::filesystem::path const& path,
             std::optional<std::filesystem::path> selectAfter = std::nullopt);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
             std::optional<std::filesystem::path> selectAfter);
         void UpdateRows(int32_t paneIndex, std::vector<::FileScoutNative::Domain::ShellItemRef> const& items);
+        [[nodiscard]] std::vector<int32_t> GetSelectedItemIndices() const;
+        [[nodiscard]] std::vector<::FileScoutNative::Domain::ShellItemRef> GetSelectedItems() const;
+        void SyncSelectionFromListView();
         void SelectItemByIndex(int32_t index);
+        void UpdateMultiSelectionDetails(std::vector<int32_t> const& indices);
         void ResetSelectionDetails();
         void UpdateSelectionDetails(::FileScoutNative::Domain::ShellItemRef const& item);
         [[nodiscard]] std::optional<int32_t> ResolveItemIndexFromSource(
@@ -138,11 +169,18 @@ namespace winrt::FileScoutNative::implementation
         void ExecuteContextCommand(std::wstring const& commandId, std::optional<int32_t> itemIndex);
         winrt::fire_and_forget ShowNewFolderDialogAsync();
         winrt::fire_and_forget ShowRenameDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
+        winrt::fire_and_forget ShowBatchRenameDialogAsync(
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
         winrt::fire_and_forget ShowDeleteDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
+        winrt::fire_and_forget ShowDeleteDialogAsync(
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
         void SelectItemByPath(std::filesystem::path const& path);
         [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;
         [[nodiscard]] std::wstring SuggestNewFolderName() const;
-        [[nodiscard]] static std::optional<std::wstring> ValidateFileName(std::wstring const& name);
+        winrt::fire_and_forget OpenArchiveItemAsync(::FileScoutNative::Domain::ShellItemRef item);
+        winrt::fire_and_forget ExtractArchiveItemAsync(
+            ::FileScoutNative::Domain::ShellItemRef item,
+            bool revealAfterExtract);
 
         void BuildSidebarFavorites();
         void LoadDrivesView();
@@ -171,6 +209,10 @@ namespace winrt::FileScoutNative::implementation
         void AddTab(std::filesystem::path const& startPath);
         void CloseTab(int32_t index);
         void RestoreActiveTab();
+        void RestoreSelectionFromState(
+            PaneContext& pane,
+            ::FileScoutNative::Domain::PaneSelectionState const& selection,
+            int32_t fallbackSelectedIndex);
         void UpdateTabHeader(int32_t index);
         void UpdateTabCloseability();
         void InitPane(int32_t paneIndex, std::filesystem::path const& startPath);

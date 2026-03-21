@@ -12,5 +12,6 @@ namespace FileScoutNative::Domain
         std::filesystem::path path;     // Empty for virtual nodes.
         bool is_drives_view{ false };   // True for the "This PC" virtual node.
         bool is_recycle_bin{ false };   // True for the Recycle Bin shortcut.
+        bool is_pinned{ false };        // True for user-pinned custom sidebar entries.
     };
 }

@@ -13,7 +13,8 @@ namespace FileScoutNative::Shell
             std::wstring shortcutText = {},
             bool available = true,
             FileScoutNative::Domain::ExplorerCommandSource source =
-                FileScoutNative::Domain::ExplorerCommandSource::App)
+                FileScoutNative::Domain::ExplorerCommandSource::App,
+            bool isDestructive = false)
         {
             commands.push_back(ContextMenuService::MakeCommand(
                 std::move(id),
@@ -21,7 +22,8 @@ namespace FileScoutNative::Shell
                 std::move(iconKey),
                 std::move(shortcutText),
                 available,
-                source));
+                source,
+                isDestructive));
         }
     }
 
@@ -30,23 +32,65 @@ namespace FileScoutNative::Shell
     {
         FileScoutNative::Domain::ContextMenuModel model;
         const auto hasSelection = scenario.focused_item.has_value();
+        auto const selectionCount =
+            scenario.selection_count != 0 ? scenario.selection_count : (hasSelection ? 1u : 0u);
+
+        if (scenario.is_read_only_archive_view)
+        {
+            if (hasSelection)
+            {
+                AppendCommand(
+                    model.primary_commands,
+                    L"open",
+                    L"Open",
+                    L"open",
+                    scenario.focused_item->is_folder ? L"Enter" : L"");
+
+                FileScoutNative::Domain::ContextMenuGroup extractGroup;
+                AppendCommand(
+                    extractGroup.commands,
+                    L"extractToArchiveFolder",
+                    L"Extract to archive folder",
+                    L"copy");
+                AppendCommand(
+                    extractGroup.commands,
+                    L"extractReveal",
+                    L"Extract and reveal",
+                    L"open");
+                model.groups.push_back(std::move(extractGroup));
+            }
+
+            FileScoutNative::Domain::ContextMenuGroup workspaceGroup;
+            AppendCommand(workspaceGroup.commands, L"refresh", L"Refresh", L"refresh", L"F5");
+            model.groups.push_back(std::move(workspaceGroup));
+            return model;
+        }
 
         if (hasSelection)
         {
-            AppendCommand(
-                model.primary_commands,
-                L"open",
-                L"Open",
-                L"open",
-                scenario.focused_item->is_folder ? L"Enter" : L"");
-
-            if (!scenario.focused_item->is_folder)
+            if (selectionCount == 1)
             {
-                AppendCommand(model.primary_commands, L"openWith", L"Open with...", L"openWith");
+                AppendCommand(
+                    model.primary_commands,
+                    L"open",
+                    L"Open",
+                    L"open",
+                    scenario.focused_item->is_folder ? L"Enter" : L"");
+
+                if (!scenario.focused_item->is_folder)
+                {
+                    AppendCommand(model.primary_commands, L"openWith", L"Open with...", L"openWith");
+                }
             }
 
-            AppendCommand(model.primary_commands, L"rename", L"Rename", L"rename", L"F2");
-            AppendCommand(model.primary_commands, L"delete", L"Delete", L"delete", L"Del");
+            AppendCommand(
+                model.primary_commands,
+                L"rename",
+                selectionCount > 1 ? L"Batch rename..." : L"Rename",
+                L"rename",
+                L"F2");
+            AppendCommand(model.primary_commands, L"delete", L"Delete", L"delete", L"Del",
+                true, FileScoutNative::Domain::ExplorerCommandSource::App, /*isDestructive=*/true);
         }
 
         if (hasSelection || scenario.can_paste)
@@ -69,9 +113,13 @@ namespace FileScoutNative::Shell
             }
         }
 
-        if (hasSelection)
+        if (hasSelection && selectionCount == 1)
         {
             FileScoutNative::Domain::ContextMenuGroup inspectGroup;
+            if (scenario.can_pin_to_places)
+            {
+                AppendCommand(inspectGroup.commands, L"pinToPlaces", L"Pin to Places", L"pin");
+            }
             AppendCommand(inspectGroup.commands, L"properties", L"Properties", L"properties", L"Alt+Enter");
             AppendCommand(
                 inspectGroup.commands,
@@ -87,6 +135,10 @@ namespace FileScoutNative::Shell
         }
 
         FileScoutNative::Domain::ContextMenuGroup workspaceGroup;
+        if (scenario.can_pin_to_places && !hasSelection)
+        {
+            AppendCommand(workspaceGroup.commands, L"pinToPlaces", L"Pin current folder to Places", L"pin");
+        }
         AppendCommand(workspaceGroup.commands, L"newFolder", L"New folder", L"newFolder");
         AppendCommand(workspaceGroup.commands, L"refresh", L"Refresh", L"refresh", L"F5");
         model.groups.push_back(std::move(workspaceGroup));
@@ -100,7 +152,8 @@ namespace FileScoutNative::Shell
         std::wstring iconKey,
         std::wstring shortcutText,
         bool const available,
-        FileScoutNative::Domain::ExplorerCommandSource const source)
+        FileScoutNative::Domain::ExplorerCommandSource const source,
+        bool const isDestructive)
     {
         return FileScoutNative::Domain::ExplorerCommand{
             std::move(id),
@@ -108,6 +161,7 @@ namespace FileScoutNative::Shell
             std::move(iconKey),
             std::move(shortcutText),
             available,
+            isDestructive,
             source,
         };
     }

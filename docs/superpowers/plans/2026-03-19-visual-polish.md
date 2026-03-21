@@ -1,14 +1,15 @@
-# Visual Polish (R16a + R16b) Implementation Plan
+# Visual Polish (R16) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refine FileScout's visual treatment: replace the hero header with a compact merged toolbar, fix faint sidebar contrast, and upgrade navigation icons to Segoe Fluent Icons system-wide.
+**Goal:** Apply the approved `full-design-v2.html` visual direction to the native shell by replacing the hero header with a compact merged toolbar, fixing faint sidebar contrast, upgrading navigation icons to Segoe Fluent glyphs, and keeping file-list icons on the native Windows shell path.
 
-**Architecture:** Two sequential slices. R16a is pure XAML edits (no C++ changes). R16b adds a C++ helper function and updates three C++ functions plus three XAML `SymbolIcon` elements. Both slices are independently buildable and visually verifiable.
+**Architecture:** One combined visual-only slice touching the WinUI shell surface in `MainWindow.xaml` and the sidebar/pane-indicator construction code in `MainWindow.xaml.cpp`. Toolbar and sidebar chrome move toward the approved mockup, while file rows continue to use shell-extracted runtime icons so Windows-authentic file type rendering is preserved.
 
 **Tech Stack:** WinUI 3 / Windows App SDK 1.8, C++/WinRT, XAML, Segoe Fluent Icons, MSBuild Debug x64
 
 **Spec:** `docs/superpowers/specs/2026-03-19-visual-polish-design.md`
+**Visual source:** `C:\Users\machi\source\repos\filescout\.superpowers\brainstorm\2171-1773962558\full-design-v2.html`
 
 **Build command:**
 ```
@@ -28,14 +29,14 @@ No new files. No new headers. No project file changes.
 
 ---
 
-## Slice R16a — Chrome + Sidebar Contrast (XAML only)
+## Slice R16 — Combined Visual Polish
 
-### Task 1: Remove hero card, promote toolbar to Row 0
+### Task 1: Align the shell chrome structure with the approved mockup
 
 **Files:**
 - Modify: `native/FileScout.Native/MainWindow.xaml:46-193`
 
-The Grid currently has 4 `RowDefinition` entries. The hero card occupies lines 53–128 (Grid.Row="0"). The toolbar occupies lines 130–193 (Grid.Row="1"). The content is Grid.Row="2". A footer row is Grid.Row="3".
+The Grid currently has 4 `RowDefinition` entries. The hero card occupies Grid.Row="0". The toolbar occupies Grid.Row="1". The content is Grid.Row="2". A footer row is Grid.Row="3". The approved design removes the hero card and folds app identity into the toolbar.
 
 - [ ] **Step 1: Delete the hero card block (lines 53–128)**
 
@@ -60,41 +61,21 @@ After deletion, update `Grid.Row` attributes on remaining elements:
 - Former `Grid.Row="2"` (content) → `Grid.Row="1"`
 - Former `Grid.Row="3"` (if present) → `Grid.Row="2"`
 
-- [ ] **Step 4: Build and verify no errors**
+- [ ] **Step 4: Add app identity and compact spacing to the promoted toolbar**
 
-Run the build command above. Expected: build succeeds (MSB8027/LNK4042 warnings are pre-existing and expected).
+Inside the toolbar `Border`, add the `FileScout` label, ALPHA badge, and separator before the navigation buttons. Update the inner grid to four columns:
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add native/FileScout.Native/MainWindow.xaml
-git commit -m "feat(ui): remove hero card, promote toolbar to row 0 (R16a step 1)"
-```
-
----
-
-### Task 2: Add app name + ALPHA badge to merged toolbar card
-
-**Files:**
-- Modify: `native/FileScout.Native/MainWindow.xaml` (the toolbar card Border, now at Row 0)
-
-The toolbar card currently starts with a `StackPanel` containing Back/Forward buttons. We need to prepend the app name and badge.
-
-- [ ] **Step 1: Add app name, badge, and separator before the nav buttons**
-
-Inside the toolbar card's `<Grid ColumnSpacing="12">`, the first `<StackPanel Orientation="Horizontal" Spacing="8">` contains Back and Forward. Prepend a new left section before it. Change the column layout to accommodate an extra identity column:
-
-Replace the toolbar card's inner `Grid` column definitions:
 ```xml
 <Grid.ColumnDefinitions>
-    <ColumnDefinition Width="Auto" />   <!-- identity: name + badge + sep -->
-    <ColumnDefinition Width="Auto" />   <!-- nav: back + forward -->
-    <ColumnDefinition Width="*" />      <!-- address bar -->
-    <ColumnDefinition Width="Auto" />   <!-- refresh -->
+    <ColumnDefinition Width="Auto" />
+    <ColumnDefinition Width="Auto" />
+    <ColumnDefinition Width="*" />
+    <ColumnDefinition Width="Auto" />
 </Grid.ColumnDefinitions>
 ```
 
-Add a new identity `StackPanel` as column 0:
+The left identity block should include:
+
 ```xml
 <StackPanel Grid.Column="0"
             Orientation="Horizontal"
@@ -115,52 +96,43 @@ Add a new identity `StackPanel` as column 0:
     </Border>
     <Border Width="1"
             Height="18"
-            Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-            Margin="4,0" />
+            Margin="4,0"
+            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 </StackPanel>
 ```
 
-Shift existing nav `StackPanel` to `Grid.Column="1"`, address `StackPanel` to `Grid.Column="2"`, refresh `Button` to `Grid.Column="3"`.
+Move nav/address/refresh to columns 1/2/3 respectively. Change the toolbar container `CornerRadius` from `20` to `14`.
 
-- [ ] **Step 2: Fix CornerRadius on toolbar container Border**
+- [ ] **Step 5: Prevent toolbar buttons from stretching**
 
-The toolbar card `Border` currently has `CornerRadius="20"`. Change to `CornerRadius="14"`:
-```xml
-<Border Padding="12"
-        CornerRadius="14"
-        ...>
-```
+Override the Back and Forward buttons with `HorizontalAlignment="Left"` so they size to content inside the merged toolbar.
 
-- [ ] **Step 3: Fix Back/Forward button HorizontalAlignment**
+- [ ] **Step 6: Replace toolbar SymbolIcon usage with FontIcon glyphs**
 
-`ChromeToolbarButtonStyle` sets `HorizontalAlignment="Stretch"`. Inside the merged toolbar, this causes the buttons to expand to fill their parent. Override per-button:
+Replace:
+- `Back` with `E76B`
+- `Forward` with `E76C`
+- `Refresh` with `E72C`
 
-```xml
-<Button Style="{StaticResource ChromeToolbarButtonStyle}"
-        HorizontalAlignment="Left"
-        IsEnabled="False"
-        ...>
-```
+Use `FontFamily="Segoe Fluent Icons"` and `FontSize="14"`.
 
-Apply `HorizontalAlignment="Left"` to both the Back and Forward buttons.
+- [ ] **Step 7: Build and verify no errors**
 
-- [ ] **Step 4: Build and verify**
+Run the build command above. Expected: build succeeds (MSB8027/LNK4042 warnings are pre-existing and expected).
 
-Run build. Expected: no new errors. App should show compact toolbar with "FileScout" + ALPHA badge on the left.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add native/FileScout.Native/MainWindow.xaml
-git commit -m "feat(ui): merge app identity into toolbar card (R16a step 2)"
+git commit -m "feat(ui): align shell chrome with approved visual design"
 ```
 
 ---
 
-### Task 3: Fix sidebar background contrast
+### Task 2: Fix sidebar contrast and preserve the approved shell surfaces
 
 **Files:**
-- Modify: `native/FileScout.Native/MainWindow.xaml:202-206` (sidebar Border)
+- Modify: `native/FileScout.Native/MainWindow.xaml:202-329`
 
 - [ ] **Step 1: Replace sidebar Background brush**
 
@@ -176,111 +148,42 @@ Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
 
 This resolves clearly in both dark and light themes without conflicting with the Mica backdrop.
 
-- [ ] **Step 2: Build and verify**
+- [ ] **Step 2: Keep the inspector and pane backgrounds unchanged**
 
-Run build. Expected: no new errors.
+Do not widen this task into list-row, tab-strip, or inspector structure changes. The design direction is surface polish, not a control rewrite.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Give the inactive pane a visible neutral border**
 
-```bash
-git add native/FileScout.Native/MainWindow.xaml
-git commit -m "fix(ui): fix faint sidebar background - use CardBackgroundFillColorDefault (R16a step 3)"
-```
-
----
-
-### Task 4: Fix inactive pane border (XAML side)
-
-**Files:**
-- Modify: `native/FileScout.Native/MainWindow.xaml:315-319` (RightPaneBorder)
-
-- [ ] **Step 1: Give inactive pane a visible neutral border**
-
-`RightPaneBorder` currently has `BorderBrush="Transparent"` and `BorderThickness="2"`. Change to a 1px neutral border so both panes are always framed:
+`RightPaneBorder` currently has `BorderBrush="Transparent"`. Change it to:
 
 ```xml
-<Border Grid.Column="2"
-        x:Name="RightPaneBorder"
-        CornerRadius="8"
-        BorderThickness="1"
-        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+BorderThickness="1"
+BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
 ```
 
-- [ ] **Step 2: Build and verify**
+Leave `LeftPaneBorder` as the active default in XAML.
 
-Run build.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add native/FileScout.Native/MainWindow.xaml
-git commit -m "fix(ui): inactive pane gets 1px neutral border instead of transparent (R16a step 4)"
-```
-
----
-
-## Slice R16b — Icon System (C++ + XAML)
-
-### Task 5: Update active pane indicator to set thickness in C++
-
-**Files:**
-- Modify: `native/FileScout.Native/MainWindow.xaml.cpp:3672-3682`
-
-The existing `UpdateActivePaneIndicator()` sets brush but not thickness. Now that the XAML initial states have been changed (Task 4), the C++ toggle must manage both brush and thickness.
-
-- [ ] **Step 1: Update UpdateActivePaneIndicator**
-
-Replace the function body (lines 3672–3682) with:
-
-```cpp
-void MainWindow::UpdateActivePaneIndicator()
-{
-    auto const activeBrush   = LookupBrush(L"AccentFillColorDefaultBrush");
-    auto const inactiveBrush = LookupBrush(L"CardStrokeColorDefaultBrush");
-
-    bool const leftActive = (m_activePaneIndex == 0);
-
-    LeftPaneBorder().BorderBrush(leftActive ? activeBrush : inactiveBrush);
-    LeftPaneBorder().BorderThickness(leftActive
-        ? Thickness{ 2, 2, 2, 2 }
-        : Thickness{ 1, 1, 1, 1 });
-
-    RightPaneBorder().BorderBrush(leftActive ? inactiveBrush : activeBrush);
-    RightPaneBorder().BorderThickness(leftActive
-        ? Thickness{ 1, 1, 1, 1 }
-        : Thickness{ 2, 2, 2, 2 });
-}
-```
-
-Note: `Thickness` is `winrt::Microsoft::UI::Xaml::Thickness` — it is already in scope throughout `MainWindow.xaml.cpp`. No new include needed.
-
-- [ ] **Step 2: Build and verify**
+- [ ] **Step 4: Build and verify**
 
 Run build. Expected: no new errors.
 
-- [ ] **Step 3: Verify at runtime (manual)**
-
-Launch the app. Click between the left and right panes. The active pane should show a thick blue border; the inactive pane a thin neutral border.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add native/FileScout.Native/MainWindow.xaml.cpp
-git commit -m "fix(ui): pane indicator sets thickness in addition to brush color (R16b step 1)"
+git add native/FileScout.Native/MainWindow.xaml
+git commit -m "fix(ui): strengthen sidebar and pane surfaces for visual polish"
 ```
 
 ---
 
-### Task 6: Add BuildSidebarFontIcon helper
+### Task 3: Replace ad hoc sidebar iconography with Fluent glyphs where appropriate
 
 **Files:**
-- Modify: `native/FileScout.Native/MainWindow.xaml.cpp` (add after `BuildSidebarDriveGlyph`, around line 524)
-
-This is the core building block for all subsequent icon work. Adding it as a named helper keeps the code DRY.
+- Modify: `native/FileScout.Native/MainWindow.xaml.cpp:382-523`
 
 - [ ] **Step 1: Add the helper function**
 
-Insert after `BuildSidebarDriveGlyph()` (after line 523):
+Add a local helper for Segoe Fluent `FontIcon` construction near the existing sidebar glyph helpers:
 
 ```cpp
 // Build a sidebar FontIcon using the Windows 11 Segoe Fluent Icons font.
@@ -303,36 +206,9 @@ winrt::Microsoft::UI::Xaml::Controls::FontIcon BuildSidebarFontIcon(
 }
 ```
 
-Make sure `FontIcon` is accessible — add to pch.h if not already present:
-```cpp
-#include <winrt/Microsoft.UI.Xaml.Controls.h>  // FontIcon is in this header
-```
+- [ ] **Step 2: Replace the drive monogram with a drive glyph**
 
-(Check `pch.h` first — `FontIcon` may already be transitively included via existing TabView/ListView headers.)
-
-- [ ] **Step 2: Build and verify**
-
-Run build. Expected: no errors. The helper is not yet called, so no visual change.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add native/FileScout.Native/MainWindow.xaml.cpp native/FileScout.Native/pch.h
-git commit -m "feat(ui): add BuildSidebarFontIcon helper for Segoe Fluent glyph icons (R16b step 2)"
-```
-
----
-
-### Task 7: Replace drive letter monogram with HardDrive glyph
-
-**Files:**
-- Modify: `native/FileScout.Native/MainWindow.xaml.cpp:512-523`
-
-`BuildSidebarDriveGlyph()` currently renders a TextBlock with the drive letter ("C", "D"). Replace with the `EDA2` HardDrive glyph.
-
-- [ ] **Step 1: Replace BuildSidebarDriveGlyph body**
-
-Replace lines 512–523 with:
+Update `BuildSidebarDriveGlyph()` so it no longer renders a drive-letter text block. Use Fluent glyph `EDA2` instead:
 
 ```cpp
 winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarDriveGlyph(
@@ -343,37 +219,7 @@ winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarDriveGlyph(
 }
 ```
 
-The `path` parameter is kept in the signature for callsite compatibility but is no longer used (the glyph is the same for all drives). Suppress the unused-parameter warning with a `/*path*/` comment as shown.
-
-- [ ] **Step 2: Build and verify**
-
-Run build. Expected: no errors.
-
-- [ ] **Step 3: Verify at runtime**
-
-Launch the app. The sidebar drive entries should now show the Windows hard drive icon instead of letter monograms.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add native/FileScout.Native/MainWindow.xaml.cpp
-git commit -m "feat(ui): replace drive letter monogram with Segoe Fluent HardDrive glyph EDA2 (R16b step 3)"
-```
-
----
-
-### Task 8: Replace sidebar place icons with Segoe Fluent glyphs
-
-**Files:**
-- Modify: `native/FileScout.Native/MainWindow.xaml.cpp` (wherever `BuildSidebarGlyph` is called for places)
-
-`BuildSidebarGlyph()` currently takes an `optional<IconBitmap>` (shell-extracted) and a fallback text. For the standard shell folders (Home, Desktop, Documents, Downloads, Pictures), we want to use Fluent glyphs instead of shell-extracted bitmaps.
-
-- [ ] **Step 1: Find all callsites of BuildSidebarGlyph for Places**
-
-Search `MainWindow.xaml.cpp` for `BuildSidebarGlyph`. The callsites for pinned/favorite places pass in a `FavoriteEntry` icon. Identify the entries that correspond to well-known shell folders (Home/Quick Access, Desktop, Documents, Downloads, Pictures).
-
-- [ ] **Step 2: Add a glyph-lookup helper for known shell folders**
+- [ ] **Step 3: Add a glyph lookup for well-known shell folders**
 
 Add this helper after `BuildSidebarFontIcon` (around line 540):
 
@@ -397,7 +243,7 @@ std::wstring_view KnownFolderGlyph(std::wstring_view const displayName)
 }
 ```
 
-- [ ] **Step 3: Update BuildSidebarGlyph to try known-folder glyph first**
+- [ ] **Step 4: Update BuildSidebarGlyph to prefer Fluent glyphs for known places**
 
 Replace `BuildSidebarGlyph` (lines 382–409) with:
 
@@ -442,7 +288,7 @@ winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarGlyph(
 }
 ```
 
-- [ ] **Step 4: Update all callsites of BuildSidebarGlyph**
+- [ ] **Step 5: Update all callsites of BuildSidebarGlyph**
 
 The signature now takes `displayName` as its first argument. Search for `BuildSidebarGlyph(` in `MainWindow.xaml.cpp` and update each callsite.
 
@@ -458,81 +304,71 @@ BuildSidebarGlyph(entry.display_name, entryIcon, SidebarFavoriteFallbackLabel(en
 
 `entryIcon` is a locally-computed `std::optional<IconBitmap>` (from `m_shellInterop.GetItemIcon`). `entry.display_name` is already in scope at the callsite.
 
-- [ ] **Step 5: Build and verify**
+- [ ] **Step 6: Preserve native file-list icons**
+
+Do not modify the shell icon extraction path in `ShellInteropService.cpp` or the row rendering path in XAML. The sidebar/tool chrome is moving to glyphs; file rows remain shell-extracted.
+
+- [ ] **Step 7: Build and verify**
 
 Run build. Expected: no errors.
 
-- [ ] **Step 6: Verify at runtime**
+- [ ] **Step 8: Verify at runtime**
 
 Launch app. Home, Desktop, Documents, Downloads, Pictures sidebar entries should show Segoe Fluent glyphs. Custom pinned folders fall back to shell-extracted bitmaps.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add native/FileScout.Native/MainWindow.xaml.cpp
-git commit -m "feat(ui): sidebar places use Segoe Fluent glyphs for known shell folders (R16b step 4)"
+git commit -m "feat(ui): switch approved sidebar chrome to Fluent glyphs"
 ```
 
 ---
 
-### Task 9: Replace toolbar SymbolIcon with FontIcon (XAML)
+### Task 4: Keep pane activation visuals aligned with the mockup
 
 **Files:**
-- Modify: `native/FileScout.Native/MainWindow.xaml:150, 161, 187`
+- Modify: `native/FileScout.Native/MainWindow.xaml.cpp:3672-3682`
 
-The Back, Forward, and Refresh toolbar buttons use `<SymbolIcon Symbol="Back/Forward/Refresh">`. Replace with `<FontIcon>` glyphs for pixel-perfect Segoe Fluent rendering.
+The existing `UpdateActivePaneIndicator()` sets brush but not thickness. With the new XAML defaults, the runtime toggle must manage both active and inactive states explicitly.
 
-**Note on line numbers:** The line numbers below are relative to the original file. After Task 1 removes the hero card block (lines 53–128), all subsequent XAML lines shift down by ~76. Use your editor's search for `Symbol="Back"`, `Symbol="Forward"`, and `Symbol="Refresh"` rather than relying on absolute line numbers.
+- [ ] **Step 1: Update UpdateActivePaneIndicator**
 
-- [ ] **Step 1: Replace Back button SymbolIcon (search: `Symbol="Back"`)**
+Replace the function body with:
 
-```xml
-<!-- Before -->
-<SymbolIcon Symbol="Back" />
+```cpp
+void MainWindow::UpdateActivePaneIndicator()
+{
+    auto const activeBrush   = LookupBrush(L"AccentFillColorDefaultBrush");
+    auto const inactiveBrush = LookupBrush(L"CardStrokeColorDefaultBrush");
 
-<!-- After -->
-<FontIcon Glyph="&#xE76B;"
-          FontFamily="Segoe Fluent Icons"
-          FontSize="14" />
+    bool const leftActive = (m_activePaneIndex == 0);
+
+    LeftPaneBorder().BorderBrush(leftActive ? activeBrush : inactiveBrush);
+    LeftPaneBorder().BorderThickness(leftActive
+        ? Thickness{ 2, 2, 2, 2 }
+        : Thickness{ 1, 1, 1, 1 });
+
+    RightPaneBorder().BorderBrush(leftActive ? inactiveBrush : activeBrush);
+    RightPaneBorder().BorderThickness(leftActive
+        ? Thickness{ 1, 1, 1, 1 }
+        : Thickness{ 2, 2, 2, 2 });
+}
 ```
 
-- [ ] **Step 2: Replace Forward button SymbolIcon (search: `Symbol="Forward"`)**
-
-```xml
-<!-- Before -->
-<SymbolIcon Symbol="Forward" />
-
-<!-- After -->
-<FontIcon Glyph="&#xE76C;"
-          FontFamily="Segoe Fluent Icons"
-          FontSize="14" />
-```
-
-- [ ] **Step 3: Replace Refresh button SymbolIcon (search: `Symbol="Refresh"`)**
-
-```xml
-<!-- Before -->
-<SymbolIcon Symbol="Refresh" />
-
-<!-- After -->
-<FontIcon Glyph="&#xE72C;"
-          FontFamily="Segoe Fluent Icons"
-          FontSize="14" />
-```
-
-- [ ] **Step 4: Build and verify**
+- [ ] **Step 2: Build and verify**
 
 Run build.
 
-- [ ] **Step 5: Verify at runtime**
+- [ ] **Step 3: Verify at runtime**
 
-Launch app. Back, Forward, Refresh buttons in the merged toolbar should render clean Segoe Fluent glyphs.
+Launch app. Active pane should show a thicker accent border; inactive pane should retain a visible thin neutral border.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add native/FileScout.Native/MainWindow.xaml
-git commit -m "feat(ui): toolbar Back/Forward/Refresh use Segoe Fluent FontIcon glyphs (R16b step 5)"
+git add native/FileScout.Native/MainWindow.xaml.cpp
+git commit -m "fix(ui): align pane activation visuals with approved chrome"
 ```
 
 ---
@@ -576,12 +412,10 @@ After all tasks pass and the checklist is green:
 
 ```bash
 git add -u
-git commit -m "feat(ui): complete visual polish R16 (chrome + sidebar contrast + Fluent icons)
+git commit -m "feat(ui): complete visual polish R16
 
-- Removes hero card, adds compact merged toolbar with identity row
-- Fixes sidebar from faint LayerFillColorAlt to CardBackgroundFillColorDefault
-- Replaces drive letter monograms with EDA2 HardDrive glyph
-- Replaces known shell folder icons with Segoe Fluent glyphs
-- Upgrades toolbar Back/Forward/Refresh to FontIcon glyphs
-- Active pane now sets both border brush and thickness"
+- Applies approved full-design-v2 shell chrome direction
+- Keeps file rows on native shell-extracted icon rendering
+- Replaces ad hoc sidebar/toolbar chrome icons with Fluent glyphs
+- Strengthens sidebar contrast and pane activation surfaces"
 ```

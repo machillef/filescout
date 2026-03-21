@@ -12,6 +12,7 @@ namespace FileScoutNative::Domain
         PaneSelectionState selection;
         int32_t selected_item_index{ -1 };
         bool is_drives_view{ false };
+        bool is_archive_view{ false };
 
         [[nodiscard]] std::wstring display_name() const
         {

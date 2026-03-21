@@ -9,6 +9,7 @@
 #include <shellapi.h>
 #include <shlobj_core.h>
 #include <shobjidl.h>
+#include <propkey.h>
 
 #undef GetCurrentTime
 

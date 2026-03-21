@@ -8,7 +8,10 @@ namespace FileScoutNative::Shell
     struct ContextMenuScenario
     {
         std::optional<FileScoutNative::Domain::ShellItemRef> focused_item;
+        uint32_t selection_count{ 0 };
         bool can_paste{ false };
+        bool can_pin_to_places{ false };
+        bool is_read_only_archive_view{ false };
     };
 
     class ContextMenuService
@@ -23,7 +26,8 @@ namespace FileScoutNative::Shell
             std::wstring shortcutText = {},
             bool available = true,
             FileScoutNative::Domain::ExplorerCommandSource source =
-                FileScoutNative::Domain::ExplorerCommandSource::App);
+                FileScoutNative::Domain::ExplorerCommandSource::App,
+            bool isDestructive = false);
 
     private:
     };

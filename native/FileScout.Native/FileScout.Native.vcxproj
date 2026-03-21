@@ -127,7 +127,6 @@
     <ClInclude Include="Domain\ClipboardService.h" />
     <ClInclude Include="Domain\ContextMenuModel.h" />
     <ClInclude Include="Domain\ExplorerCommand.h" />
-    <ClInclude Include="Domain\OperationRequest.h" />
     <ClInclude Include="Domain\PaneSelectionState.h" />
     <ClInclude Include="Domain\FavoriteEntry.h" />
     <ClInclude Include="Domain\ShellItemRef.h" />

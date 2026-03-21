@@ -4,6 +4,7 @@
 **Scope:** Visual treatment only — colors, contrast, iconography, chrome layout. No structural feature changes.
 **Baseline:** Existing WinUI 3 / C++/WinRT app in `native/FileScout.Native/`
 **Target OS:** Windows 11 x64 (minimum, unpackaged)
+**Visual source of truth:** `C:\Users\machi\source\repos\filescout\.superpowers\brainstorm\2171-1773962558\full-design-v2.html`
 
 ---
 
@@ -14,10 +15,11 @@
 | Chrome layout | Remove hero header card; replace with single merged toolbar card |
 | Sidebar background | Fix faint `#F7FAFDCC` → opaque dark WinUI surface (`#20203C`) |
 | Navigation icons | Segoe Fluent Icons glyphs via `FontIcon`, constructed in C++/WinRT |
-| File list icons | Shell-extracted at runtime via `IShellItemImageFactory` (no change) |
+| File list icons | Keep native shell-extracted runtime icons via `IShellItemImageFactory` (no glyph replacement) |
 | Active pane indicator | Active pane: 2px `#0078D4` border; inactive: 1px neutral `CardStrokeColorDefaultBrush` |
 | Inspector | Remains at bottom of sidebar — no change |
 | Drive usage cards | Already implemented (`GetDiskFreeSpaceExW` + `ProgressBar`) — visual tweaks only |
+| Execution shape | Implement as one combined `R16` visual-polish slice, then host-test later |
 
 ---
 
@@ -196,21 +198,19 @@ RightPaneBorder().BorderThickness(isLeftActive ? Thickness{ 1,1,1,1 } : Thicknes
 
 ---
 
-## Implementation Slices
+## Implementation Slice
 
-### Slice R16a — Chrome + Sidebar contrast
+### Slice R16 — Visual polish from `full-design-v2.html`
 1. Remove hero card (Grid Row 0), shift remaining rows up, clean up `RowDefinitions` to 3 entries
 2. Extend toolbar card to include app name + ALPHA badge as leftmost elements
 3. Fix `HorizontalAlignment` on Back/Forward buttons (remove Stretch override)
 4. Fix toolbar container `CornerRadius` to 14
 5. Fix sidebar background to `CardBackgroundFillColorDefaultBrush`
-
-### Slice R16b — Icon system
-1. Update `BuildSidebarGlyph()` to use `FontIcon` for standard shell folders
-2. Update `BuildSidebarDriveGlyph()` to use `FontIcon` with `EDA2` instead of text monogram
-3. Update toolbar Back/Forward/Refresh from `SymbolIcon` to `FontIcon` with correct glyph codes
-4. Add `// Win11 only` comment wherever Fluent-only glyphs are used
-5. Update active/inactive pane border logic (XAML + C++ handler)
+6. Update `BuildSidebarGlyph()` to use `FontIcon` for standard shell folders
+7. Update `BuildSidebarDriveGlyph()` to use `FontIcon` with `EDA2` instead of text monogram
+8. Update toolbar Back/Forward/Refresh from `SymbolIcon` to `FontIcon` with correct glyph codes
+9. Add `// Win11 only` comment wherever Fluent-only glyphs are used
+10. Update active/inactive pane border logic (XAML + C++ handler)
 
 ---
 

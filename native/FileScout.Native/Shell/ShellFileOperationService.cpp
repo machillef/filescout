@@ -98,12 +98,60 @@ namespace FileScoutNative::Shell
         return path.parent_path() / newName;
     }
 
+    std::vector<std::filesystem::path> ShellFileOperationService::RenameItems(
+        HWND const ownerWindow,
+        std::span<RenameRequest const> const requests) const
+    {
+        std::vector<std::filesystem::path> renamedPaths;
+        if (requests.empty())
+        {
+            return renamedPaths;
+        }
+
+        auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
+        renamedPaths.reserve(requests.size());
+
+        for (auto const& request : requests)
+        {
+            if (request.new_name.empty())
+            {
+                ThrowFileOperationFailure(L"Batch rename requests need a target name");
+            }
+
+            auto item = CreateShellItem(request.path);
+            winrt::check_hresult(fileOperation->RenameItem(item.get(), request.new_name.c_str(), nullptr));
+            renamedPaths.push_back(request.path.parent_path() / request.new_name);
+        }
+
+        PerformFileOperation(fileOperation.get());
+        return renamedPaths;
+    }
+
     void ShellFileOperationService::DeleteItem(HWND const ownerWindow, std::filesystem::path const& path) const
     {
         auto fileOperation = CreateFileOperation(ownerWindow, deleteMutationFlags);
         auto item = CreateShellItem(path);
 
         winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
+        PerformFileOperation(fileOperation.get());
+    }
+
+    void ShellFileOperationService::DeleteItems(
+        HWND const ownerWindow,
+        std::span<std::filesystem::path const> const paths) const
+    {
+        if (paths.empty())
+        {
+            return;
+        }
+
+        auto fileOperation = CreateFileOperation(ownerWindow, deleteMutationFlags);
+        for (auto const& path : paths)
+        {
+            auto item = CreateShellItem(path);
+            winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
+        }
+
         PerformFileOperation(fileOperation.get());
     }
 
@@ -135,6 +183,26 @@ namespace FileScoutNative::Shell
                     fileOperation->CopyItem(sourceItem.get(), destinationFolder.get(), nullptr, nullptr));
             }
         }
+
+        PerformFileOperation(fileOperation.get());
+    }
+
+    void ShellFileOperationService::CopyItemFromPath(
+        HWND const ownerWindow,
+        std::filesystem::path const& sourcePath,
+        std::filesystem::path const& destinationDirectory,
+        std::wstring const& newName) const
+    {
+        auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
+        auto destinationFolder = CreateShellItem(destinationDirectory);
+        auto sourceItem = CreateShellItem(sourcePath);
+
+        auto const* targetName = newName.empty() ? nullptr : newName.c_str();
+        winrt::check_hresult(fileOperation->CopyItem(
+            sourceItem.get(),
+            destinationFolder.get(),
+            targetName,
+            nullptr));
 
         PerformFileOperation(fileOperation.get());
     }

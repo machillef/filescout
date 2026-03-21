@@ -16,6 +16,7 @@ namespace FileScoutNative::Domain
         std::wstring icon_key;
         std::wstring shortcut_text;
         bool available{ true };
+        bool is_destructive{ false };
         ExplorerCommandSource source{ ExplorerCommandSource::App };
     };
 }

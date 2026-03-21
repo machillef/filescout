@@ -31,5 +31,9 @@ namespace FileScoutNative::Domain
         uint32_t file_attributes{ 0 };
         // True when the file extension belongs to a common image format (jpg/png/gif/bmp/etc.).
         bool is_image{ false };
+        // True when the filename matches a known archive-like extension (zip/tar/7z/etc.).
+        bool is_archive_candidate{ false };
+        // True when Windows shell namespace enumeration can browse this archive directly.
+        bool is_supported_archive{ false };
     };
 }
