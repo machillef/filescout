@@ -12,6 +12,7 @@
 #include "Shell\ShellFileOperationService.h"
 #include "Shell\ShellOverflowMenuService.h"
 #include "Shell\ShellInteropService.h"
+#include "Search\SearchService.h"
 
 namespace winrt::FileScoutNative::implementation
 {
@@ -23,6 +24,9 @@ namespace winrt::FileScoutNative::implementation
 
     // Presentation mode for the file list — cards show rich cards; list shows compact rows.
     enum class ViewMode { Cards, List };
+
+    // Search state for the address bar.
+    enum class SearchMode { None, Filter, Recursive };
 
     // Per-pane UI and browse state. One instance per visible pane.
     struct PaneLoadTiming
@@ -62,6 +66,14 @@ namespace winrt::FileScoutNative::implementation
         // Set to true when the user interacts with the pane after the first batch appears.
         // Prevents the final-batch publish from overwriting live selection/focus state.
         bool user_interacted_after_first_batch{ false };
+
+        // --- Search state (R17) ---
+        SearchMode search_mode{ SearchMode::None };
+        std::wstring search_query;
+        // Snapshot of current tab's items taken at Filter entry.
+        // Used for both scoring and Escape-restore; avoids live pane.items divergence.
+        std::vector<::FileScoutNative::Domain::ShellItemRef> search_snapshot;
+        ::FileScoutNative::Search::SearchService search_service;
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -74,6 +86,12 @@ namespace winrt::FileScoutNative::implementation
         void AddressTextBox_KeyDown(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
+        void SearchAccelerator_Invoked(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const&);
+        void AddressTextBox_TextChanged(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&);
         void FileRowsListView_SelectionChanged(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);

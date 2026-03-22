@@ -151,7 +151,8 @@
                                  AutomationProperties.LabeledBy="{Binding ElementName=ActiveLocationTextBlock}"
                                  Style="{StaticResource ChromeAddressTextBoxStyle}"
                                  PlaceholderText="Enter a filesystem path"
-                                 KeyDown="AddressTextBox_KeyDown" />
+                                 KeyDown="AddressTextBox_KeyDown"
+                                 TextChanged="AddressTextBox_TextChanged" />
                     </Grid>
                 </Grid>
                 <Border Height="1"

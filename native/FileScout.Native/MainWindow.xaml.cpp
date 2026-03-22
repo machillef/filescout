@@ -8,6 +8,7 @@
 #include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
 #include "MainWindow.xaml.h"
 #include "Domain/FileNameValidation.h"
+#include "Search/FuzzyMatcher.h"
 #include "TraceHelper.h"
 
 #if __has_include("MainWindow.g.cpp")
@@ -1260,6 +1261,33 @@ namespace winrt::FileScoutNative::implementation
         winrt::Windows::Foundation::IInspectable const&,
         Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
     {
+        auto& pane = ActivePane();
+
+        if (args.Key() == winrt::Windows::System::VirtualKey::Escape)
+        {
+            if (pane.search_mode == SearchMode::Filter || pane.search_mode == SearchMode::Recursive)
+            {
+                args.Handled(true);
+                // Cancel any background walk.
+                pane.search_service.Cancel();
+                pane.search_mode = SearchMode::None;
+                pane.search_query.clear();
+
+                // Restore ListView from snapshot.
+                auto& rows = pane.tab_rows[pane.active_tab_index];
+                rows.Clear();
+                bool const listMode = (pane.view_mode == ViewMode::List);
+                for (auto const& item : pane.search_snapshot)
+                    rows.Append(CreateRowView(item, listMode));
+
+                // Restore address bar.
+                AddressTextBox().IsReadOnly(false);
+                AddressTextBox().PlaceholderText(L"Enter a filesystem path");
+                AddressTextBox().Text(ToHString(pane.current_path.wstring()));
+                return;
+            }
+        }
+
         if (args.Key() != winrt::Windows::System::VirtualKey::Enter)
         {
             return;
@@ -1275,6 +1303,77 @@ namespace winrt::FileScoutNative::implementation
 
         LoadDirectory(pathText);
         args.Handled(true);
+    }
+
+    void MainWindow::SearchAccelerator_Invoked(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args)
+    {
+        args.Handled(true);
+
+        auto& pane = ActivePane();
+
+        // Disabled while staged load is pending — snapshot would be incomplete.
+        if (pane.awaiting_final_batch) return;
+
+        // Ignored when already in Filter or Recursive mode.
+        if (pane.search_mode != SearchMode::None) return;
+
+        // Transition to Filter mode.
+        pane.search_mode = SearchMode::Filter;
+        pane.search_query.clear();
+
+        // Snapshot the current tab's items (value copy — independent of ListView mutations).
+        auto const tabIndex = pane.active_tab_index;
+        pane.search_snapshot = pane.tabs[tabIndex].items;
+
+        // Clear address bar and set placeholder.
+        auto const folderName = pane.current_path.filename().empty()
+            ? pane.current_path.wstring()
+            : pane.current_path.filename().wstring();
+        AddressTextBox().Text(L"");
+        AddressTextBox().PlaceholderText(L"Search in " + folderName + L"\u2026");
+        AddressTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+    }
+
+    void MainWindow::AddressTextBox_TextChanged(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&)
+    {
+        auto& pane = ActivePane();
+        if (pane.search_mode != SearchMode::Filter) return;
+
+        std::wstring query{ AddressTextBox().Text() };
+        pane.search_query = query;
+
+        auto& rows = pane.tab_rows[pane.active_tab_index];
+        rows.Clear();
+
+        if (query.size() < 2)
+        {
+            // Show all snapshot items unfiltered.
+            bool const listMode = (pane.view_mode == ViewMode::List);
+            for (auto const& item : pane.search_snapshot)
+                rows.Append(CreateRowView(item, listMode));
+            return;
+        }
+
+        // Score all snapshot items and collect top 200.
+        std::vector<std::pair<int, ::FileScoutNative::Domain::ShellItemRef const*>> scored;
+        scored.reserve(pane.search_snapshot.size());
+        for (auto const& item : pane.search_snapshot)
+        {
+            int s = ::FileScoutNative::Search::FuzzyScore(query, item.display_name);
+            if (s >= 0)
+                scored.emplace_back(s, &item);
+        }
+        std::sort(scored.begin(), scored.end(),
+            [](auto const& a, auto const& b) { return a.first > b.first; });
+        if (scored.size() > 200) scored.resize(200);
+
+        bool const listMode = (pane.view_mode == ViewMode::List);
+        for (auto const& [score, itemPtr] : scored)
+            rows.Append(CreateRowView(*itemPtr, listMode));
     }
 
     void MainWindow::FileRowsListView_SelectionChanged(
@@ -1644,6 +1743,13 @@ namespace winrt::FileScoutNative::implementation
         auto const tabView = sender.as<winrt::Microsoft::UI::Xaml::Controls::TabView>();
         auto const paneIndex = PaneIndexForTabView(tabView);
         auto& pane = m_panes[paneIndex];
+
+        if (pane.search_mode != SearchMode::None)
+        {
+            pane.search_service.Cancel();
+            pane.search_mode = SearchMode::None;
+            pane.search_query.clear();
+        }
 
         if (pane.tab_switching || pane.tabs.empty())
         {
@@ -3558,6 +3664,18 @@ namespace winrt::FileScoutNative::implementation
         AddAccelerator(VK::W, VKM::Control, L"closeTab");
         // Ctrl+Tab / Ctrl+Shift+Tab cycle through panes.
         AddAccelerator(VK::Tab, VKM::Control, L"switchPane");
+
+        // Ctrl+F — enter search/filter mode for the active pane.
+        {
+            auto accel = KA{};
+            accel.Key(VK::F);
+            accel.Modifiers(VKM::Control);
+            accel.Invoked([this](winrt::Windows::Foundation::IInspectable const& sender, KAArgs const& e)
+            {
+                SearchAccelerator_Invoked(sender, e);
+            });
+            accelerators.Append(accel);
+        }
     }
 
     winrt::fire_and_forget MainWindow::OpenArchiveItemAsync(::FileScoutNative::Domain::ShellItemRef item)
@@ -4058,6 +4176,16 @@ namespace winrt::FileScoutNative::implementation
         if (m_activePaneIndex == paneIndex)
         {
             return;
+        }
+
+        // Exit search mode on the outgoing pane before switching.
+        auto& outgoing = m_panes[m_activePaneIndex];
+        if (outgoing.search_mode != SearchMode::None)
+        {
+            outgoing.search_service.Cancel();
+            outgoing.search_mode = SearchMode::None;
+            outgoing.search_query.clear();
+            // (ListView restore happens implicitly when the pane regains focus later.)
         }
 
         m_activePaneIndex = paneIndex;
