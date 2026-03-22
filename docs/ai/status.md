@@ -1435,3 +1435,90 @@ Last updated: 2026-03-22
 ### Next recommended step
 - Start R17c: address bar state machine (SearchMode enum, PaneContext search fields,
   Ctrl+F handler, TextChanged filter, Escape restore, nav/tab cancel guards)
+
+## Slice R17c: SearchFilter Mode — Address Bar State Machine
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- Added `SearchMode` enum `{ None, Filter, Recursive }` to `MainWindow.xaml.h`
+- Added search state fields to `PaneContext`: `search_mode`, `search_query`,
+  `search_snapshot`, `search_service` (owns a `SearchService` instance)
+- Added `SearchAccelerator_Invoked` and `AddressTextBox_TextChanged` public
+  handler declarations; added `#include "Search/SearchService.h"` to header
+- Added `#include "Search/FuzzyMatcher.h"` to `MainWindow.xaml.cpp`
+- `SearchAccelerator_Invoked`: enters Filter mode, snapshots current tab items,
+  clears address bar with contextual placeholder, focuses TextBox
+- `AddressTextBox_TextChanged`: scores snapshot items with `FuzzyScore`, shows
+  top-200 sorted by score; shows all unfiltered for queries shorter than 2 chars
+- `AddressTextBox_KeyDown`: Escape in Filter/Recursive cancels walk, restores
+  ListView from snapshot, resets address bar text and placeholder
+- `SetActivePaneIndex`: cancels search on outgoing pane before switching
+- `PaneTabView_SelectionChanged`: cancels search before tab switch
+- Wired Ctrl+F via `SetupKeyboardAccelerators` (code-behind), NOT XAML markup
+
+### Deviations from plan
+- `Window.KeyboardAccelerators` XAML block not supported by WinUI 3 XAML compiler
+  (error WMC0011). Wired Ctrl+F via `SetupKeyboardAccelerators()` in code-behind —
+  semantically identical, consistent with all other keyboard accelerators
+- `item.name` → `item.display_name`: plan referenced non-existent field; correct
+  field name is `display_name` in `FileScoutNative::Domain::ShellItemRef`
+
+### What was validated
+- Build: PASS (0 errors; pre-existing MSB8027/LNK4042 warnings only)
+- Tests: 71/71 PASS (no regression)
+
+### What remains unverified
+- Manual smoke: Ctrl+F in running app enters filter mode, address bar clears with
+  placeholder, typing filters the file list, Escape restores the original list
+- Behavior when TextBox is focused and Ctrl+F fires (WinUI 3 may route the key
+  to the TextBox first — if so, add ProcessKeyboardAccelerators on TextBox)
+- Pane-switch and tab-switch cancel behavior in the running app
+
+### Blockers
+- None
+
+### Next recommended step
+- Start R17d: SearchRecursive mode — Enter escalation, ProgressBar, streaming
+  results from SearchService into the ListView
+
+## Slice R17d: SearchRecursive Mode — Enter Escalation And Streaming Results
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- Added per-pane `ProgressBar` (`LeftPaneSearchProgress` / `RightPaneSearchProgress`)
+  in XAML — third row (Auto) between sort header and TabView, `Visibility=Collapsed`
+- Added `SearchProgressForPane(int32_t)` accessor helper in header + cpp
+- `AddressTextBox_KeyDown`: Enter in Filter mode with query ≥ 2 chars escalates to
+  Recursive mode — shows ProgressBar, sets address bar read-only to "Search: <query>",
+  starts `SearchService::Start()` with `m_dispatcherQueue.TryEnqueue` as PostFn;
+  streaming `on_results` replaces ListView rows on each batch; `on_complete` hides
+  ProgressBar and updates status bar (cap warning or "N matches in <path>")
+- Escape handler extended: hides ProgressBar before restoring ListView
+- `LoadDirectory`: exits search mode at start — cancels walk, hides ProgressBar,
+  resets address bar read-only/placeholder before navigating
+- `SetActivePaneIndex`: hides ProgressBar when cancelling outgoing pane search
+- `PaneTabView_SelectionChanged`: hides ProgressBar when cancelling search on tab switch
+
+### Deviations from plan
+- Plan used `tmp.name` and `tmp.full_path` (non-existent fields); corrected to
+  `tmp.display_name` and `tmp.path` per `ShellItemRef` struct definition
+- `SearchProgressForPane` added to `.h` as private member (plan omitted the declaration)
+
+### What was validated
+- Build: PASS (0 errors; pre-existing MSB8027/LNK4042 warnings only)
+- Tests: 71/71 PASS (no regression)
+
+### What remains unverified
+- Manual smoke: Enter from Filter mode starts recursive walk, ProgressBar appears,
+  results stream in, status bar updates live, Escape exits cleanly
+- Double-click on a recursive result to navigate (not yet wired — R17e)
+- Relative-path subtitle in row view (not yet implemented — R17e)
+
+### Blockers
+- None
+
+### Next recommended step
+- Start R17e: result row polish — bold highlights, relative-path subtitle, double-click
+  navigation from Recursive results
