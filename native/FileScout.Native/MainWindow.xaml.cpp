@@ -1330,16 +1330,12 @@ namespace winrt::FileScoutNative::implementation
                     *resultCount = static_cast<int>(results.size());
                     StatusTextBlock().Text(std::to_wstring(*resultCount) + L" matches");
 
+                    p.search_results = results; // keep for navigate-on-select
+
                     auto& rows = p.tab_rows[p.active_tab_index];
                     rows.Clear();
-                    bool const listMode = (p.view_mode == ViewMode::List);
                     for (auto const& r : results)
-                    {
-                        ::FileScoutNative::Domain::ShellItemRef tmp;
-                        tmp.display_name = r.filename;
-                        tmp.path         = std::filesystem::path(r.full_path);
-                        rows.Append(CreateRowView(tmp, listMode));
-                    }
+                        rows.Append(CreateSearchRowView(r, p.current_path));
                 },
                 [this, paneIndex, resultCount](bool cap_reached)
                 {
@@ -1487,6 +1483,20 @@ namespace winrt::FileScoutNative::implementation
 
         if (!ActivePane().active_list_view)
         {
+            return;
+        }
+
+        // In Recursive search mode, double-click navigates to the result's parent folder.
+        auto& pane = ActivePane();
+        if (pane.search_mode == SearchMode::Recursive)
+        {
+            auto const idx = ResolveItemIndexFromSource(args.OriginalSource());
+            if (!idx.has_value()) return;
+            if (*idx < 0 || static_cast<std::size_t>(*idx) >= pane.search_results.size()) return;
+
+            auto const& result = pane.search_results[static_cast<std::size_t>(*idx)];
+            auto const fullPath = std::filesystem::path(result.full_path);
+            LoadDirectory(fullPath.parent_path(), fullPath);
             return;
         }
 
@@ -4315,6 +4325,39 @@ namespace winrt::FileScoutNative::implementation
     winrt::Microsoft::UI::Xaml::Controls::ProgressBar MainWindow::SearchProgressForPane(int32_t const paneIndex)
     {
         return paneIndex == 0 ? LeftPaneSearchProgress() : RightPaneSearchProgress();
+    }
+
+    winrt::Windows::Foundation::IInspectable MainWindow::CreateSearchRowView(
+        ::FileScoutNative::Search::SearchResult const& result,
+        std::filesystem::path const& searchRoot)
+    {
+        // Build relative path subtitle (e.g. "src\components\").
+        std::wstring subtitle;
+        std::error_code ec;
+        auto const rel = std::filesystem::relative(
+            std::filesystem::path(result.full_path).parent_path(), searchRoot, ec);
+        if (!ec && !rel.empty() && rel.wstring() != L".")
+            subtitle = rel.wstring() + L"\\";
+
+        namespace MUI = winrt::Microsoft::UI::Xaml::Controls;
+        MUI::StackPanel panel;
+        panel.Margin({ 12, 4, 12, 4 });
+
+        MUI::TextBlock nameText;
+        nameText.Text(winrt::hstring(result.filename));
+        nameText.FontSize(13);
+        panel.Children().Append(nameText);
+
+        if (!subtitle.empty())
+        {
+            MUI::TextBlock subText;
+            subText.Text(winrt::hstring(subtitle));
+            subText.FontSize(11);
+            subText.Opacity(0.6);
+            panel.Children().Append(subText);
+        }
+
+        return panel.as<winrt::Windows::Foundation::IInspectable>();
     }
 
     void MainWindow::BuildSortHeader(int32_t const paneIndex)

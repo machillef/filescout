@@ -73,6 +73,8 @@ namespace winrt::FileScoutNative::implementation
         // Snapshot of current tab's items taken at Filter entry.
         // Used for both scoring and Escape-restore; avoids live pane.items divergence.
         std::vector<::FileScoutNative::Domain::ShellItemRef> search_snapshot;
+        // Last Recursive-mode result batch — indexed parallel to ListView rows for navigate-on-select.
+        std::vector<::FileScoutNative::Search::SearchResult> search_results;
         ::FileScoutNative::Search::SearchService search_service;
     };
 
@@ -205,6 +207,10 @@ namespace winrt::FileScoutNative::implementation
 
         // R17d: per-pane search ProgressBar accessor.
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);
+        // R17e: search result row with relative-path subtitle.
+        [[nodiscard]] winrt::Windows::Foundation::IInspectable CreateSearchRowView(
+            ::FileScoutNative::Search::SearchResult const& result,
+            std::filesystem::path const& searchRoot);
 
         // R10: async image preview with a generation counter to cancel stale loads.
         uint32_t m_previewGeneration{ 0 };
