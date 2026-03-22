@@ -151,8 +151,12 @@
                         <Grid Grid.Column="1">
                             <!-- Breadcrumb bar — default view; tap to reveal address TextBox -->
                             <Border x:Name="BreadcrumbBarBorder"
-                                    Style="{StaticResource ChromeAddressTextBoxStyle}"
+                                    MinHeight="38"
                                     Padding="4,0,4,0"
+                                    CornerRadius="10"
+                                    BorderThickness="1"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                                     Tapped="BreadcrumbBarBorder_Tapped">
                                 <ScrollViewer HorizontalScrollBarVisibility="Hidden"
                                               VerticalScrollBarVisibility="Disabled"
