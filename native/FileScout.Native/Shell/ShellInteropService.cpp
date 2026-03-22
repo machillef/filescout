@@ -102,16 +102,20 @@ namespace FileScoutNative::Shell
 
         std::optional<FileScoutNative::Domain::IconBitmap> ExtractShellIconBitmap(
             std::wstring const& shellLookupName,
-            DWORD const fileAttributes)
+            DWORD const fileAttributes,
+            bool const useLiteralPath = false)
         {
             // COM is already initialized by winrt::init_apartment in main.cpp.
             SHFILEINFOW shellInfo{};
+            DWORD const flags = useLiteralPath
+                ? SHGFI_ICON | SHGFI_SMALLICON
+                : SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES;
             const auto result = SHGetFileInfoW(
                 shellLookupName.c_str(),
                 fileAttributes,
                 &shellInfo,
                 sizeof(shellInfo),
-                SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
+                flags);
 
             if (result == 0 || shellInfo.hIcon == nullptr)
             {
@@ -297,10 +301,21 @@ namespace FileScoutNative::Shell
 
         std::wstring lookupName;
         DWORD fileAttributes = FILE_ATTRIBUTE_NORMAL;
+        bool useLiteralPath = false;
         if (isFolder)
         {
-            lookupName = L"folder";
-            fileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+            // Drive roots (e.g. C:\) need the actual path so the shell returns the
+            // drive-specific icon instead of the generic folder icon.
+            if (path == path.root_path() && !path.root_name().empty())
+            {
+                lookupName = path.wstring();
+                useLiteralPath = true;
+            }
+            else
+            {
+                lookupName = L"folder";
+                fileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+            }
         }
         else
         {
@@ -316,7 +331,7 @@ namespace FileScoutNative::Shell
         }
 
         // Extract icon outside the lock — GDI/SHGetFileInfoW can be slow.
-        auto icon = ExtractShellIconBitmap(lookupName, fileAttributes).value_or(FileScoutNative::Domain::IconBitmap{});
+        auto icon = ExtractShellIconBitmap(lookupName, fileAttributes, useLiteralPath).value_or(FileScoutNative::Domain::IconBitmap{});
         {
             std::lock_guard lock{ m_cacheMutex };
             m_iconCache.emplace(cacheKey, icon);
