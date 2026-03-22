@@ -88,10 +88,16 @@ namespace winrt::FileScoutNative::implementation
         void AddressTextBox_KeyDown(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
+        void BreadcrumbBarBorder_Tapped(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::Input::TappedRoutedEventArgs const&);
         void SearchAccelerator_Invoked(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const&);
-        void AddressTextBox_TextChanged(
+        void SearchTextBox_KeyDown(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
+        void SearchTextBox_TextChanged(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&);
         void FileRowsListView_SelectionChanged(
@@ -204,6 +210,15 @@ namespace winrt::FileScoutNative::implementation
 
         void BuildSidebarFavorites();
         void LoadDrivesView();
+
+        // R18b: breadcrumb navigation bar + address overlay.
+        void UpdateBreadcrumbs(std::filesystem::path const& path);
+        void ShowAddressTextBox();
+        void HideAddressTextBox();
+        void UpdateSearchPlaceholder(std::filesystem::path const& path);
+        // R18c: keyboard type-ahead in file list.
+        void FileRowsListView_KeyDown(
+            winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args);
 
         // R17d: per-pane search ProgressBar accessor.
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);

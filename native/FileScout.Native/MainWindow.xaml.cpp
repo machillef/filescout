@@ -1261,6 +1261,51 @@ namespace winrt::FileScoutNative::implementation
         winrt::Windows::Foundation::IInspectable const&,
         Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
     {
+        if (args.Key() == winrt::Windows::System::VirtualKey::Escape)
+        {
+            args.Handled(true);
+            HideAddressTextBox();
+            return;
+        }
+
+        if (args.Key() != winrt::Windows::System::VirtualKey::Enter)
+        {
+            return;
+        }
+
+        auto const pathText = TrimFileName(AddressTextBox().Text().c_str());
+        args.Handled(true);
+        HideAddressTextBox();
+
+        if (_wcsicmp(pathText.c_str(), L"This PC") == 0)
+        {
+            LoadDrivesView();
+            return;
+        }
+
+        LoadDirectory(pathText);
+    }
+
+    void MainWindow::BreadcrumbBarBorder_Tapped(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Input::TappedRoutedEventArgs const&)
+    {
+        ShowAddressTextBox();
+    }
+
+    void MainWindow::SearchAccelerator_Invoked(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args)
+    {
+        args.Handled(true);
+        // Just focus the dedicated search box — typing will enter Filter mode automatically.
+        SearchTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+    }
+
+    void MainWindow::SearchTextBox_KeyDown(
+        winrt::Windows::Foundation::IInspectable const&,
+        Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
+    {
         auto& pane = ActivePane();
 
         if (args.Key() == winrt::Windows::System::VirtualKey::Escape)
@@ -1268,12 +1313,13 @@ namespace winrt::FileScoutNative::implementation
             if (pane.search_mode == SearchMode::Filter || pane.search_mode == SearchMode::Recursive)
             {
                 args.Handled(true);
-                // Cancel any background walk and hide progress bar.
                 pane.search_service.Cancel();
                 SearchProgressForPane(m_activePaneIndex).Visibility(
                     winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
                 pane.search_mode = SearchMode::None;
                 pane.search_query.clear();
+                SearchTextBox().IsReadOnly(false);
+                SearchTextBox().Text(L"");
 
                 // Restore ListView from snapshot.
                 auto& rows = pane.tab_rows[pane.active_tab_index];
@@ -1281,13 +1327,8 @@ namespace winrt::FileScoutNative::implementation
                 bool const listMode = (pane.view_mode == ViewMode::List);
                 for (auto const& item : pane.search_snapshot)
                     rows.Append(CreateRowView(item, listMode));
-
-                // Restore address bar.
-                AddressTextBox().IsReadOnly(false);
-                AddressTextBox().PlaceholderText(L"Enter a filesystem path");
-                AddressTextBox().Text(ToHString(pane.current_path.wstring()));
-                return;
             }
+            return;
         }
 
         if (args.Key() == winrt::Windows::System::VirtualKey::Enter &&
@@ -1298,8 +1339,7 @@ namespace winrt::FileScoutNative::implementation
             if (pane.search_query.size() < 2) return;
 
             pane.search_mode = SearchMode::Recursive;
-            AddressTextBox().IsReadOnly(true);
-            AddressTextBox().Text(L"Search: " + pane.search_query);
+            SearchTextBox().IsReadOnly(true);
 
             // Show per-pane progress bar.
             SearchProgressForPane(m_activePaneIndex).Visibility(
@@ -1354,66 +1394,45 @@ namespace winrt::FileScoutNative::implementation
                             p.current_path.wstring());
                 },
                 post);
-
-            return;
         }
-
-        if (args.Key() != winrt::Windows::System::VirtualKey::Enter)
-        {
-            return;
-        }
-
-        auto const pathText = TrimFileName(AddressTextBox().Text().c_str());
-        if (_wcsicmp(pathText.c_str(), L"This PC") == 0)
-        {
-            LoadDrivesView();
-            args.Handled(true);
-            return;
-        }
-
-        LoadDirectory(pathText);
-        args.Handled(true);
     }
 
-    void MainWindow::SearchAccelerator_Invoked(
-        winrt::Windows::Foundation::IInspectable const&,
-        winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args)
-    {
-        args.Handled(true);
-
-        auto& pane = ActivePane();
-
-        // Disabled while staged load is pending — snapshot would be incomplete.
-        if (pane.awaiting_final_batch) return;
-
-        // Ignored when already in Filter or Recursive mode.
-        if (pane.search_mode != SearchMode::None) return;
-
-        // Transition to Filter mode.
-        pane.search_mode = SearchMode::Filter;
-        pane.search_query.clear();
-
-        // Snapshot the current tab's items (value copy — independent of ListView mutations).
-        auto const tabIndex = pane.active_tab_index;
-        pane.search_snapshot = pane.tabs[tabIndex].items;
-
-        // Clear address bar and set placeholder.
-        auto const folderName = pane.current_path.filename().empty()
-            ? pane.current_path.wstring()
-            : pane.current_path.filename().wstring();
-        AddressTextBox().Text(L"");
-        AddressTextBox().PlaceholderText(L"Search in " + folderName + L"\u2026");
-        AddressTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
-    }
-
-    void MainWindow::AddressTextBox_TextChanged(
+    void MainWindow::SearchTextBox_TextChanged(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&)
     {
         auto& pane = ActivePane();
-        if (pane.search_mode != SearchMode::Filter) return;
 
-        std::wstring query{ AddressTextBox().Text() };
+        // Recursive mode is driven by SearchService — don't interfere with it.
+        if (pane.search_mode == SearchMode::Recursive) return;
+
+        std::wstring query{ SearchTextBox().Text() };
+
+        if (query.empty())
+        {
+            // Leaving search — restore the list if we were filtering.
+            if (pane.search_mode == SearchMode::Filter)
+            {
+                pane.search_mode = SearchMode::None;
+                pane.search_query.clear();
+                auto& rows = pane.tab_rows[pane.active_tab_index];
+                rows.Clear();
+                bool const listMode = (pane.view_mode == ViewMode::List);
+                for (auto const& item : pane.search_snapshot)
+                    rows.Append(CreateRowView(item, listMode));
+            }
+            return;
+        }
+
+        // Transition into Filter mode on first character.
+        if (pane.search_mode == SearchMode::None)
+        {
+            if (pane.awaiting_final_batch) return; // Snapshot would be incomplete.
+            pane.search_mode = SearchMode::Filter;
+            auto const tabIndex = pane.active_tab_index;
+            pane.search_snapshot = pane.tabs[tabIndex].items;
+        }
+
         pane.search_query = query;
 
         auto& rows = pane.tab_rows[pane.active_tab_index];
@@ -1942,8 +1961,10 @@ namespace winrt::FileScoutNative::implementation
 
         appendRect(BackButton());
         appendRect(ForwardButton());
-        appendRect(AddressTextBox());
         appendRect(RefreshButton());
+        appendRect(BreadcrumbBarBorder());
+        appendRect(AddressTextBox());
+        appendRect(SearchTextBox());
 
         if (passthroughRects.empty())
         {
@@ -2046,8 +2067,8 @@ namespace winrt::FileScoutNative::implementation
                 winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             pane.search_mode = SearchMode::None;
             pane.search_query.clear();
-            AddressTextBox().IsReadOnly(false);
-            AddressTextBox().PlaceholderText(L"Enter a filesystem path");
+            SearchTextBox().IsReadOnly(false);
+            SearchTextBox().Text(L"");
         }
 
         // Capture pane/tab index synchronously so async work targets the right pane
@@ -2081,7 +2102,9 @@ namespace winrt::FileScoutNative::implementation
         }
         if (m_activePaneIndex == paneIndex)
         {
-            AddressTextBox().Text(ToHString(path.wstring()));
+            UpdateBreadcrumbs(path);
+            UpdateSearchPlaceholder(path);
+            HideAddressTextBox();
             ResetSelectionDetails();
         }
 
@@ -2154,7 +2177,8 @@ namespace winrt::FileScoutNative::implementation
 
                 if (m_activePaneIndex == paneIndex)
                 {
-                    AddressTextBox().Text(ToHString(absolute.wstring()));
+                    UpdateBreadcrumbs(absolute);
+                    UpdateSearchPlaceholder(absolute);
                 }
 
                 // Build and publish the first visible batch of rows.
@@ -3030,9 +3054,6 @@ namespace winrt::FileScoutNative::implementation
         if (commandId == L"switchPane")
         {
             SetActivePaneIndex(1 - m_activePaneIndex);
-            AddressTextBox().Text(ActivePane().is_drives_view
-                ? winrt::hstring{ L"This PC" }
-                : ToHString(ActivePane().current_path.wstring()));
             return;
         }
     }
@@ -3764,7 +3785,7 @@ namespace winrt::FileScoutNative::implementation
         // Ctrl+Tab / Ctrl+Shift+Tab cycle through panes.
         AddAccelerator(VK::Tab, VKM::Control, L"switchPane");
 
-        // Ctrl+F — enter search/filter mode for the active pane.
+        // Ctrl+F — focus the dedicated search box.
         {
             auto accel = KA{};
             accel.Key(VK::F);
@@ -3772,6 +3793,19 @@ namespace winrt::FileScoutNative::implementation
             accel.Invoked([this](winrt::Windows::Foundation::IInspectable const& sender, KAArgs const& e)
             {
                 SearchAccelerator_Invoked(sender, e);
+            });
+            accelerators.Append(accel);
+        }
+
+        // F4 — reveal address TextBox for direct path entry.
+        {
+            auto accel = KA{};
+            accel.Key(VK::F4);
+            accel.Modifiers(VKM::None);
+            accel.Invoked([this](winrt::Windows::Foundation::IInspectable const&, KAArgs const& e)
+            {
+                e.Handled(true);
+                ShowAddressTextBox();
             });
             accelerators.Append(accel);
         }
@@ -4027,7 +4061,48 @@ namespace winrt::FileScoutNative::implementation
                 FileRowsListView_Drop(s, a);
             });
 
+        listView.KeyDown([this, paneIndex](auto const&, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                FileRowsListView_KeyDown(a);
+            });
+
         return listView;
+    }
+
+    void MainWindow::FileRowsListView_KeyDown(
+        winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
+    {
+        auto const vk = static_cast<int32_t>(args.Key());
+        // VK codes 65–90 are A–Z.
+        if (vk < 65 || vk > 90) return;
+
+        auto& pane = ActivePane();
+        if (pane.search_mode != SearchMode::None) return;
+        if (pane.items.empty()) return;
+
+        wchar_t const ch = static_cast<wchar_t>(std::towlower(static_cast<wchar_t>(vk)));
+
+        // Start from the item after the current selection, wrapping around.
+        int32_t const selected = pane.active_list_view ? pane.active_list_view.SelectedIndex() : -1;
+        int32_t const start = (selected >= 0)
+            ? (selected + 1) % static_cast<int32_t>(pane.items.size())
+            : 0;
+
+        for (std::size_t i = 0; i < pane.items.size(); ++i)
+        {
+            auto const idx = static_cast<int32_t>((start + i) % static_cast<int32_t>(pane.items.size()));
+            auto const& name = pane.items[static_cast<std::size_t>(idx)].display_name;
+            if (!name.empty() && std::towlower(name[0]) == ch)
+            {
+                SelectItemByIndex(idx);
+                if (pane.active_list_view)
+                    pane.active_list_view.ScrollIntoView(
+                        pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
+                args.Handled(true);
+                return;
+            }
+        }
     }
 
     void MainWindow::AddTab(std::filesystem::path const& startPath)
@@ -4122,8 +4197,13 @@ namespace winrt::FileScoutNative::implementation
         pane.items = tab.items;
         pane.selection = tab.selection;
 
-        AddressTextBox().Text(tab.is_drives_view ? winrt::hstring{ L"This PC" }
-                                                 : ToHString(pane.current_path.wstring()));
+        if (tab.is_drives_view)
+            BreadcrumbPanel().Children().Clear();
+        else
+        {
+            UpdateBreadcrumbs(pane.current_path);
+            UpdateSearchPlaceholder(pane.current_path);
+        }
 
         if (pane.items.empty() && !tab.path.empty() && !tab.is_drives_view)
         {
@@ -4291,9 +4371,18 @@ namespace winrt::FileScoutNative::implementation
 
         m_activePaneIndex = paneIndex;
         UpdateActivePaneIndicator();
-        AddressTextBox().Text(ActivePane().is_drives_view
-            ? winrt::hstring{ L"This PC" }
-            : ToHString(ActivePane().current_path.wstring()));
+        if (!ActivePane().is_drives_view && !ActivePane().current_path.empty())
+        {
+            UpdateBreadcrumbs(ActivePane().current_path);
+            UpdateSearchPlaceholder(ActivePane().current_path);
+        }
+        else
+        {
+            BreadcrumbPanel().Children().Clear();
+        }
+        // Sync search box with incoming pane's search state.
+        SearchTextBox().IsReadOnly(ActivePane().search_mode == SearchMode::Recursive);
+        SearchTextBox().Text(winrt::hstring(ActivePane().search_query));
     }
 
     void MainWindow::UpdateActivePaneIndicator()
@@ -4325,6 +4414,83 @@ namespace winrt::FileScoutNative::implementation
     winrt::Microsoft::UI::Xaml::Controls::ProgressBar MainWindow::SearchProgressForPane(int32_t const paneIndex)
     {
         return paneIndex == 0 ? LeftPaneSearchProgress() : RightPaneSearchProgress();
+    }
+
+    void MainWindow::UpdateBreadcrumbs(std::filesystem::path const& path)
+    {
+        auto const panel = BreadcrumbPanel();
+        panel.Children().Clear();
+
+        if (path.empty()) return;
+
+        // Collect ancestors from root down to current path.
+        std::vector<std::filesystem::path> segments;
+        for (auto p = path; !p.empty() && p != p.parent_path(); p = p.parent_path())
+            segments.insert(segments.begin(), p);
+        if (segments.empty())
+            segments.push_back(path);
+
+        namespace MUI = winrt::Microsoft::UI::Xaml::Controls;
+
+        for (std::size_t i = 0; i < segments.size(); ++i)
+        {
+            auto const& seg = segments[i];
+            std::wstring label = (i == 0)
+                ? seg.root_name().wstring()    // "C:"
+                : seg.filename().wstring();    // "Documents"
+            if (label.empty()) label = seg.wstring();
+
+            // Separator " › " between segments.
+            if (i > 0)
+            {
+                MUI::TextBlock sep;
+                sep.Text(L" › ");
+                sep.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+                sep.Opacity(0.4);
+                sep.FontSize(12);
+                panel.Children().Append(sep);
+            }
+
+            MUI::HyperlinkButton btn;
+            btn.Padding({ 4, 0, 4, 0 });
+            MUI::TextBlock lbl;
+            lbl.Text(winrt::hstring(label));
+            lbl.FontSize(12);
+            lbl.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+            btn.Content(lbl);
+
+            auto const targetPath = seg;
+            btn.Click([this, targetPath](winrt::Windows::Foundation::IInspectable const&,
+                                         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
+            {
+                LoadDirectory(targetPath);
+            });
+
+            panel.Children().Append(btn);
+        }
+    }
+
+    void MainWindow::ShowAddressTextBox()
+    {
+        BreadcrumbBarBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        AddressTextBox().Text(ToHString(ActivePane().current_path.wstring()));
+        AddressTextBox().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        AddressTextBox().SelectAll();
+        AddressTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+    }
+
+    void MainWindow::HideAddressTextBox()
+    {
+        AddressTextBox().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        BreadcrumbBarBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+    }
+
+    void MainWindow::UpdateSearchPlaceholder(std::filesystem::path const& path)
+    {
+        auto const folderName = path.filename().empty()
+            ? path.wstring()
+            : path.filename().wstring();
+        SearchTextBox().PlaceholderText(L"Search " + folderName + L"\u2026");
     }
 
     winrt::Windows::Foundation::IInspectable MainWindow::CreateSearchRowView(
@@ -4918,7 +5084,8 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].is_archive_view = false;
             UpdateTabHeader(pane.active_tab_index);
 
-            AddressTextBox().Text(L"This PC");
+            BreadcrumbPanel().Children().Clear();
+            SearchTextBox().PlaceholderText(L"Search This PC\u2026");
             UpdateRows(m_activePaneIndex, items);
 
             if (pane.active_list_view)

@@ -112,6 +112,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="220" />
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Orientation="Horizontal"
@@ -146,13 +147,37 @@
                             </Button>
                         </StackPanel>
 
-                        <TextBox x:Name="AddressTextBox"
-                                 Grid.Column="1"
-                                 AutomationProperties.LabeledBy="{Binding ElementName=ActiveLocationTextBlock}"
+                        <!-- Breadcrumb + address overlay (col 1) -->
+                        <Grid Grid.Column="1">
+                            <!-- Breadcrumb bar — default view; tap to reveal address TextBox -->
+                            <Border x:Name="BreadcrumbBarBorder"
+                                    Style="{StaticResource ChromeAddressTextBoxStyle}"
+                                    Padding="4,0,4,0"
+                                    Tapped="BreadcrumbBarBorder_Tapped">
+                                <ScrollViewer HorizontalScrollBarVisibility="Hidden"
+                                              VerticalScrollBarVisibility="Disabled"
+                                              VerticalAlignment="Center">
+                                    <StackPanel x:Name="BreadcrumbPanel"
+                                                Orientation="Horizontal"
+                                                Spacing="0"
+                                                VerticalAlignment="Center" />
+                                </ScrollViewer>
+                            </Border>
+                            <!-- Address TextBox — hidden; shown on tap or F4 -->
+                            <TextBox x:Name="AddressTextBox"
+                                     Style="{StaticResource ChromeAddressTextBoxStyle}"
+                                     PlaceholderText="Enter a filesystem path"
+                                     Visibility="Collapsed"
+                                     KeyDown="AddressTextBox_KeyDown" />
+                        </Grid>
+
+                        <!-- Dedicated search box (col 2) -->
+                        <TextBox x:Name="SearchTextBox"
+                                 Grid.Column="2"
                                  Style="{StaticResource ChromeAddressTextBoxStyle}"
-                                 PlaceholderText="Enter a filesystem path"
-                                 KeyDown="AddressTextBox_KeyDown"
-                                 TextChanged="AddressTextBox_TextChanged" />
+                                 PlaceholderText="Search&#x2026;"
+                                 KeyDown="SearchTextBox_KeyDown"
+                                 TextChanged="SearchTextBox_TextChanged" />
                     </Grid>
                 </Grid>
                 <Border Height="1"
