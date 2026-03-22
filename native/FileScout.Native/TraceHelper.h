@@ -13,6 +13,12 @@ inline void TraceLog(std::wstring const& line)
     auto path = std::filesystem::path{ tempPath } / L"FileScout.Native.trace.log";
     std::wofstream stream{ path.wstring(), std::ios::app };
     if (!stream.is_open()) { return; }
-    stream << L"[" << ::GetTickCount64() << L"] " << line << L"\n";
+
+    SYSTEMTIME st{};
+    ::GetLocalTime(&st);
+    wchar_t ts[32]{};
+    swprintf_s(ts, L"%02u:%02u:%02u.%03u", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+
+    stream << ts << L" [" << ::GetTickCount64() << L"] " << line << L"\n";
     stream.flush();
 }

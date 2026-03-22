@@ -454,28 +454,6 @@ namespace FileScoutNative::Shell
         return items;
     }
 
-    void ShellInteropService::EnumerateDirectoryStreaming(
-        std::filesystem::path const& path,
-        std::function<bool(std::vector<FileScoutNative::Domain::ShellItemRef>&&)> const& onBatch,
-        std::size_t const batchSize)
-    {
-        std::vector<FileScoutNative::Domain::ShellItemRef> batch;
-        batch.reserve(batchSize);
-        for (auto const& entry : std::filesystem::directory_iterator(path))
-        {
-            batch.push_back(BuildShellItemRef(entry));
-            if (batch.size() >= batchSize)
-            {
-                if (!onBatch(std::move(batch)))
-                    return;
-                batch.clear();
-                batch.reserve(batchSize);
-            }
-        }
-        if (!batch.empty())
-            onBatch(std::move(batch));
-    }
-
     std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateDrives()
     {
         std::vector<FileScoutNative::Domain::ShellItemRef> drives;

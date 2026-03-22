@@ -1238,13 +1238,18 @@ namespace winrt::FileScoutNative::implementation
     {
         UpdateTitleBarInteractiveRegions();
 
-        // First render is complete — all deferred WinUI init events have been processed.
-        // Re-assert pane 0 as active (deferred TabView SelectionChanged from InitPane(1)
-        // may have incorrectly activated the right pane) and open the gate for user
-        // pane-switch interactions going forward.
-        m_activePaneIndex = 0;
-        UpdateActivePaneIndicator();
-        m_initComplete = true;
+        // Enqueue at Low priority so all pending Normal-priority deferred XAML events
+        // (including the TabView SelectionChanged fired by InitPane) drain first.
+        // TitleBarDragHost_Loaded fires BEFORE those deferred events, so a synchronous
+        // re-assertion here would be overridden by them.
+        m_dispatcherQueue.TryEnqueue(
+            winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Low,
+            [this, lifetime = get_strong()]()
+            {
+                m_activePaneIndex = 0;
+                UpdateActivePaneIndicator();
+                m_initComplete = true;
+            });
     }
 
     void MainWindow::TitleBarDragHost_SizeChanged(
@@ -2225,68 +2230,31 @@ namespace winrt::FileScoutNative::implementation
             }
             else
             {
-                // Regular directory: stream items in batches so the first rows appear
-                // within ~200ms for large directories like C:\Windows\System32.
-                m_shellInterop.EnumerateDirectoryStreaming(absolute,
-                    [this, lifetime, paneIndex, tabIndex, generation](
-                        std::vector<::FileScoutNative::Domain::ShellItemRef>&& batch) -> bool
-                    {
-                        m_dispatcherQueue.TryEnqueue(
-                            [this, lifetime, paneIndex, tabIndex, generation,
-                             batchItems = std::move(batch)]() mutable
-                            {
-                                auto& pane = m_panes[paneIndex];
-                                if (pane.load_generation != generation) return;
-                                if (pane.active_tab_index != tabIndex) return;
-                                if (!pane.awaiting_final_batch) return;
-
-                                bool const isFirst = pane.items.empty();
-                                bool const listMode = (pane.view_mode == ViewMode::List);
-                                auto& rows = pane.tab_rows[tabIndex];
-                                for (auto& item : batchItems)
-                                {
-                                    rows.Append(CreateRowView(item, listMode, std::nullopt));
-                                    pane.items.push_back(std::move(item));
-                                }
-                                if (isFirst)
-                                {
-                                    pane.last_load_timing.first_batch_publish_tick = ::GetTickCount64();
-                                    pane.user_interacted_after_first_batch = false;
-                                    if (pane.active_list_view)
-                                    {
-                                        pane.tab_switching = true;
-                                        pane.active_list_view.SelectedIndex(-1);
-                                        pane.tab_switching = false;
-                                    }
-                                    if (m_activePaneIndex == paneIndex)
-                                        ResetSelectionDetails();
-                                }
-                            });
-                        return true;
-                    }, 200);
-
+                // Regular directory: two-batch approach.
+                // Enumerate all items on the background thread, then post to the UI thread in
+                // two dispatches so the first visible rows appear quickly without a rows.Clear()
+                // (CollectionChange::Reset) on the finalize path.
+                auto items = m_shellInterop.EnumerateDirectory(absolute);
                 timing.enumeration_end_tick = ::GetTickCount64();
 
-                // Finalize: sort the accumulated items and rebuild rows with proper ordering.
                 m_dispatcherQueue.TryEnqueue(
                     [this, lifetime, paneIndex, tabIndex, generation,
-                     absolute, selectAfter, timing]() mutable
+                     absolute, selectAfter, timing, items = std::move(items)]() mutable
                     {
                         auto& pane = m_panes[paneIndex];
                         if (pane.load_generation != generation) return;
                         if (pane.active_tab_index != tabIndex) return;
-                        if (!pane.awaiting_final_batch) return;
-                        pane.awaiting_final_batch = false;
 
-                        std::size_t const totalItems = pane.items.size();
-                        SortItems(pane.items, pane.sort_column, pane.sort_direction);
+                        SortItems(items, pane.sort_column, pane.sort_direction);
+                        std::size_t const totalItems = items.size();
                         pane.current_path = absolute;
                         pane.is_drives_view = false;
                         pane.is_archive_view = false;
+                        pane.items = items;
                         pane.selection.Clear();
 
                         pane.tabs[tabIndex].path = absolute;
-                        pane.tabs[tabIndex].items = pane.items;
+                        pane.tabs[tabIndex].items = items;
                         pane.tabs[tabIndex].selection = {};
                         pane.tabs[tabIndex].selected_item_index = -1;
                         pane.tabs[tabIndex].is_drives_view = false;
@@ -2310,9 +2278,14 @@ namespace winrt::FileScoutNative::implementation
                         bool const listMode = (pane.view_mode == ViewMode::List);
                         auto& rows = pane.tab_rows[tabIndex];
                         rows.Clear();
+
+                        constexpr std::size_t k_first_batch = 150;
+                        std::size_t const firstBatchEnd = (std::min)(k_first_batch, totalItems);
+
                         std::wstring previousGroupLabel;
-                        for (auto const& item : pane.items)
+                        for (std::size_t i = 0; i < firstBatchEnd; ++i)
                         {
+                            auto const& item = items[i];
                             std::optional<std::wstring> groupLabel;
                             if (pane.group_by_sort_column)
                             {
@@ -2323,6 +2296,9 @@ namespace winrt::FileScoutNative::implementation
                             }
                             rows.Append(CreateRowView(item, listMode, groupLabel));
                         }
+
+                        timing.first_batch_publish_tick = ::GetTickCount64();
+                        pane.user_interacted_after_first_batch = false;
 
                         if (pane.active_list_view)
                         {
@@ -2338,12 +2314,54 @@ namespace winrt::FileScoutNative::implementation
                                 std::to_wstring(totalItems) + L" items in " + absolute.wstring()));
                         }
 
-                        timing.final_publish_tick = ::GetTickCount64();
-                        timing.first_batch_publish_tick = pane.last_load_timing.first_batch_publish_tick;
+                        if (totalItems <= k_first_batch)
+                        {
+                            pane.awaiting_final_batch = false;
+                            timing.final_publish_tick = timing.first_batch_publish_tick;
+                            pane.last_load_timing = timing;
+                            TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                            if (selectAfter.has_value())
+                                SelectItemByPath(*selectAfter);
+                            return;
+                        }
+
+                        // Large folder — stage the remaining rows in a second dispatch so
+                        // the UI thread can process the first-batch render before blocking.
                         pane.last_load_timing = timing;
-                        TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
-                        if (!pane.user_interacted_after_first_batch && selectAfter.has_value())
-                            SelectItemByPath(*selectAfter);
+                        m_dispatcherQueue.TryEnqueue(
+                            [this, lifetime, paneIndex, tabIndex, generation, absolute, selectAfter,
+                             items = std::move(items), timing,
+                             previousGroupLabel = std::move(previousGroupLabel),
+                             listMode, firstBatchEnd]() mutable
+                            {
+                                auto& pane = m_panes[paneIndex];
+                                if (pane.load_generation != generation) return;
+                                if (pane.active_tab_index != tabIndex) return;
+                                if (!pane.awaiting_final_batch) return;
+                                pane.awaiting_final_batch = false;
+
+                                auto& rows = pane.tab_rows[tabIndex];
+                                std::size_t const totalItems = items.size();
+                                for (std::size_t i = firstBatchEnd; i < totalItems; ++i)
+                                {
+                                    auto const& item = items[i];
+                                    std::optional<std::wstring> groupLabel;
+                                    if (pane.group_by_sort_column)
+                                    {
+                                        auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
+                                        if (currentGroupLabel != previousGroupLabel)
+                                            groupLabel = currentGroupLabel;
+                                        previousGroupLabel = std::move(currentGroupLabel);
+                                    }
+                                    rows.Append(CreateRowView(item, listMode, groupLabel));
+                                }
+
+                                timing.final_publish_tick = ::GetTickCount64();
+                                pane.last_load_timing = timing;
+                                TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                                if (!pane.user_interacted_after_first_batch && selectAfter.has_value())
+                                    SelectItemByPath(*selectAfter);
+                            });
                     });
             }
         }
