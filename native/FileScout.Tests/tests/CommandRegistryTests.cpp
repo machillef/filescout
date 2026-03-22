@@ -87,6 +87,23 @@ TEST(CommandRegistry, AllNavigationCommandsPresent)
     }
 }
 
+// R13d: all view and sort commands must exist in the registry.
+TEST(CommandRegistry, AllViewAndSortCommandsPresent)
+{
+    CommandRegistry reg;
+    std::vector<std::wstring> const required = {
+        L"toggleView", L"toggleGroup",
+        L"sortByName", L"sortBySize", L"sortByDateModified"
+    };
+    for (auto const& id : required)
+    {
+        bool found = false;
+        for (auto const& cmd : reg.All())
+            if (cmd.id == id) { found = true; break; }
+        EXPECT_TRUE(found) << "Missing view/sort command id: " << id.c_str();
+    }
+}
+
 // R13c: all file operation commands must exist in the registry.
 TEST(CommandRegistry, AllFileOperationCommandsPresent)
 {

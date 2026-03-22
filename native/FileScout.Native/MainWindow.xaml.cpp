@@ -3082,6 +3082,39 @@ namespace winrt::FileScoutNative::implementation
             SetActivePaneIndex(1 - m_activePaneIndex);
             return;
         }
+
+        if (commandId == L"toggleView")
+        {
+            auto const newMode = (ActivePane().view_mode == ViewMode::List)
+                ? ViewMode::Cards
+                : ViewMode::List;
+            SetViewMode(m_activePaneIndex, newMode);
+            return;
+        }
+
+        if (commandId == L"toggleGroup")
+        {
+            SetGroupingEnabled(m_activePaneIndex, !ActivePane().group_by_sort_column);
+            return;
+        }
+
+        if (commandId == L"sortByName")
+        {
+            SetSortColumn(m_activePaneIndex, SortColumn::Name);
+            return;
+        }
+
+        if (commandId == L"sortBySize")
+        {
+            SetSortColumn(m_activePaneIndex, SortColumn::Size);
+            return;
+        }
+
+        if (commandId == L"sortByDateModified")
+        {
+            SetSortColumn(m_activePaneIndex, SortColumn::DateModified);
+            return;
+        }
     }
 
     winrt::fire_and_forget MainWindow::ShowNewFolderDialogAsync()

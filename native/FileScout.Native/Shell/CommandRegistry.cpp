@@ -29,9 +29,12 @@ namespace FileScoutNative::Shell
             { L"rename",     L"Rename",            L"F2",       L"File"       },
             { L"newFolder",  L"New Folder",        L"",         L"File"       },
             { L"properties", L"Properties",        L"",         L"File"       },
-            // View
-            { L"toggleView", L"Toggle View Mode",  L"",         L"View"       },
-            { L"toggleGroup",L"Toggle Grouping",   L"",         L"View"       },
+            // View / Sort
+            { L"toggleView",         L"Toggle View Mode",         L"",  L"View" },
+            { L"toggleGroup",        L"Toggle Grouping",          L"",  L"View" },
+            { L"sortByName",         L"Sort by Name",             L"",  L"View" },
+            { L"sortBySize",         L"Sort by Size",             L"",  L"View" },
+            { L"sortByDateModified", L"Sort by Date Modified",    L"",  L"View" },
         };
     }
 

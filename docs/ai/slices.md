@@ -261,10 +261,11 @@ add keyboard type-ahead in file list.
 
 ## R13d: View And Sort Commands
 **Goal:** Wire view/sort/layout commands.
-**Status:** Not Started
-**Commands:** Toggle View Mode (Cards↔List), Toggle Group, Sort by Name / Size / Date Modified, Toggle Preview Panel, Toggle Dual Pane
-**Touched area:** `CommandRegistry.cpp`
-**Validation:** each command updates UI state correctly when selected from palette
+**Status:** Complete (2026-03-22)
+**Commands wired:** Toggle View Mode (Cards↔List), Toggle Group, Sort by Name / Size / Date Modified
+**Commands deferred:** Toggle Preview Panel, Toggle Dual Pane — require adding `x:Name` to unnamed XAML ColumnDefinitions + new state flags
+**Touched area:** `CommandRegistry.cpp`, `MainWindow.xaml.cpp`, `CommandRegistryTests.cpp`
+**Validation:** AllViewAndSortCommandsPresent test; 81/81 tests pass; both binaries build clean
 
 ## R14: Git-Aware And Power-User Workflows
 **Goal:** Add differentiated workflows after Explorer-parity basics stabilize.

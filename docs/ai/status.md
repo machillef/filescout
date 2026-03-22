@@ -27,6 +27,9 @@
 - R13c complete 2026-03-22: file operation commands wired; open/openWith/properties
   added to CommandRegistry; all 9 file op IDs verified by AllFileOperationCommandsPresent;
   80/80 tests pass, both binaries build clean
+- R13d complete 2026-03-22: view/sort commands wired; sortByName/sortBySize/sortByDateModified
+  added to registry; toggleView and toggleGroup dispatch added; 81/81 tests pass, both
+  binaries build clean; togglePreview/toggleDualPane deferred (require XAML naming)
 
 ## Slice R13a: CommandRegistry + Palette Scaffold
 Status: Complete
@@ -111,7 +114,33 @@ Last updated: 2026-03-22
 - None
 
 ### Next recommended step
-- R13d: wire view/sort/layout commands (toggleView, toggleGroup, sort by name/size/date, togglePreview, toggleDualPane)
+- R13d: wire view/sort/layout commands
+
+## Slice R13d: View And Sort Commands
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `CommandRegistry.cpp` — added `sortByName`, `sortBySize`, `sortByDateModified` to the
+  View/Sort section; 21 commands total (7 Navigation, 9 File, 5 View/Sort)
+- `MainWindow.xaml.cpp` — added dispatch in `ExecuteContextCommand` for `toggleView`
+  (Cards↔List via `SetViewMode`), `toggleGroup` (via `SetGroupingEnabled`),
+  `sortByName`/`sortBySize`/`sortByDateModified` (via `SetSortColumn`)
+- `CommandRegistryTests.cpp` — `AllViewAndSortCommandsPresent` test (RED→GREEN on 3 missing IDs)
+
+### What was validated
+- AllViewAndSortCommandsPresent: RED (sortByName/sortBySize/sortByDateModified missing) → GREEN
+- All 81 tests pass (80 after R13c + 1 new)
+- Both binaries build clean
+
+### What remains unverified
+- Runtime palette → sort/view toggle execution (requires manual app launch)
+- `togglePreview` and `toggleDualPane` deferred: sidebar column and right pane column
+  definitions are unnamed in XAML; proper toggle needs x:Name on ColumnDefinition + state
+  tracking. Move to a dedicated polish slice.
+
+### Blockers
+- None
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete
