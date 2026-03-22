@@ -251,6 +251,7 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
@@ -258,8 +259,13 @@
                             Grid.Row="0"
                             Padding="12,0,12,0"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                    <!-- Search progress indicator — visible only during Recursive search (R17d). -->
+                    <ProgressBar x:Name="LeftPaneSearchProgress"
+                                 Grid.Row="1"
+                                 IsIndeterminate="True"
+                                 Visibility="Collapsed" />
                     <TabView x:Name="LeftPaneTabView"
-                             Grid.Row="1"
+                             Grid.Row="2"
                              TabWidthMode="SizeToContent"
                              CloseButtonOverlayMode="OnPointerOver"
                              Background="Transparent"
@@ -278,6 +284,7 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
@@ -285,8 +292,13 @@
                             Grid.Row="0"
                             Padding="12,0,12,0"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                    <!-- Search progress indicator — visible only during Recursive search (R17d). -->
+                    <ProgressBar x:Name="RightPaneSearchProgress"
+                                 Grid.Row="1"
+                                 IsIndeterminate="True"
+                                 Visibility="Collapsed" />
                     <TabView x:Name="RightPaneTabView"
-                             Grid.Row="1"
+                             Grid.Row="2"
                              TabWidthMode="SizeToContent"
                              CloseButtonOverlayMode="OnPointerOver"
                              Background="Transparent"

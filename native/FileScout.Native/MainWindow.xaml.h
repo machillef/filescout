@@ -203,6 +203,9 @@ namespace winrt::FileScoutNative::implementation
         void BuildSidebarFavorites();
         void LoadDrivesView();
 
+        // R17d: per-pane search ProgressBar accessor.
+        [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);
+
         // R10: async image preview with a generation counter to cancel stale loads.
         uint32_t m_previewGeneration{ 0 };
         winrt::fire_and_forget LoadImagePreviewAsync(

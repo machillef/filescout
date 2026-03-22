@@ -1268,8 +1268,10 @@ namespace winrt::FileScoutNative::implementation
             if (pane.search_mode == SearchMode::Filter || pane.search_mode == SearchMode::Recursive)
             {
                 args.Handled(true);
-                // Cancel any background walk.
+                // Cancel any background walk and hide progress bar.
                 pane.search_service.Cancel();
+                SearchProgressForPane(m_activePaneIndex).Visibility(
+                    winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
                 pane.search_mode = SearchMode::None;
                 pane.search_query.clear();
 
@@ -1286,6 +1288,78 @@ namespace winrt::FileScoutNative::implementation
                 AddressTextBox().Text(ToHString(pane.current_path.wstring()));
                 return;
             }
+        }
+
+        if (args.Key() == winrt::Windows::System::VirtualKey::Enter &&
+            pane.search_mode == SearchMode::Filter)
+        {
+            args.Handled(true);
+
+            if (pane.search_query.size() < 2) return;
+
+            pane.search_mode = SearchMode::Recursive;
+            AddressTextBox().IsReadOnly(true);
+            AddressTextBox().Text(L"Search: " + pane.search_query);
+
+            // Show per-pane progress bar.
+            SearchProgressForPane(m_activePaneIndex).Visibility(
+                winrt::Microsoft::UI::Xaml::Visibility::Visible);
+
+            // Update status bar.
+            StatusTextBlock().Text(L"0 matches");
+
+            auto const paneIndex = m_activePaneIndex;
+            auto post = [dq = m_dispatcherQueue](std::function<void()> fn)
+            {
+                dq.TryEnqueue(
+                    winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
+                    std::move(fn));
+            };
+
+            auto resultCount = std::make_shared<std::atomic<int>>(0);
+
+            pane.search_service.Start(
+                pane.current_path.wstring(),
+                pane.search_query,
+                [this, paneIndex, resultCount](
+                    std::vector<::FileScoutNative::Search::SearchResult> results)
+                {
+                    auto& p = m_panes[paneIndex];
+                    if (p.search_mode != SearchMode::Recursive) return;
+
+                    *resultCount = static_cast<int>(results.size());
+                    StatusTextBlock().Text(std::to_wstring(*resultCount) + L" matches");
+
+                    auto& rows = p.tab_rows[p.active_tab_index];
+                    rows.Clear();
+                    bool const listMode = (p.view_mode == ViewMode::List);
+                    for (auto const& r : results)
+                    {
+                        ::FileScoutNative::Domain::ShellItemRef tmp;
+                        tmp.display_name = r.filename;
+                        tmp.path         = std::filesystem::path(r.full_path);
+                        rows.Append(CreateRowView(tmp, listMode));
+                    }
+                },
+                [this, paneIndex, resultCount](bool cap_reached)
+                {
+                    auto& p = m_panes[paneIndex];
+                    if (p.search_mode != SearchMode::Recursive) return;
+
+                    SearchProgressForPane(paneIndex).Visibility(
+                        winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+                    if (cap_reached)
+                        StatusTextBlock().Text(
+                            L"Showing top 200 matches \u2014 refine your query to narrow results");
+                    else
+                        StatusTextBlock().Text(
+                            std::to_wstring(resultCount->load()) + L" matches in " +
+                            p.current_path.wstring());
+                },
+                post);
+
+            return;
         }
 
         if (args.Key() != winrt::Windows::System::VirtualKey::Enter)
@@ -1747,6 +1821,8 @@ namespace winrt::FileScoutNative::implementation
         if (pane.search_mode != SearchMode::None)
         {
             pane.search_service.Cancel();
+            SearchProgressForPane(paneIndex).Visibility(
+                winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             pane.search_mode = SearchMode::None;
             pane.search_query.clear();
         }
@@ -1951,6 +2027,19 @@ namespace winrt::FileScoutNative::implementation
         std::filesystem::path const& path,
         std::optional<std::filesystem::path> selectAfter)
     {
+        // Exit search mode before navigating.
+        auto& pane = ActivePane();
+        if (pane.search_mode != SearchMode::None)
+        {
+            pane.search_service.Cancel();
+            SearchProgressForPane(m_activePaneIndex).Visibility(
+                winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            pane.search_mode = SearchMode::None;
+            pane.search_query.clear();
+            AddressTextBox().IsReadOnly(false);
+            AddressTextBox().PlaceholderText(L"Enter a filesystem path");
+        }
+
         // Capture pane/tab index synchronously so async work targets the right pane
         // even if the user switches panes before the enumeration finishes.
         LoadDirectoryAsync(path, m_activePaneIndex, std::move(selectAfter));
@@ -4183,6 +4272,8 @@ namespace winrt::FileScoutNative::implementation
         if (outgoing.search_mode != SearchMode::None)
         {
             outgoing.search_service.Cancel();
+            SearchProgressForPane(m_activePaneIndex).Visibility(
+                winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             outgoing.search_mode = SearchMode::None;
             outgoing.search_query.clear();
             // (ListView restore happens implicitly when the pane regains focus later.)
@@ -4219,6 +4310,11 @@ namespace winrt::FileScoutNative::implementation
     winrt::Microsoft::UI::Xaml::Controls::Border MainWindow::SortHeaderForPane(int32_t const paneIndex)
     {
         return paneIndex == 0 ? LeftPaneSortHeader() : RightPaneSortHeader();
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::ProgressBar MainWindow::SearchProgressForPane(int32_t const paneIndex)
+    {
+        return paneIndex == 0 ? LeftPaneSearchProgress() : RightPaneSearchProgress();
     }
 
     void MainWindow::BuildSortHeader(int32_t const paneIndex)
