@@ -1522,3 +1522,40 @@ Last updated: 2026-03-22
 ### Next recommended step
 - Start R17e: result row polish — bold highlights, relative-path subtitle, double-click
   navigation from Recursive results
+
+## Slice R17e: Result Row Polish And Navigate-On-Select
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- Added `search_results` field to `PaneContext` (parallel to ListView rows in Recursive mode)
+- Added `CreateSearchRowView(SearchResult, searchRoot)` helper: builds a StackPanel with a
+  filename TextBlock (size 13) and, when non-trivial, a relative-path subtitle TextBlock
+  (size 11, opacity 0.6) showing the directory relative to the search root
+- `on_results` callback now calls `CreateSearchRowView` for each result and stores the
+  batch into `p.search_results` for navigate-on-select indexing
+- `FileRowsListView_DoubleTapped`: guard at top — when in Recursive mode, resolves the
+  tapped row index into `search_results`, then calls `LoadDirectory(parent, fullPath)`;
+  `LoadDirectory`'s own search-teardown (added R17d) handles mode reset + ProgressBar hide
+
+### Deviations from plan
+- Plan duplicated search-mode teardown before `LoadDirectory`; omitted since `LoadDirectory`
+  already handles it (added in R17d) — DRY, no behaviour change
+- `listMode` variable removed from `on_results` lambda; `CreateSearchRowView` always
+  uses its own StackPanel layout regardless of view mode
+
+### What was validated
+- Build: PASS (0 errors)
+- Tests: 71/71 PASS (no regression)
+
+### What remains unverified
+- Manual smoke: double-click a Recursive result navigates to its parent and selects the file
+- Relative-path subtitle visible in streamed rows
+- Bold highlight on matched characters (deferred — not in current spec)
+
+### Blockers
+- None
+
+### Next recommended step
+- R17 fuzzy search initiative is code-complete (R17a–R17e); manual smoke test recommended
+- Next automatable slice: R13 command palette (requires spec before implementation)
