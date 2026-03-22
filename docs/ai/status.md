@@ -18,6 +18,7 @@
 - Perf staged row publication (Tasks 1–3) complete 2026-03-21; Task 4 (manual
   benchmark acceptance) pending — launch app and observe TraceLog PerfLoad lines
   on a 1k–5k item folder to capture before/after timings and close the slice
+- R17a (FuzzyMatcher) complete 2026-03-22; 64/64 tests pass; R17b next
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete
@@ -1362,3 +1363,75 @@ Last updated: 2026-03-21
   folder with 1k–5k items, observe TraceLog output for `PerfLoad … first_batch_ms`
   vs `full_completion_ms` to capture before/after baseline, then record results and
   close the perf slice
+
+## Slice R17a: FuzzyMatcher Header And Unit Tests
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- Added STL headers (`<atomic>`, `<chrono>`, `<functional>`, `<latch>`,
+  `<memory>`, `<queue>`, `<thread>`) to `native/FileScout.Tests/pch.h` for
+  upcoming SearchService tests (R17b)
+- Created `native/FileScout.Native/Search/FuzzyMatcher.h` — pure C++ header,
+  stack-only, no WinRT dependency. `FuzzyScore(query, filename) → int` with
+  prefix bonus (+20), consecutive-run bonus (+15/run), word-boundary bonus (+8),
+  and match-ratio penalty. Returns –1 for query length < 2 or no subsequence
+  match. Wildcards treated as literals.
+- Created `native/FileScout.Tests/tests/FuzzyMatcherTests.cpp` with 7 tests
+  covering empty/single-char queries, no-match, prefix advantage, consecutive
+  advantage, and wildcard literal treatment (positive and negative)
+- Registered `Search\FuzzyMatcher.h` in `FileScout.Native.vcxproj` (ClInclude)
+- Registered `tests\FuzzyMatcherTests.cpp` in `FileScout.Tests.vcxproj` (ClCompile)
+
+### What was validated
+- Build: PASS (64 total, 0 errors; pre-existing MSB8027/LNK4042 warnings only)
+- Tests: 64/64 PASS (57 pre-existing + 7 new FuzzyMatcher tests)
+
+### What remains unverified
+- Nothing — pure C++ scorer with complete unit test coverage
+
+### Blockers
+- None
+
+### Next recommended step
+- Start R17b: `SearchService` background walk + unit tests (synchronous PostFn)
+
+## Slice R17b: SearchService Background Walk And Unit Tests
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- Created `native/FileScout.Native/Search/SearchService.h` — interface with
+  `ResultCallback`, `CompleteCallback`, `PostFn` typedefs; `shared_ptr<atomic<bool>>`
+  cancellation token; min-heap top-200 with `k_max_depth=12`, `k_heap_cap=200`
+- Created `native/FileScout.Native/Search/SearchService.cpp` — `WalkDir` recursive
+  walk via `directory_iterator` (skip_permission_denied), min-heap displacement with
+  `cap_reached` flag, generation-counter stale-result guard, final flush + complete
+  callback, destructor join
+- Created `native/FileScout.Tests/tests/SearchServiceTests.cpp` with 7 tests:
+  CancelBeforeFirstResult, CancelMidWalk, CapEnforcement, Exact200NoCap,
+  TieTruncationNoCap, DepthLimit, StartCancelStartNoCrash
+- Registered new files in `FileScout.Native.vcxproj` and `FileScout.Tests.vcxproj`
+- Added `<atomic>`, `<chrono>`, `<functional>`, `<thread>` to main `pch.h`
+
+### Deviations from plan
+- `std::latch::wait()` in MSVC C++20 takes no timeout argument; removed `chrono::seconds`
+  timeout args from all 4 `done.wait()` calls
+- `CapEnforcement` test: original used 500 identical-scoring files which can never
+  trigger `cap_reached` (ties don't displace). Fixed to use 300 `ama_*.txt` (score 14
+  for "ma") + 300 `match_*.txt` (score 34 for "ma"); NTFS alphabetical iteration ensures
+  low-scored files fill the heap first, then high-scored files displace them
+
+### What was validated
+- Build: PASS (0 errors; pre-existing MSB8027/LNK4042 warnings only)
+- Tests: 71/71 PASS (64 pre-existing + 7 new SearchService tests)
+
+### What remains unverified
+- Nothing — pure C++ background service with complete unit test coverage
+
+### Blockers
+- None
+
+### Next recommended step
+- Start R17c: address bar state machine (SearchMode enum, PaneContext search fields,
+  Ctrl+F handler, TextChanged filter, Escape restore, nav/tab cancel guards)
