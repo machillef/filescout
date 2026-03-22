@@ -73,10 +73,9 @@
   guards, live-selection protection; build + tests pass; Task 4 (manual benchmark
   acceptance on a 1k–5k item folder) is pending — observe TraceLog `PerfLoad`
   lines in the running app to capture before/after timings and close the slice
-- Next automatable slice: `R13` (command palette) — no spec yet; requires writing
-  a plan before implementation can begin
+- Next initiative: `R13` command palette — write spec first, then implement
 - Async icon loading (perf) — large folders (Downloads, System32) still slow on
-  first open; separate perf initiative needed
+  first open; separate perf initiative (deferred, post-R13)
 - Keep archive mode scoped to shell-enumerable archive formats plus the current
   temp-open and explicit extract/reveal flows until a broader non-shell archive
   strategy is designed and validated

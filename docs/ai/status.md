@@ -16,7 +16,7 @@
 - Perf staged row publication (Tasks 1–3) complete 2026-03-21; Task 4 (manual
   benchmark acceptance) pending — launch app and observe TraceLog PerfLoad lines
   on a 1k–5k item folder to capture before/after timings and close the slice
-- Next: R13 command palette (spec needed) or async icon loading (perf initiative)
+- Next: R13 command palette — write spec first, then implement
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete
