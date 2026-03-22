@@ -69,3 +69,20 @@ TEST(CommandRegistry, EachCommandHasNonEmptyIdAndDisplayName)
         EXPECT_FALSE(cmd.display_name.empty()) << "Command has empty display_name";
     }
 }
+
+// R13b: all navigation commands wired in this slice must exist in the registry.
+TEST(CommandRegistry, AllNavigationCommandsPresent)
+{
+    CommandRegistry reg;
+    std::vector<std::wstring> const required = {
+        L"newTab", L"closeTab", L"switchPane",
+        L"refresh", L"back", L"forward", L"goToPath"
+    };
+    for (auto const& id : required)
+    {
+        bool found = false;
+        for (auto const& cmd : reg.All())
+            if (cmd.id == id) { found = true; break; }
+        EXPECT_TRUE(found) << "Missing navigation command id: " << id.c_str();
+    }
+}

@@ -19,6 +19,7 @@ namespace FileScoutNative::Shell
             { L"refresh",    L"Refresh",           L"F5",       L"Navigation" },
             { L"back",       L"Go Back",           L"",         L"Navigation" },
             { L"forward",    L"Go Forward",        L"",         L"Navigation" },
+            { L"goToPath",   L"Go to Path",        L"F4",       L"Navigation" },
             // File operations
             { L"copy",       L"Copy",              L"Ctrl+C",   L"File"       },
             { L"cut",        L"Cut",               L"Ctrl+X",   L"File"       },

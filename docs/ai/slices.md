@@ -233,7 +233,7 @@ add keyboard type-ahead in file list.
 
 ## R13a: CommandRegistry + Palette Scaffold
 **Goal:** Ctrl+P opens a centred overlay with a fuzzy-filtered command list; Escape closes it. No commands wired to real actions yet — scaffold only.
-**Status:** Not Started
+**Status:** Complete (2026-03-22)
 **Touched area:**
 - `native/FileScout.Native/Domain/CommandEntry.h` (new)
 - `native/FileScout.Native/Services/CommandRegistry.h` (new)
@@ -247,7 +247,7 @@ add keyboard type-ahead in file list.
 
 ## R13b: Navigation Commands
 **Goal:** Wire navigation commands into the registry so they execute correctly.
-**Status:** Not Started
+**Status:** Complete (2026-03-22)
 **Commands:** New Tab, Close Tab, Switch Pane, Back, Forward, Refresh, Go to Path (opens address TextBox)
 **Touched area:** `CommandRegistry.cpp`, `MainWindow.xaml.cpp` (ExecuteContextCommand hook-up)
 **Validation:** each command executes correctly when selected from palette

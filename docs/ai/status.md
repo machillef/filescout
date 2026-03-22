@@ -21,6 +21,9 @@
 - R13a complete 2026-03-22: CommandRegistry + palette scaffold; Ctrl+P opens centred
   overlay, typing fuzzy-filters 14 scaffold commands, Escape closes, click/Enter
   dispatches; 7/7 new tests pass, both binaries build clean
+- R13b complete 2026-03-22: navigation commands wired; back/forward history stacks
+  added to PaneContext; LoadDirectory gains skipHistoryRecord param; 8/8 tests pass,
+  both binaries build clean
 
 ## Slice R13a: CommandRegistry + Palette Scaffold
 Status: Complete
@@ -52,8 +55,34 @@ Last updated: 2026-03-22
 - None
 
 ### Next recommended step
-- R13b: wire navigation commands (newTab, closeTab, switchPane, refresh, back, forward)
-  through ExecuteContextCommand to real implementations
+- R13c: wire file operation commands (Copy, Cut, Paste, Delete, Rename, New Folder)
+
+## Slice R13b: Navigation Commands
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `PaneContext` gains `back_stack`/`forward_stack` (per-pane, shared across tabs)
+- `LoadDirectory` gains `bool skipHistoryRecord = false` param; records current path
+  in `back_stack` and clears `forward_stack` on normal navigation
+- `NavigateBack()` / `NavigateForward()` implemented with empty-stack guards;
+  call `LoadDirectory(..., skipHistoryRecord=true)` to avoid double-recording
+- `ExecuteContextCommand` wired: `back` → NavigateBack, `forward` → NavigateForward,
+  `goToPath` → ShowAddressTextBox; `newTab`/`closeTab`/`switchPane`/`refresh` were
+  already dispatched
+- `CommandRegistry` updated: `goToPath` added (15 commands total: 7 Navigation, 6 File, 2 View)
+- Test `AllNavigationCommandsPresent` added to `CommandRegistryTests.cpp`
+
+### What was validated
+- All 8 CommandRegistry tests pass (was 7 after R13a, AllNavigationCommandsPresent added RED then GREEN)
+- FileScout.Native.exe and FileScout.Tests.exe build clean
+- C3859 PCH error encountered and resolved: deleted `native/FileScout.Native/obj/x64/Debug`, full rebuild
+
+### What remains unverified
+- Runtime back/forward navigation (requires manual app launch)
+
+### Blockers
+- None
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete

@@ -58,6 +58,10 @@ namespace winrt::FileScoutNative::implementation
         bool group_by_sort_column{ false };
         // View mode — cards (rich cards) or list (compact rows).
         ViewMode view_mode{ ViewMode::Cards };
+        // Per-pane navigation history (back/forward stacks).
+        std::vector<std::filesystem::path> back_stack;
+        std::vector<std::filesystem::path> forward_stack;
+
         // Incremented each time LoadDirectory is called; lets background loads detect stale results.
         uint32_t load_generation{ 0 };
         PaneLoadTiming last_load_timing{};
@@ -184,7 +188,8 @@ namespace winrt::FileScoutNative::implementation
         void UpdateTitleBarInteractiveRegions();
         void SetupKeyboardAccelerators();
         void LoadDirectory(std::filesystem::path const& path,
-            std::optional<std::filesystem::path> selectAfter = std::nullopt);
+            std::optional<std::filesystem::path> selectAfter = std::nullopt,
+            bool skipHistoryRecord = false);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
             std::optional<std::filesystem::path> selectAfter);
         void UpdateRows(int32_t paneIndex, std::vector<::FileScoutNative::Domain::ShellItemRef> const& items);
@@ -232,6 +237,10 @@ namespace winrt::FileScoutNative::implementation
         // R18c: keyboard type-ahead in file list.
         void FileRowsListView_KeyDown(
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args);
+
+        // R13b: navigation history.
+        void NavigateBack();
+        void NavigateForward();
 
         // R13a: command palette overlay.
         void ShowCommandPalette();

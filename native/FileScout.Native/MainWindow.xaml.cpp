@@ -2056,10 +2056,18 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::LoadDirectory(
         std::filesystem::path const& path,
-        std::optional<std::filesystem::path> selectAfter)
+        std::optional<std::filesystem::path> selectAfter,
+        bool skipHistoryRecord)
     {
         // Exit search mode before navigating.
         auto& pane = ActivePane();
+
+        // Record current path in back-stack unless this is a history navigation.
+        if (!skipHistoryRecord && !pane.current_path.empty())
+        {
+            pane.back_stack.push_back(pane.current_path);
+            pane.forward_stack.clear();
+        }
         if (pane.search_mode != SearchMode::None)
         {
             pane.search_service.Cancel();
@@ -3039,6 +3047,24 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
+        if (commandId == L"back")
+        {
+            NavigateBack();
+            return;
+        }
+
+        if (commandId == L"forward")
+        {
+            NavigateForward();
+            return;
+        }
+
+        if (commandId == L"goToPath")
+        {
+            ShowAddressTextBox();
+            return;
+        }
+
         if (commandId == L"newTab")
         {
             AddTab(ActivePane().current_path);
@@ -3823,6 +3849,38 @@ namespace winrt::FileScoutNative::implementation
             accelerators.Append(accel);
         }
     }
+
+    // R13b: Navigation history ────────────────────────────────────────────
+
+    void MainWindow::NavigateBack()
+    {
+        auto& pane = ActivePane();
+        if (pane.back_stack.empty())
+        {
+            StatusTextBlock().Text(L"No back history.");
+            return;
+        }
+        auto const prev = pane.back_stack.back();
+        pane.back_stack.pop_back();
+        pane.forward_stack.push_back(pane.current_path);
+        LoadDirectory(prev, std::nullopt, /*skipHistoryRecord=*/true);
+    }
+
+    void MainWindow::NavigateForward()
+    {
+        auto& pane = ActivePane();
+        if (pane.forward_stack.empty())
+        {
+            StatusTextBlock().Text(L"No forward history.");
+            return;
+        }
+        auto const next = pane.forward_stack.back();
+        pane.forward_stack.pop_back();
+        pane.back_stack.push_back(pane.current_path);
+        LoadDirectory(next, std::nullopt, /*skipHistoryRecord=*/true);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
 
     // R13a: Command palette ────────────────────────────────────────────────
 
