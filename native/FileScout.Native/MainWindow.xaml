@@ -121,6 +121,7 @@
                             <Button x:Name="BackButton"
                                     Style="{StaticResource ChromeToolbarButtonStyle}"
                                     IsEnabled="False"
+                                    Click="BackButton_Click"
                                     AutomationProperties.Name="Back"
                                     ToolTipService.ToolTip="Back">
                                 <FontIcon Glyph="&#xE76B;"
@@ -130,6 +131,7 @@
                             <Button x:Name="ForwardButton"
                                     Style="{StaticResource ChromeToolbarButtonStyle}"
                                     IsEnabled="False"
+                                    Click="ForwardButton_Click"
                                     AutomationProperties.Name="Forward"
                                     ToolTipService.ToolTip="Forward">
                                 <FontIcon Glyph="&#xE76C;"

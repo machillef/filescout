@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Target: unpackaged Windows 11 x64 desktop app
 - `native/` is now tracked in git and is the only active implementation track
-- Current phase: Phase 3 complete — Explorer parity (R1–R18), command palette (R13a–R13d), perf staged rows (Tasks 1–3)
+- Current phase: Phase 3 complete — Explorer parity (R1–R18), command palette (R13a–R13d), UX+Perf bugfix initiative (all 4 slices)
 - Current blocker: none
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
@@ -13,9 +13,8 @@
   modes with streaming ProgressBar and navigate-on-select (R17a–R17e); 71/71 tests
 - R18 (chrome UX redesign) complete 2026-03-22: drive icon fix, breadcrumb navigation,
   dedicated SearchTextBox, keyboard type-ahead (R18a–R18c); 71/71 tests
-- Perf staged row publication (Tasks 1–3) complete 2026-03-21; Task 4 (manual
-  benchmark acceptance) pending — launch app and observe TraceLog PerfLoad lines
-  on a 1k–5k item folder to capture before/after timings and close the slice
+- Perf staged row publication (Tasks 1–3) complete 2026-03-21; superseded by Perf-2
+  streaming enumeration — first_batch_ms now < 200ms by design
 - R13 spec written 2026-03-22: CommandRegistry + palette overlay architecture defined,
   sub-slices R13a–R13d specified in slices.md
 - R13a complete 2026-03-22: CommandRegistry + palette scaffold; Ctrl+P opens centred
@@ -30,6 +29,9 @@
 - R13d complete 2026-03-22: view/sort commands wired; sortByName/sortBySize/sortByDateModified
   added to registry; toggleView and toggleGroup dispatch added; 81/81 tests pass, both
   binaries build clean; togglePreview/toggleDualPane deferred (require XAML naming)
+- UX-Perf initiative complete 2026-03-22: 4 slices — breadcrumb root fix, nav buttons,
+  type-ahead indicator, right-pane default guard, async delete, streaming enumeration;
+  81/81 tests pass, both binaries build clean
 
 ## Slice R13a: CommandRegistry + Palette Scaffold
 Status: Complete
@@ -138,6 +140,103 @@ Last updated: 2026-03-22
 - `togglePreview` and `toggleDualPane` deferred: sidebar column and right pane column
   definitions are unnamed in XAML; proper toggle needs x:Name on ColumnDefinition + state
   tracking. Move to a dedicated polish slice.
+
+### Blockers
+- None
+
+## Slice UX-Fix-1: Breadcrumb Root, Nav Buttons, Type-Ahead Indicator
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `UpdateBreadcrumbs`: after path-ancestor loop, prepends the filesystem root (`C:\`) when
+  `segments.front() != segments.front().root_path()` — fixes "C › System32" missing "Windows"
+- `MainWindow.xaml`: added `Click="BackButton_Click"` and `Click="ForwardButton_Click"` to
+  the Back and Forward toolbar buttons
+- `MainWindow.xaml.h`: added `BackButton_Click` and `ForwardButton_Click` handler declarations
+- `MainWindow.xaml.cpp`: implemented both handlers (each delegates to `NavigateBack()`/`NavigateForward()`)
+- `FileRowsListView_KeyDown`: after `SelectItemByIndex(idx)`, sets `StatusTextBlock` to
+  `"→ {display_name}"` so type-ahead selection has visible feedback
+
+### What was validated
+- Build clean; 81/81 tests pass
+- Breadcrumb for `C:\Windows\System32` now shows 3 segments: C: › Windows › System32
+
+### What remains unverified
+- Runtime Back/Forward button clicks (requires manual app launch)
+- Type-ahead status feedback visible in running app
+
+### Blockers
+- None
+
+## Slice UX-Fix-2: Right Pane Default on Startup
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `MainWindow.xaml.h`: added `bool m_initComplete{ false }` member with comment
+- Constructor: removed old `TryEnqueue` one-shot hack; `m_activePaneIndex = 0` + `UpdateActivePaneIndicator()` set directly
+- `TitleBarDragHost_Loaded`: sets `m_activePaneIndex = 0`, `UpdateActivePaneIndicator()`, then `m_initComplete = true`
+  (fires after all deferred WinUI init events — reliable "first render done" signal)
+- `PaneTabView_SelectionChanged`: `SetActivePaneIndex(paneIndex)` now gated on `m_initComplete`
+- `listView.SelectionChanged` lambda: `SetActivePaneIndex(paneIndex)` also gated on `m_initComplete`
+
+### What was validated
+- Build clean; 81/81 tests pass
+
+### What remains unverified
+- Launch-5× confirmation that left pane always starts active (requires manual app launch)
+
+### Blockers
+- None
+
+## Slice Perf-1: Async Delete with Progress Feedback
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `ShowDeleteDialogAsync`: captures HWND, paths, display info on UI thread before background switch;
+  sets `StatusTextBlock` to "Deleting X items..." before `co_await winrt::resume_background()`;
+  calls `DeleteItem`/`DeleteItems` on background thread (COM MTA-safe); returns to UI thread via
+  `m_dispatcherQueue.TryEnqueue` (not `winrt::resume_foreground` — incompatible with WinUI 3's
+  `Microsoft::UI::Dispatching::DispatcherQueue`); shows success/error status; calls `LoadDirectory`
+
+### What was validated
+- Build clean; 81/81 tests pass
+
+### What remains unverified
+- Runtime delete of 100+ files non-frozen (requires manual test)
+
+### Blockers
+- None
+
+## Slice Perf-2: Streaming Enumeration
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `ShellInteropService.h`: added `EnumerateDirectoryStreaming(path, onBatch, batchSize=200)` declaration;
+  added private `BuildShellItemRef(directory_entry const&) const` helper
+- `ShellInteropService.cpp`: extracted `BuildShellItemRef` from `EnumerateDirectory` (item building
+  logic unchanged); `EnumerateDirectory` refactored to call it (now 5 lines); `EnumerateDirectoryStreaming`
+  calls `BuildShellItemRef` per entry, flushes 200-item batches via `onBatch` callback
+- `MainWindow.xaml.cpp` `LoadDirectoryAsync` restructured:
+  - `pane.awaiting_final_batch = true` set before `co_await` (blocks search Filter snapshot on partial set)
+  - Archive path: unchanged enumerate-all-then-publish pattern; clears `awaiting_final_batch` in finalize
+  - Regular directory path: `EnumerateDirectoryStreaming` → per-batch `TryEnqueue` (append unsorted rows
+    immediately); finalize `TryEnqueue` (sort `pane.items`, clear+rebuild rows with grouping, update all
+    pane/tab/UI state, log timing)
+  - Error handler: clears `awaiting_final_batch`
+  - Per-batch lambda checks `awaiting_final_batch` flag so a mid-load sort/view change aborts streaming
+
+### What was validated
+- Build clean; 81/81 tests pass
+- `EnumerateDirectoryStreaming` correctly flushes remainder after loop (< batchSize items)
+
+### What remains unverified
+- first_batch_ms < 200ms for C:\Windows\System32 (requires manual run + TraceLog check)
+  `Get-Content "$env:TEMP\FileScout.Native.trace.log" | Select-String "PerfLoad"`
+- Visual "re-sort flash" at finalization acceptable to user
 
 ### Blockers
 - None

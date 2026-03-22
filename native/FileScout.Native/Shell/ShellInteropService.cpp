@@ -339,121 +339,141 @@ namespace FileScoutNative::Shell
         return icon;
     }
 
+    FileScoutNative::Domain::ShellItemRef ShellInteropService::BuildShellItemRef(
+        std::filesystem::directory_entry const& entry) const
+    {
+        FileScoutNative::Domain::ShellItemRef item;
+        item.path = entry.path();
+        item.display_name = entry.path().filename().wstring();
+        item.parsing_name = entry.path().wstring();
+        item.is_folder = entry.is_directory();
+        item.kind_label = BuildKindLabel(entry.path(), item.is_folder);
+        item.icon = GetIconForItem(item.path, item.is_folder);
+
+        if (!item.is_folder)
+        {
+            if (auto const archiveKindLabel = TryGetArchiveKindLabel(item.path);
+                archiveKindLabel.has_value())
+            {
+                item.is_archive_candidate = true;
+                item.kind_label = *archiveKindLabel;
+                item.is_supported_archive = CanEnumerateShellNamespace(item.path);
+            }
+        }
+
+        if (!item.is_folder)
+        {
+            std::error_code sizeError;
+            const auto size = entry.file_size(sizeError);
+            if (!sizeError)
+            {
+                item.size_available = true;
+                item.size_bytes = size;
+            }
+        }
+
+        // Populate date modified for sorting and display.
+        std::error_code timeError;
+        auto const writeTime = entry.last_write_time(timeError);
+        if (!timeError)
+        {
+            item.date_modified = writeTime;
+            item.date_modified_available = true;
+
+            // Convert file_time_type → FILETIME → SYSTEMTIME for locale-aware formatting.
+            // Cast to ULONGLONG before splitting to avoid implementation-defined signed right-shift.
+            auto const ticks = static_cast<ULONGLONG>(writeTime.time_since_epoch().count());
+            FILETIME ft{};
+            ft.dwLowDateTime  = static_cast<DWORD>(ticks & 0xFFFFFFFFULL);
+            ft.dwHighDateTime = static_cast<DWORD>(ticks >> 32);
+
+            SYSTEMTIME utc{};
+            SYSTEMTIME local{};
+            if (FileTimeToSystemTime(&ft, &utc) &&
+                SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
+            {
+                wchar_t dateBuf[64]{};
+                wchar_t timeBuf[64]{};
+                GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE,
+                                &local, nullptr, dateBuf, 64, nullptr);
+                GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS,
+                                &local, nullptr, timeBuf, 64);
+                item.date_modified_str = std::wstring{ dateBuf } + L"  " + std::wstring{ timeBuf };
+            }
+        }
+
+        // Populate creation time, file attributes, and image flag via GetFileAttributesExW.
+        WIN32_FILE_ATTRIBUTE_DATA attrData{};
+        auto const itemPathStr = item.path.wstring();
+        if (GetFileAttributesExW(itemPathStr.c_str(), GetFileExInfoStandard, &attrData))
+        {
+            item.file_attributes = static_cast<uint32_t>(attrData.dwFileAttributes);
+            item.file_attributes_available = true;
+
+            SYSTEMTIME utc{};
+            SYSTEMTIME local{};
+            if (FileTimeToSystemTime(&attrData.ftCreationTime, &utc) &&
+                SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
+            {
+                wchar_t dateBuf[64]{};
+                wchar_t timeBuf[64]{};
+                GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE,
+                                &local, nullptr, dateBuf, 64, nullptr);
+                GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS,
+                                &local, nullptr, timeBuf, 64);
+                item.date_created_str = std::wstring{ dateBuf } + L"  " + std::wstring{ timeBuf };
+                item.date_created_available = true;
+            }
+        }
+
+        // Detect image files by extension for the preview panel.
+        if (!item.is_folder)
+        {
+            auto ext = item.path.extension().wstring();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t const ch)
+                { return static_cast<wchar_t>(towlower(ch)); });
+            static constexpr std::array<std::wstring_view, 9> imgExts{
+                L".jpg", L".jpeg", L".png", L".gif", L".bmp",
+                L".ico", L".webp", L".tiff", L".tif",
+            };
+            item.is_image = std::ranges::any_of(imgExts, [&ext](std::wstring_view e)
+                { return ext == e; });
+        }
+
+        return item;
+    }
+
     std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateDirectory(
         std::filesystem::path const& path)
     {
         std::vector<FileScoutNative::Domain::ShellItemRef> items;
+        for (auto const& entry : std::filesystem::directory_iterator(path))
+            items.push_back(BuildShellItemRef(entry));
+        // NOTE: Sorting is intentionally omitted here — callers apply the user-selected
+        // sort column and direction after enumeration.
+        return items;
+    }
 
+    void ShellInteropService::EnumerateDirectoryStreaming(
+        std::filesystem::path const& path,
+        std::function<bool(std::vector<FileScoutNative::Domain::ShellItemRef>&&)> const& onBatch,
+        std::size_t const batchSize)
+    {
+        std::vector<FileScoutNative::Domain::ShellItemRef> batch;
+        batch.reserve(batchSize);
         for (auto const& entry : std::filesystem::directory_iterator(path))
         {
-            FileScoutNative::Domain::ShellItemRef item;
-            item.path = entry.path();
-            item.display_name = entry.path().filename().wstring();
-            item.parsing_name = entry.path().wstring();
-            item.is_folder = entry.is_directory();
-            item.kind_label = BuildKindLabel(entry.path(), item.is_folder);
-            item.icon = GetIconForItem(item.path, item.is_folder);
-
-            if (!item.is_folder)
+            batch.push_back(BuildShellItemRef(entry));
+            if (batch.size() >= batchSize)
             {
-                if (auto const archiveKindLabel = TryGetArchiveKindLabel(item.path);
-                    archiveKindLabel.has_value())
-                {
-                    item.is_archive_candidate = true;
-                    item.kind_label = *archiveKindLabel;
-                    item.is_supported_archive = CanEnumerateShellNamespace(item.path);
-                }
+                if (!onBatch(std::move(batch)))
+                    return;
+                batch.clear();
+                batch.reserve(batchSize);
             }
-
-            if (!item.is_folder)
-            {
-                std::error_code sizeError;
-                const auto size = entry.file_size(sizeError);
-                if (!sizeError)
-                {
-                    item.size_available = true;
-                    item.size_bytes = size;
-                }
-            }
-
-            // Populate date modified for sorting and display.
-            std::error_code timeError;
-            auto const writeTime = entry.last_write_time(timeError);
-            if (!timeError)
-            {
-                item.date_modified = writeTime;
-                item.date_modified_available = true;
-
-                // Convert file_time_type → FILETIME → SYSTEMTIME for locale-aware formatting.
-                // On Windows, file_time_type epoch matches FILETIME (100-ns ticks since 1601-01-01).
-                // Cast to ULONGLONG before splitting to avoid implementation-defined signed right-shift.
-                auto const ticks = static_cast<ULONGLONG>(writeTime.time_since_epoch().count());
-                FILETIME ft{};
-                ft.dwLowDateTime  = static_cast<DWORD>(ticks & 0xFFFFFFFFULL);
-                ft.dwHighDateTime = static_cast<DWORD>(ticks >> 32);
-
-                SYSTEMTIME utc{};
-                SYSTEMTIME local{};
-                if (FileTimeToSystemTime(&ft, &utc) &&
-                    SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
-                {
-                    wchar_t dateBuf[64]{};
-                    wchar_t timeBuf[64]{};
-                    GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE,
-                                    &local, nullptr, dateBuf, 64, nullptr);
-                    GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS,
-                                    &local, nullptr, timeBuf, 64);
-                    item.date_modified_str = std::wstring{ dateBuf } + L"  " + std::wstring{ timeBuf };
-                }
-            }
-
-            // Populate creation time, file attributes, and image flag via GetFileAttributesExW.
-            // This is one Win32 call per item; acceptable given the heavier SHGetFileInfoW above.
-            // Store the wstring in a named local so the pointer lifetime is explicit.
-            WIN32_FILE_ATTRIBUTE_DATA attrData{};
-            auto const itemPathStr = item.path.wstring();
-            if (GetFileAttributesExW(itemPathStr.c_str(), GetFileExInfoStandard, &attrData))
-            {
-                item.file_attributes = static_cast<uint32_t>(attrData.dwFileAttributes);
-                item.file_attributes_available = true;
-
-                SYSTEMTIME utc{};
-                SYSTEMTIME local{};
-                if (FileTimeToSystemTime(&attrData.ftCreationTime, &utc) &&
-                    SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
-                {
-                    wchar_t dateBuf[64]{};
-                    wchar_t timeBuf[64]{};
-                    GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE,
-                                    &local, nullptr, dateBuf, 64, nullptr);
-                    GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS,
-                                    &local, nullptr, timeBuf, 64);
-                    item.date_created_str = std::wstring{ dateBuf } + L"  " + std::wstring{ timeBuf };
-                    item.date_created_available = true;
-                }
-            }
-
-            // Detect image files by extension for the preview panel.
-            if (!item.is_folder)
-            {
-                auto ext = item.path.extension().wstring();
-                std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t const ch)
-                    { return static_cast<wchar_t>(towlower(ch)); });
-                // Use string_view for safe, unambiguous string comparison (not pointer comparison).
-                static constexpr std::array<std::wstring_view, 9> imgExts{
-                    L".jpg", L".jpeg", L".png", L".gif", L".bmp",
-                    L".ico", L".webp", L".tiff", L".tif",
-                };
-                item.is_image = std::ranges::any_of(imgExts, [&ext](std::wstring_view e)
-                    { return ext == e; });
-            }
-
-            items.push_back(std::move(item));
         }
-
-        // NOTE: Sorting is intentionally omitted here — callers (e.g. LoadDirectory)
-        // apply the user-selected sort column and direction after enumeration.
-        return items;
+        if (!batch.empty())
+            onBatch(std::move(batch));
     }
 
     std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateDrives()

@@ -87,6 +87,12 @@ namespace winrt::FileScoutNative::implementation
     {
         MainWindow();
 
+        void BackButton_Click(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+        void ForwardButton_Click(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void RefreshButton_Click(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -160,6 +166,10 @@ namespace winrt::FileScoutNative::implementation
         // Dual-pane state: index 0 = left, index 1 = right.
         std::array<PaneContext, 2> m_panes{};
         int32_t m_activePaneIndex{ 0 };
+        // Set to true in TitleBarDragHost_Loaded (first render complete).
+        // Guards against deferred WinUI TabView SelectionChanged events during init
+        // overriding the intended default active pane (0 = left).
+        bool m_initComplete{ false };
 
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;
