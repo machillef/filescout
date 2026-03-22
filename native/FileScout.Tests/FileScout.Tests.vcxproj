@@ -127,6 +127,7 @@
     <ClCompile Include="tests\FavoritesServiceTests.cpp" />
     <ClCompile Include="tests\ShellInteropServiceTests.cpp" />
     <ClCompile Include="tests\ShellFileOperationServiceTests.cpp" />
+    <ClCompile Include="tests\FuzzyMatcherTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

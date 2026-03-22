@@ -136,6 +136,7 @@
     <ClInclude Include="Shell\ShellFileOperationService.h" />
     <ClInclude Include="Shell\ShellOverflowMenuService.h" />
     <ClInclude Include="Shell\ShellInteropService.h" />
+    <ClInclude Include="Search\FuzzyMatcher.h" />
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />

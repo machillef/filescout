@@ -32,6 +32,13 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <latch>
+#include <memory>
+#include <queue>
+#include <thread>
 
 // CppWinRT base (winrt::com_ptr) — headers from main project's Generated Files.
 #include <winrt/base.h>
