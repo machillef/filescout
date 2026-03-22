@@ -44,13 +44,21 @@ test-img/
 /native/**/obj/
 /native/**/Generated Files/
 
-# Legacy local build artifacts
-/target/
-
 # Session-local build/test scripts and output files
 do_build.ps1
+build_fs.bat
 run_build*.bat
+run_build*.ps1
 run_tests.ps1
 build_output*.txt
 build_result.txt
 test_result.txt
+
+# Process/session files
+server-wsl.pid
+
+# Playwright CLI artifacts
+.playwright-cli/
+
+# Test binary artifacts (rebuilt by MSBuild)
+/native/FileScout.Tests/bin/

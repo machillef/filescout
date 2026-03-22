@@ -13,18 +13,24 @@
 
 ## Phase 2: FileScout Baseline
 
-- [ ] **R8** — Favorites, sidebar tree, and pinned locations
-- [ ] **R9** — Sort, group, and view mode parity
-- [ ] **R10** — Preview and inspect surface
+- [x] **R8** — Favorites, sidebar tree, and pinned locations
+- [x] **R9** — Sort, group, and view mode parity
+- [x] **R10** — Preview and inspect surface
 
 ## Phase 3: Differentiated Features
 
-- [ ] **R11** — Archive mode
-- [ ] **R12** — Batch rename
-- [ ] **R13** — Command palette
+- [x] **R11** — Archive mode
+- [x] **R12** — Batch rename
+- [ ] **R13** — Command palette ← next
 - [ ] **R14** — Git-aware and power-user workflows
 - [ ] **R15** — AI features
 
+## Phase 4: UX Polish (interleaved)
+
+- [x] **R16** — Visual polish and explorer chrome
+- [x] **R17** — Fuzzy search (FuzzyMatcher, SearchService, Filter + Recursive modes)
+- [x] **R18** — Chrome UX redesign (breadcrumb nav, dedicated search box, keyboard type-ahead)
+
 ## Current Status
 
-R7 complete. Next: **R8** — favorites, sidebar tree, and pinned locations.
+R18 complete (2026-03-22). Next: **R13** — command palette (write spec first, then implement).

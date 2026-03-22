@@ -13,13 +13,20 @@ A Windows 11 file explorer built with C++/WinRT and WinUI 3.
 - Keyboard shortcuts: Ctrl+C/X/V, Delete, F2, F5, Ctrl+T, Ctrl+W, Ctrl+Tab
 - Multi-tab pane (Ctrl+T to open, Ctrl+W to close)
 - Dual-pane layout with independent tab sets and active-pane routing
+- Sidebar navigation: Home, Desktop, Documents, Downloads, Pictures, Music, Videos, This PC, Recycle Bin, drives; pin any folder from the context menu
+- Sort by name/size/date (column headers), group toggle, Cards and List view modes — all per-pane
+- Sidebar image preview with created date, file attributes; metadata inspect surface
+- Archive browsing: ZIP and shell-detected archives open as virtual views; extract-to affordances
+- Batch rename: sequential numbering, prefix/suffix presets, find-and-replace, live preview and validation
+- Explorer-style chrome: custom title bar, Fluent icon glyphs, 2-pane active indicator, shell-backed sidebar icons
+- Breadcrumb address bar with clickable path segments and drive root icons
+- Dedicated search box with fuzzy matching, streaming results, Filter and Recursive modes, keyboard type-ahead
 
 ## What's next
 
-- Favorites, sidebar tree, and pinned locations (R8)
-- Sort, group, and view mode parity (R9)
-- Preview and metadata panel (R10)
-- Archive browsing, batch rename, command palette (R11–R13)
+- Command palette (R13) — write spec first, then implement
+- Git-aware and power-user workflows (R14)
+- AI features (R15)
 
 ## Prerequisites
 
