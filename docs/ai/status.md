@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Target: unpackaged Windows 11 x64 desktop app
 - `native/` is now tracked in git and is the only active implementation track
-- Current phase: Phase 3, Differentiated features complete through R18
+- Current phase: Phase 3 complete — Explorer parity (R1–R18), command palette (R13a–R13d), perf staged rows (Tasks 1–3)
 - Current blocker: none
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20

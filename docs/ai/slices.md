@@ -267,12 +267,3 @@ add keyboard type-ahead in file list.
 **Touched area:** `CommandRegistry.cpp`, `MainWindow.xaml.cpp`, `CommandRegistryTests.cpp`
 **Validation:** AllViewAndSortCommandsPresent test; 81/81 tests pass; both binaries build clean
 
-## R14: Git-Aware And Power-User Workflows
-**Goal:** Add differentiated workflows after Explorer-parity basics stabilize.
-**Status:** Not Started
-**Depends on:** `R4`, `R7`, `R13`
-
-## R15: AI Features
-**Goal:** Add AI only after the native parity baseline is stable.
-**Status:** Not Started
-**Depends on:** `R12`, `R13`
