@@ -26,7 +26,11 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <atomic>
+#include <chrono>
+#include <functional>
 #include <mutex>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 

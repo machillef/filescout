@@ -119,6 +119,7 @@
     <ClCompile Include="..\FileScout.Native\Shell\FavoritesService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellInteropService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellFileOperationService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Search\SearchService.cpp" />
   </ItemGroup>
 
   <!-- Test sources -->
@@ -128,6 +129,7 @@
     <ClCompile Include="tests\ShellInteropServiceTests.cpp" />
     <ClCompile Include="tests\ShellFileOperationServiceTests.cpp" />
     <ClCompile Include="tests\FuzzyMatcherTests.cpp" />
+    <ClCompile Include="tests\SearchServiceTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

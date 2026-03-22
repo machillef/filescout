@@ -137,6 +137,7 @@
     <ClInclude Include="Shell\ShellOverflowMenuService.h" />
     <ClInclude Include="Shell\ShellInteropService.h" />
     <ClInclude Include="Search\FuzzyMatcher.h" />
+    <ClInclude Include="Search\SearchService.h" />
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />
@@ -158,6 +159,7 @@
     <ClCompile Include="Shell\ShellFileOperationService.cpp" />
     <ClCompile Include="Shell\ShellOverflowMenuService.cpp" />
     <ClCompile Include="Shell\ShellInteropService.cpp" />
+    <ClCompile Include="Search\SearchService.cpp" />
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
