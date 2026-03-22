@@ -241,6 +241,7 @@ namespace winrt::FileScoutNative::implementation
         // R13b: navigation history.
         void NavigateBack();
         void NavigateForward();
+        void UpdateNavButtons();
 
         // R13a: command palette overlay.
         void ShowCommandPalette();

@@ -1227,6 +1227,20 @@ namespace winrt::FileScoutNative::implementation
         // Pane 0 (left) starts as active with its indicator already lit.
         m_activePaneIndex = 0;
         UpdateActivePaneIndicator();
+
+        // InitPane wires TabView SelectionChanged via XAML; WinUI 3 may dispatch a
+        // deferred SelectionChanged for the right pane after tab_switching is cleared,
+        // which would override m_activePaneIndex=0.  Queue a one-shot callback to
+        // re-assert pane 0 as active after all deferred init events have flushed.
+        m_dispatcherQueue.TryEnqueue([this, lifetime = get_strong()]()
+        {
+            if (m_activePaneIndex != 0)
+            {
+                m_activePaneIndex = 0;
+                UpdateActivePaneIndicator();
+            }
+        });
+
         TraceLog(L"MainWindow ctor: complete.");
     }
 
@@ -3913,6 +3927,12 @@ namespace winrt::FileScoutNative::implementation
         LoadDirectory(next, std::nullopt, /*skipHistoryRecord=*/true);
     }
 
+    void MainWindow::UpdateNavButtons()
+    {
+        BackButton().IsEnabled(!ActivePane().back_stack.empty());
+        ForwardButton().IsEnabled(!ActivePane().forward_stack.empty());
+    }
+
     // ────────────────────────────────────────────────────────────────────────
 
     // R13a: Command palette ────────────────────────────────────────────────
@@ -4687,11 +4707,11 @@ namespace winrt::FileScoutNative::implementation
                 : seg.filename().wstring();    // "Documents"
             if (label.empty()) label = seg.wstring();
 
-            // Separator " › " between segments.
+            // Separator "›" (U+203A) between segments.
             if (i > 0)
             {
                 MUI::TextBlock sep;
-                sep.Text(L" › ");
+                sep.Text(L" \u203A ");
                 sep.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
                 sep.Opacity(0.4);
                 sep.FontSize(12);
@@ -4715,6 +4735,8 @@ namespace winrt::FileScoutNative::implementation
 
             panel.Children().Append(btn);
         }
+
+        UpdateNavButtons();
     }
 
     void MainWindow::ShowAddressTextBox()
