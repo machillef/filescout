@@ -3809,7 +3809,163 @@ namespace winrt::FileScoutNative::implementation
             });
             accelerators.Append(accel);
         }
+
+        // Ctrl+P — open command palette.
+        {
+            auto accel = KA{};
+            accel.Key(VK::P);
+            accel.Modifiers(VKM::Control);
+            accel.Invoked([this](winrt::Windows::Foundation::IInspectable const&, KAArgs const& e)
+            {
+                e.Handled(true);
+                ShowCommandPalette();
+            });
+            accelerators.Append(accel);
+        }
     }
+
+    // R13a: Command palette ────────────────────────────────────────────────
+
+    void MainWindow::ShowCommandPalette()
+    {
+        CommandPaletteTextBox().Text(L"");
+        CommandPaletteOverlay().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        RefreshCommandPalette(L"");
+        CommandPaletteTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+    }
+
+    void MainWindow::HideCommandPalette()
+    {
+        CommandPaletteOverlay().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+    }
+
+    void MainWindow::RefreshCommandPalette(std::wstring_view query)
+    {
+        auto const& lv = CommandPaletteListView();
+        lv.Items().Clear();
+        for (auto const& cmd : m_commandRegistry.Filter(query))
+            lv.Items().Append(CreateCommandRowView(cmd));
+    }
+
+    winrt::Windows::Foundation::IInspectable MainWindow::CreateCommandRowView(
+        ::FileScoutNative::Domain::CommandEntry const& cmd)
+    {
+        namespace MUI = winrt::Microsoft::UI::Xaml::Controls;
+        namespace MUX = winrt::Microsoft::UI::Xaml;
+
+        MUI::Grid row;
+        row.Padding({ 12, 8, 12, 8 });
+        row.Tag(winrt::box_value(winrt::hstring(cmd.id)));
+
+        {
+            MUI::ColumnDefinition c1;
+            c1.Width({ 1, MUX::GridUnitType::Star });
+            row.ColumnDefinitions().Append(c1);
+            MUI::ColumnDefinition c2;
+            c2.Width({ 0, MUX::GridUnitType::Auto });
+            row.ColumnDefinitions().Append(c2);
+        }
+
+        MUI::StackPanel namePanel;
+        MUI::Grid::SetColumn(namePanel, 0);
+
+        MUI::TextBlock nameText;
+        nameText.Text(winrt::hstring(cmd.display_name));
+        nameText.FontSize(14);
+        namePanel.Children().Append(nameText);
+
+        if (!cmd.category.empty())
+        {
+            MUI::TextBlock catText;
+            catText.Text(winrt::hstring(cmd.category));
+            catText.FontSize(11);
+            catText.Opacity(0.55);
+            namePanel.Children().Append(catText);
+        }
+        row.Children().Append(namePanel);
+
+        if (!cmd.shortcut_text.empty())
+        {
+            MUI::TextBlock shortcutHint;
+            shortcutHint.Text(winrt::hstring(cmd.shortcut_text));
+            shortcutHint.FontSize(12);
+            shortcutHint.Opacity(0.5);
+            shortcutHint.VerticalAlignment(MUX::VerticalAlignment::Center);
+            MUI::Grid::SetColumn(shortcutHint, 1);
+            row.Children().Append(shortcutHint);
+        }
+
+        return row.as<winrt::Windows::Foundation::IInspectable>();
+    }
+
+    void MainWindow::CommandPalette_TextChanged(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&)
+    {
+        RefreshCommandPalette(CommandPaletteTextBox().Text().c_str());
+    }
+
+    void MainWindow::CommandPalette_ItemClick(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::ItemClickEventArgs const& args)
+    {
+        auto const elem = args.ClickedItem().try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>();
+        if (!elem) return;
+        auto const tag = elem.Tag();
+        if (!tag) return;
+        auto const commandId = winrt::unbox_value<winrt::hstring>(tag);
+        HideCommandPalette();
+        ExecuteContextCommand(commandId.c_str(), std::nullopt);
+    }
+
+    void MainWindow::CommandPalette_TextBox_KeyDown(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
+    {
+        using VK = winrt::Windows::System::VirtualKey;
+        auto const& lv = CommandPaletteListView();
+
+        if (args.Key() == VK::Escape)
+        {
+            args.Handled(true);
+            HideCommandPalette();
+        }
+        else if (args.Key() == VK::Down)
+        {
+            args.Handled(true);
+            auto const count = static_cast<int32_t>(lv.Items().Size());
+            if (count > 0)
+            {
+                auto const next = (std::min)(lv.SelectedIndex() + 1, count - 1);
+                lv.SelectedIndex(next);
+                lv.ScrollIntoView(lv.SelectedItem());
+            }
+        }
+        else if (args.Key() == VK::Up)
+        {
+            args.Handled(true);
+            if (lv.SelectedIndex() > 0)
+            {
+                lv.SelectedIndex(lv.SelectedIndex() - 1);
+                lv.ScrollIntoView(lv.SelectedItem());
+            }
+        }
+        else if (args.Key() == VK::Enter)
+        {
+            args.Handled(true);
+            auto const sel = lv.SelectedItem();
+            if (!sel) return;
+            auto const elem = sel.try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>();
+            if (!elem) return;
+            auto const tag = elem.Tag();
+            if (!tag) return;
+            auto const commandId = winrt::unbox_value<winrt::hstring>(tag);
+            HideCommandPalette();
+            ExecuteContextCommand(commandId.c_str(), std::nullopt);
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
 
     winrt::fire_and_forget MainWindow::OpenArchiveItemAsync(::FileScoutNative::Domain::ShellItemRef item)
     {

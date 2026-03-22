@@ -218,9 +218,54 @@ add keyboard type-ahead in file list.
 **Depends on:** `R17`
 
 ## R13: Command Palette
-**Goal:** Global fuzzy command surface in the native host.
+**Goal:** Global fuzzy command surface in the native host — Ctrl+P overlay with fuzzy-filtered command list dispatching through existing services.
+**Status:** In Progress (spec written 2026-03-22; R13a next)
+**Depends on:** `R6`, `R17` (reuses FuzzyScore)
+
+### Architecture
+- `Domain/CommandEntry.h` — pure struct: `id` (wstring), `display_name`, `shortcut_text`, `category`; no WinRT dependencies
+- `Services/CommandRegistry.h/.cpp` — builds static command table at startup; `Filter(query)` returns scored+sorted `std::vector<CommandEntry>` using `FuzzyScore` from `Search/FuzzyMatcher.h`
+- Palette overlay: XAML `Grid` element (visibility-toggled) on the window root, centred, containing a `TextBox` + `ListView`; avoids `Popup` z-order issues and ContentDialog modal constraints
+- Invocation: Ctrl+P registered in `SetupKeyboardAccelerators()` alongside existing accelerators
+- Dispatch: selected command routes through `ExecuteContextCommand(id, itemIndex)` — reuses the exact same path as keyboard/context-menu actions
+
+### Sub-slices
+
+## R13a: CommandRegistry + Palette Scaffold
+**Goal:** Ctrl+P opens a centred overlay with a fuzzy-filtered command list; Escape closes it. No commands wired to real actions yet — scaffold only.
 **Status:** Not Started
-**Depends on:** `R6`
+**Touched area:**
+- `native/FileScout.Native/Domain/CommandEntry.h` (new)
+- `native/FileScout.Native/Services/CommandRegistry.h` (new)
+- `native/FileScout.Native/Services/CommandRegistry.cpp` (new)
+- `native/FileScout.Native/MainWindow.xaml` (palette overlay Grid)
+- `native/FileScout.Native/MainWindow.xaml.h` (ShowCommandPalette / HideCommandPalette declarations)
+- `native/FileScout.Native/MainWindow.xaml.cpp` (Ctrl+P accelerator, TextChanged handler, ItemInvoked stub)
+- `native/FileScout.Native/FileScout.Native.vcxproj` (new files)
+- `native/FileScout.Tests/tests/CommandRegistryTests.cpp` (new)
+**Validation:** build pass + tests pass; Ctrl+P opens overlay, typing filters list, Escape closes
+
+## R13b: Navigation Commands
+**Goal:** Wire navigation commands into the registry so they execute correctly.
+**Status:** Not Started
+**Commands:** New Tab, Close Tab, Switch Pane, Back, Forward, Refresh, Go to Path (opens address TextBox)
+**Touched area:** `CommandRegistry.cpp`, `MainWindow.xaml.cpp` (ExecuteContextCommand hook-up)
+**Validation:** each command executes correctly when selected from palette
+
+## R13c: File Operation Commands
+**Goal:** Wire file operation commands — context-sensitive to active selection.
+**Status:** Not Started
+**Commands:** Copy, Cut, Paste, Delete, Rename, New Folder, Open, Open With, Properties
+**Note:** Commands requiring selection are included unconditionally; `ExecuteContextCommand` already guards against no-selection gracefully
+**Touched area:** `CommandRegistry.cpp`
+**Validation:** each command executes correctly; no-selection state is handled gracefully
+
+## R13d: View And Sort Commands
+**Goal:** Wire view/sort/layout commands.
+**Status:** Not Started
+**Commands:** Toggle View Mode (Cards↔List), Toggle Group, Sort by Name / Size / Date Modified, Toggle Preview Panel, Toggle Dual Pane
+**Touched area:** `CommandRegistry.cpp`
+**Validation:** each command updates UI state correctly when selected from palette
 
 ## R14: Git-Aware And Power-User Workflows
 **Goal:** Add differentiated workflows after Explorer-parity basics stabilize.

@@ -351,5 +351,38 @@
                            Opacity="0.72" />
             </StackPanel>
         </Border>
+
+        <!-- R13a: Command Palette overlay. Ctrl+P to show, Escape to close. -->
+        <Grid x:Name="CommandPaletteOverlay"
+              Grid.RowSpan="3"
+              Background="#80000000"
+              Visibility="Collapsed">
+            <Border Width="560"
+                    MaxHeight="440"
+                    VerticalAlignment="Top"
+                    HorizontalAlignment="Center"
+                    Margin="0,80,0,0"
+                    CornerRadius="8"
+                    BorderThickness="1"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    Background="{ThemeResource LayerFillColorDefaultBrush}">
+                <StackPanel>
+                    <TextBox x:Name="CommandPaletteTextBox"
+                             PlaceholderText="Type a command…"
+                             FontSize="15"
+                             Padding="16,10"
+                             BorderThickness="0,0,0,1"
+                             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                             Background="Transparent"
+                             TextChanged="CommandPalette_TextChanged"
+                             KeyDown="CommandPalette_TextBox_KeyDown" />
+                    <ListView x:Name="CommandPaletteListView"
+                              MaxHeight="360"
+                              Padding="0,4,0,4"
+                              ItemClick="CommandPalette_ItemClick"
+                              IsItemClickEnabled="True" />
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

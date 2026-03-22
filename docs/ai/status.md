@@ -16,7 +16,44 @@
 - Perf staged row publication (Tasks 1–3) complete 2026-03-21; Task 4 (manual
   benchmark acceptance) pending — launch app and observe TraceLog PerfLoad lines
   on a 1k–5k item folder to capture before/after timings and close the slice
-- Next: R13 command palette — write spec first, then implement
+- R13 spec written 2026-03-22: CommandRegistry + palette overlay architecture defined,
+  sub-slices R13a–R13d specified in slices.md
+- R13a complete 2026-03-22: CommandRegistry + palette scaffold; Ctrl+P opens centred
+  overlay, typing fuzzy-filters 14 scaffold commands, Escape closes, click/Enter
+  dispatches; 7/7 new tests pass, both binaries build clean
+
+## Slice R13a: CommandRegistry + Palette Scaffold
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `Domain/CommandEntry.h` — pure C++ struct (id, display_name, shortcut_text, category)
+- `Shell/CommandRegistry.h/.cpp` — FuzzyScore-backed filter returning scored+sorted results;
+  14 scaffold commands across Navigation/File/View categories
+- `MainWindow.xaml` — `CommandPaletteOverlay` Grid (Visibility=Collapsed, rowspan=3),
+  `CommandPaletteTextBox` (TextChanged + KeyDown), `CommandPaletteListView` (ItemClick)
+- `MainWindow.xaml.h/.cpp` — `m_commandRegistry` member; `ShowCommandPalette()`,
+  `HideCommandPalette()`, `RefreshCommandPalette()`, `CreateCommandRowView()`;
+  Ctrl+P accelerator in `SetupKeyboardAccelerators()`; Up/Down/Enter/Escape keyboard nav
+- `FileScout.Tests/tests/CommandRegistryTests.cpp` — 7 tests: AllReturnsNonEmpty,
+  EmptyQueryReturnsAll, FilterMatchesByDisplayName, FilterReturnsEmptyForNoMatch,
+  FilterIsCaseInsensitive, FilterResultsAreSubsetOfAll, EachCommandHasNonEmptyId
+- Both vcxproj files updated with new sources
+
+### What was validated
+- All 7 CommandRegistry tests pass
+- FileScout.Native.exe builds clean (only pre-existing MSB8027/LNK4042 warnings)
+- Fix applied: XAML event handlers must be in public section; (std::min) idiom for Win32 macro conflict
+
+### What remains unverified
+- Runtime Ctrl+P gesture (requires manual launch of app)
+
+### Blockers
+- None
+
+### Next recommended step
+- R13b: wire navigation commands (newTab, closeTab, switchPane, refresh, back, forward)
+  through ExecuteContextCommand to real implementations
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete

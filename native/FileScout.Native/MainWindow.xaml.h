@@ -11,6 +11,7 @@
 #include "Shell\ShellClipboardService.h"
 #include "Shell\ShellFileOperationService.h"
 #include "Shell\ShellOverflowMenuService.h"
+#include "Shell\CommandRegistry.h"
 #include "Shell\ShellInteropService.h"
 #include "Search\SearchService.h"
 
@@ -135,6 +136,17 @@ namespace winrt::FileScoutNative::implementation
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const&);
 
+        // R13a: command palette event handlers (must be public for XAML Connect).
+        void CommandPalette_TextChanged(
+            winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& args);
+        void CommandPalette_ItemClick(
+            winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::Controls::ItemClickEventArgs const& args);
+        void CommandPalette_TextBox_KeyDown(
+            winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args);
+
     private:
         HWND m_hwnd{ nullptr };
         winrt::Microsoft::UI::Dispatching::DispatcherQueue m_dispatcherQueue{ nullptr };
@@ -152,6 +164,7 @@ namespace winrt::FileScoutNative::implementation
         ::FileScoutNative::Shell::ShellFileOperationService m_shellFileOperationService;
         ::FileScoutNative::Shell::ShellOverflowMenuService m_shellOverflowMenuService;
         ::FileScoutNative::Shell::ShellInteropService m_shellInterop;
+        ::FileScoutNative::Shell::CommandRegistry m_commandRegistry;
         POINT m_lastContextMenuPoint{};
         bool m_hasLastContextMenuPoint{ false };
 
@@ -219,6 +232,13 @@ namespace winrt::FileScoutNative::implementation
         // R18c: keyboard type-ahead in file list.
         void FileRowsListView_KeyDown(
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args);
+
+        // R13a: command palette overlay.
+        void ShowCommandPalette();
+        void HideCommandPalette();
+        void RefreshCommandPalette(std::wstring_view query);
+        [[nodiscard]] winrt::Windows::Foundation::IInspectable CreateCommandRowView(
+            ::FileScoutNative::Domain::CommandEntry const& cmd);
 
         // R17d: per-pane search ProgressBar accessor.
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);
