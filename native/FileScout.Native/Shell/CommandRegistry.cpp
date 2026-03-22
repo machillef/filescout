@@ -7,9 +7,8 @@ namespace FileScoutNative::Shell
 {
     CommandRegistry::CommandRegistry()
     {
-        // R13a: scaffold entries covering navigation and common file operations.
-        // Categories and shortcut_text match the accelerators wired in SetupKeyboardAccelerators.
-        // R13b–R13d will wire these ids to real ExecuteContextCommand dispatch.
+        // Full command table: Navigation (R13a/R13b), File ops (R13a/R13c), View (R13d).
+        // shortcut_text is display-only — matches accelerators in SetupKeyboardAccelerators.
         m_commands =
         {
             // Navigation
@@ -21,12 +20,15 @@ namespace FileScoutNative::Shell
             { L"forward",    L"Go Forward",        L"",         L"Navigation" },
             { L"goToPath",   L"Go to Path",        L"F4",       L"Navigation" },
             // File operations
+            { L"open",       L"Open",              L"Enter",    L"File"       },
+            { L"openWith",   L"Open With",         L"",         L"File"       },
             { L"copy",       L"Copy",              L"Ctrl+C",   L"File"       },
             { L"cut",        L"Cut",               L"Ctrl+X",   L"File"       },
             { L"paste",      L"Paste",             L"Ctrl+V",   L"File"       },
             { L"delete",     L"Delete",            L"Del",      L"File"       },
             { L"rename",     L"Rename",            L"F2",       L"File"       },
             { L"newFolder",  L"New Folder",        L"",         L"File"       },
+            { L"properties", L"Properties",        L"",         L"File"       },
             // View
             { L"toggleView", L"Toggle View Mode",  L"",         L"View"       },
             { L"toggleGroup",L"Toggle Grouping",   L"",         L"View"       },

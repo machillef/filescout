@@ -24,6 +24,9 @@
 - R13b complete 2026-03-22: navigation commands wired; back/forward history stacks
   added to PaneContext; LoadDirectory gains skipHistoryRecord param; 8/8 tests pass,
   both binaries build clean
+- R13c complete 2026-03-22: file operation commands wired; open/openWith/properties
+  added to CommandRegistry; all 9 file op IDs verified by AllFileOperationCommandsPresent;
+  80/80 tests pass, both binaries build clean
 
 ## Slice R13a: CommandRegistry + Palette Scaffold
 Status: Complete
@@ -83,6 +86,32 @@ Last updated: 2026-03-22
 
 ### Blockers
 - None
+
+## Slice R13c: File Operation Commands
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `CommandRegistry.cpp` — added `open` (Enter), `openWith`, `properties` to the File
+  operations section; 18 commands total (7 Navigation, 9 File, 2 View)
+- `CommandRegistryTests.cpp` — `AllFileOperationCommandsPresent` test verifying all 9
+  file op IDs: copy, cut, paste, delete, rename, newFolder, open, openWith, properties
+- Stale R13a/R13b comment in CommandRegistry.cpp cleaned up
+
+### What was validated
+- AllFileOperationCommandsPresent: RED with 3 missing ids → GREEN after registry update
+- All 80 tests pass (up from 71 before R17+R18, 80 after R13c)
+- Both binaries build clean
+- Dispatch already handled by `ExecuteContextCommand` for all 9 commands; no MainWindow changes needed
+
+### What remains unverified
+- Runtime selection → palette → file op execution (requires manual app launch)
+
+### Blockers
+- None
+
+### Next recommended step
+- R13d: wire view/sort/layout commands (toggleView, toggleGroup, sort by name/size/date, togglePreview, toggleDualPane)
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete

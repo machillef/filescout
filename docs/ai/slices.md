@@ -254,11 +254,10 @@ add keyboard type-ahead in file list.
 
 ## R13c: File Operation Commands
 **Goal:** Wire file operation commands — context-sensitive to active selection.
-**Status:** Not Started
+**Status:** Complete (2026-03-22)
 **Commands:** Copy, Cut, Paste, Delete, Rename, New Folder, Open, Open With, Properties
-**Note:** Commands requiring selection are included unconditionally; `ExecuteContextCommand` already guards against no-selection gracefully
-**Touched area:** `CommandRegistry.cpp`
-**Validation:** each command executes correctly; no-selection state is handled gracefully
+**Touched area:** `CommandRegistry.cpp`, `CommandRegistryTests.cpp`
+**Validation:** AllFileOperationCommandsPresent test; 80/80 tests pass; both binaries build clean
 
 ## R13d: View And Sort Commands
 **Goal:** Wire view/sort/layout commands.
