@@ -1558,4 +1558,108 @@ Last updated: 2026-03-22
 
 ### Next recommended step
 - R17 fuzzy search initiative is code-complete (R17a–R17e); manual smoke test recommended
+
+## Slice R18a: Drive Icon Bug Fix
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `Shell/ShellInteropService.cpp`: `ExtractShellIconBitmap` gains `bool useLiteralPath = false`
+  parameter; when true, omits `SHGFI_USEFILEATTRIBUTES` flag so shell uses the actual file path
+  for icon lookup instead of a type-hint string
+- `GetIconForItem`: detects drive roots via `path == path.root_path() && !path.root_name().empty()`,
+  sets `useLiteralPath = true` and passes `path.wstring()` as the lookup name so `C:\` gets the
+  real drive icon instead of the generic folder icon
+
+### Deviations from plan
+- None
+
+### What was validated
+- Build: PASS (0 errors)
+- Tests: 71/71 PASS
+
+### What remains unverified
+- Manual smoke: drive roots (C:\, D:\) show correct drive icon in the sidebar / drives view
+
+### Blockers
+- None
+
+### Next recommended step
+- R18b: breadcrumb nav bar + dedicated search box
+
+## Slice R18b: Breadcrumb Navigation Bar And Dedicated Search Box
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `MainWindow.xaml`: toolbar row replaced with 3-column layout — nav buttons / breadcrumb+address
+  overlay / dedicated SearchTextBox (Width=220)
+- `BreadcrumbBarBorder` (Border+ScrollViewer+StackPanel) shown by default; `AddressTextBox`
+  collapsed behind it, revealed on F4 or tap
+- `SearchTextBox` always visible; `PlaceholderText` updated to `"Search <folder>…"` on navigation
+- `MainWindow.xaml.h`: added `BreadcrumbBarBorder_Tapped`, `SearchTextBox_KeyDown`,
+  `SearchTextBox_TextChanged`, `UpdateBreadcrumbs`, `ShowAddressTextBox`, `HideAddressTextBox`,
+  `UpdateSearchPlaceholder`; removed `AddressTextBox_TextChanged` declaration
+- `MainWindow.xaml.cpp`:
+  - `UpdateBreadcrumbs`: builds ancestor list root→current, renders HyperlinkButton per segment
+    with click→`LoadDirectory` wiring and `›` separators
+  - `ShowAddressTextBox` / `HideAddressTextBox`: toggle visibility of breadcrumb vs address overlay
+  - `AddressTextBox_KeyDown`: stripped to Escape→hide + Enter→navigate (search logic moved out)
+  - `SearchTextBox_TextChanged`: auto-enters Filter mode when text non-empty + `search_mode == None`
+  - `SearchTextBox_KeyDown`: Escape exits search/hides ProgressBar; Enter→Recursive escalation
+  - `SearchAccelerator_Invoked` (Ctrl+F): now focuses `SearchTextBox()` instead of `AddressTextBox()`
+  - F4 KeyboardAccelerator added: calls `ShowAddressTextBox()`
+  - `LoadDirectory`: calls `UpdateBreadcrumbs`, `UpdateSearchPlaceholder`, `HideAddressTextBox`,
+    resets SearchTextBox text+IsReadOnly
+  - `SetActivePaneIndex`: syncs breadcrumbs, placeholder, and SearchTextBox state from incoming pane
+  - `LoadDrivesView`: clears BreadcrumbPanel, sets placeholder to "Search This PC…"
+  - Title bar drag regions updated to include BreadcrumbBarBorder and SearchTextBox
+
+### Deviations from plan
+- `PaneSelectionState.primary_index` does not exist; type-ahead uses
+  `pane.active_list_view.SelectedIndex()` instead
+
+### What was validated
+- Build: PASS (0 errors)
+- Tests: 71/71 PASS
+
+### What remains unverified
+- Manual smoke: breadcrumb segments clickable and navigate correctly; F4 shows address overlay;
+  Escape hides it; SearchTextBox placeholder updates on folder change; Ctrl+F focuses search
+
+### Blockers
+- None
+
+### Next recommended step
+- R18c: keyboard type-ahead in file list
+
+## Slice R18c: Keyboard Type-Ahead In File List
+Status: Complete
+Last updated: 2026-03-22
+
+### What was implemented
+- `CreateTabListView`: wires `listView.KeyDown` → `FileRowsListView_KeyDown(args)` lambda
+- `FileRowsListView_KeyDown`: handles VK codes 65–90 (A–Z); in non-search mode, walks
+  `pane.items` starting from `active_list_view.SelectedIndex() + 1` (wrapping), matches first
+  char case-insensitively via `std::towlower`; calls `SelectItemByIndex` + `ScrollIntoView`;
+  sets `args.Handled(true)` to prevent ListView's own key handling
+- `MainWindow.xaml.h`: `FileRowsListView_KeyDown` declared as private method
+
+### Deviations from plan
+- Plan used `pane.selection.primary_index` (non-existent); replaced with
+  `pane.active_list_view.SelectedIndex()`
+
+### What was validated
+- Build: PASS (0 errors)
+- Tests: 71/71 PASS
+
+### What remains unverified
+- Manual smoke: pressing a letter in the file list jumps to first matching item (wrapping)
+
+### Blockers
+- None
+
+### Next recommended step
+- R18 chrome UX redesign initiative is code-complete (R18a–R18c); manual smoke test recommended
+- Next initiatives: async icon loading (perf), R13 command palette (spec needed)
 - Next automatable slice: R13 command palette (requires spec before implementation)
