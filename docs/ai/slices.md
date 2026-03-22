@@ -184,6 +184,39 @@ protection in `FileRowsListView_SelectionChanged`; build + 57 tests pass
 folder, verify ≥25%/150ms first-batch improvement and ≤10% full-completion regression)
 **Depends on:** perf: background enumeration (complete)
 
+## R17: Fuzzy Search
+**Goal:** Bring fast fuzzy search to both panes with Filter (in-place) and Recursive
+(background walk) modes, driven by a dedicated SearchTextBox.
+**Status:** Complete
+**Completed sub-slices:**
+- `R17a` FuzzyMatcher — SIMD-accelerated (SSE4.2 `_mm_cmpistrm`) character-presence
+  bitmask filter + Smith-Waterman alignment scoring; 64 unit tests
+- `R17b` SearchService — background directory walk, min-heap top-200, PostFn dispatcher
+  abstraction, cancellation via `shared_ptr<atomic<bool>>`
+- `R17c` SearchFilter mode — SearchTextBox auto-enters Filter on first keystroke;
+  scores snapshot items; Escape restores; Ctrl+F focuses SearchTextBox
+- `R17d` SearchRecursive mode — Enter escalation from Filter; streaming ProgressBar;
+  `on_results` replaces ListView rows; `on_complete` updates status bar
+- `R17e` Result row polish — `CreateSearchRowView` with relative-path subtitle;
+  `search_results` parallel vector for navigate-on-select via double-click
+**Depends on:** `R16`, perf staged rows
+
+## R18: Chrome UX Redesign
+**Goal:** Fix drive icon bug; separate navigation (breadcrumb) from search (dedicated box);
+add keyboard type-ahead in file list.
+**Status:** Complete
+**Completed sub-slices:**
+- `R18a` Drive icon fix — `GetIconForItem` detects drive roots and calls `SHGetFileInfoW`
+  without `SHGFI_USEFILEATTRIBUTES` so `C:\` gets its real drive icon
+- `R18b` Breadcrumb nav + dedicated SearchTextBox — 3-column toolbar (buttons / breadcrumb+
+  address overlay / SearchTextBox); `UpdateBreadcrumbs` builds HyperlinkButton segments;
+  F4 shows AddressTextBox overlay; placeholder updates on navigation; all search logic
+  moved from AddressTextBox to SearchTextBox
+- `R18c` Keyboard type-ahead — `FileRowsListView_KeyDown` handles A–Z VK codes;
+  wrapping scan through `pane.items`; `ScrollIntoView` on match
+**Spec:** `docs/superpowers/plans/2026-03-22-chrome-ux-redesign.md`
+**Depends on:** `R17`
+
 ## R13: Command Palette
 **Goal:** Global fuzzy command surface in the native host.
 **Status:** Not Started

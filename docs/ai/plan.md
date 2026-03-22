@@ -52,22 +52,22 @@
 - [ ] `R14` Git-aware and power-user workflows
 - [ ] `R15` AI features after parity stabilizes
 
+## Differentiated Features (Phase 3 — Completed)
+- [x] `R11` archive mode (R11a–R11e)
+- [x] `R12` batch rename (R12a–R12g)
+- [x] `R16` visual polish and Explorer chrome (R16a–R16b)
+- [x] `R17` fuzzy search (R17a–R17e) — FuzzyMatcher, SearchService, Filter + Recursive modes
+- [x] `R18` chrome UX redesign (R18a–R18c) — drive icons, breadcrumb nav, keyboard type-ahead
+
 ## Current Focus
 
 - Keep all active work inside `native/`
 - `native/` is now tracked in git; keep further alpha work isolated there
-- `R12` (batch rename) is complete: sequential, affix, literal find/replace,
-  and case-transform rename presets plus shared Windows file-name validation and
-  the polished two-column dialog; manual validation of multi-selection behavior
-  in the WinUI host is still recommended
-- `R8b` (sidebar polish) is complete: place icon tiles, persisted pinning, and
-  compact drive-usage cards; manual validation of visual density and click
-  targets is still recommended
-- `R16a` (visual polish) is complete: custom title bar integration, hero card
-  removed, toolbar Fluent icons, pane border indicators, sidebar Fluent glyph
-  helpers
-- `R16` (visual polish) is complete: both R16a and R16b landed; manual
-  validation of sidebar contrast and drag-region behaviour still recommended
+- `R17` (fuzzy search) is complete (R17a–R17e): FuzzyMatcher with SIMD scoring,
+  SearchService background walk + min-heap, Filter mode auto-entered from SearchTextBox,
+  Recursive mode with streaming ProgressBar and navigate-on-select; 71/71 tests pass
+- `R18` (chrome UX redesign) is complete (R18a–R18c): drive root icon fix, breadcrumb
+  navigation bar + dedicated search box, keyboard type-ahead in file list; 71/71 tests pass
 - Perf staged row publication (Tasks 1–3) is complete: first-batch publish of
   min(150, total) rows + final-batch dispatch, stale-load and rebuild cancellation
   guards, live-selection protection; build + tests pass; Task 4 (manual benchmark
@@ -75,6 +75,8 @@
   lines in the running app to capture before/after timings and close the slice
 - Next automatable slice: `R13` (command palette) — no spec yet; requires writing
   a plan before implementation can begin
+- Async icon loading (perf) — large folders (Downloads, System32) still slow on
+  first open; separate perf initiative needed
 - Keep archive mode scoped to shell-enumerable archive formats plus the current
   temp-open and explicit extract/reveal flows until a broader non-shell archive
   strategy is designed and validated

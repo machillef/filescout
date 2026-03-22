@@ -5,20 +5,18 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Target: unpackaged Windows 11 x64 desktop app
 - `native/` is now tracked in git and is the only active implementation track
-- Current phase: Phase 3, Differentiated features (`R12` batch rename complete,
-  `R8b` sidebar Places polish complete, `R16a` + `R16b` Explorer-inspired chrome
-  polish complete)
+- Current phase: Phase 3, Differentiated features complete through R18
 - Current blocker: none
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
-- R16a: custom integrated title bar, hero card removed, toolbar Fluent icons,
-  pane activation borders, shell-backed-first sidebar icons (2026-03-21)
-- R16b: sidebar background changed to `CardBackgroundFillColorDefaultBrush` for
-  stronger contrast against Mica backdrop (2026-03-21)
+- R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
+  modes with streaming ProgressBar and navigate-on-select (R17a–R17e); 71/71 tests
+- R18 (chrome UX redesign) complete 2026-03-22: drive icon fix, breadcrumb navigation,
+  dedicated SearchTextBox, keyboard type-ahead (R18a–R18c); 71/71 tests
 - Perf staged row publication (Tasks 1–3) complete 2026-03-21; Task 4 (manual
   benchmark acceptance) pending — launch app and observe TraceLog PerfLoad lines
   on a 1k–5k item folder to capture before/after timings and close the slice
-- R17a (FuzzyMatcher) complete 2026-03-22; 64/64 tests pass; R17b next
+- Next: R13 command palette (spec needed) or async icon loading (perf initiative)
 
 ## Slice R1: Native Workspace And Shell Scaffold
 Status: Complete
