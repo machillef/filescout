@@ -321,7 +321,7 @@ the UI thread before `co_await`, use it for the first breadcrumb call. Keep the
 the active pane; first call now gives correct path on the common path). Add `TraceLog`
 inside `UpdateBreadcrumbs` to log path + segments.
 **Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
-**Status:** Not started
+**Status:** Complete (2026-03-23)
 
 ### S4: Letter-Jump Visual Indicator
 **Goal:** Pressing a letter key gives an obvious visual cue beyond the status bar text.

@@ -1980,3 +1980,46 @@ Last updated: 2026-03-23
 
 ### Next recommended step
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S2 (default left pane fix)
+
+## Slice S2: Default Left Pane Fix
+Status: Complete
+Last updated: 2026-03-23
+
+### What was implemented
+- `native/FileScout.Native/MainWindow.xaml.cpp` — wrapped `rows.Clear()` (but NOT `rows.Append()`) with `tab_switching = true/false` in both async dispatch lambdas (archive path and regular directory path).
+- Root cause: Pane 1's async `LoadDirectoryAsync` completion ran after `m_initComplete = true`. `rows.Clear()` fired `SelectionChanged` → `SetActivePaneIndex(1)` because `tab_switching` was `false`. The fix guards only `rows.Clear()` since `rows.Append()` does not fire `SelectionChanged`.
+
+### What was validated
+- MSBuild Debug x64: both binaries build clean (only pre-existing MSB8027/LNK4042 warnings)
+- 82/82 tests pass (commit e7596e4)
+
+### What remains unverified
+- Runtime: launch app cold — left pane should have thick accent border, right pane inactive (requires manual app launch)
+
+### Blockers
+- None
+
+### Next recommended step
+- Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S3 (breadcrumb path normalization)
+
+## Slice S3: Breadcrumb Path Normalization
+Status: Complete
+Last updated: 2026-03-23
+
+### What was implemented
+- `native/FileScout.Native/MainWindow.xaml.cpp`: Pre-computed `absolute = std::filesystem::absolute(path).lexically_normal()` on the UI thread before `co_await winrt::resume_background()`, wrapped in try/catch (fallback to raw path). First `UpdateBreadcrumbs` call now uses `absolute` instead of raw `path`. `UpdateSearchPlaceholder` at the same call site also updated to use `absolute`.
+- Removed the redundant `std::filesystem::path absolute;` declaration that was previously inside the `try` block after `co_await`.
+- Added `TraceLog(L"UpdateBreadcrumbs: " + path.wstring() + ...)` in `UpdateBreadcrumbs` to log path and segment count.
+
+### What was validated
+- MSBuild Debug x64: both binaries build clean (0 errors, only pre-existing warnings)
+- 82/82 tests pass (commit 702fd55)
+
+### What remains unverified
+- Runtime: navigate to a subfolder — breadcrumb must show full path (e.g. `C: › Windows › System32`) immediately on navigation, before enumeration completes (requires manual app launch)
+
+### Blockers
+- None
+
+### Next recommended step
+- Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S4 (letter-jump visual indicator)
