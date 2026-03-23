@@ -2033,12 +2033,16 @@ Last updated: 2026-03-23
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S4 (letter-jump visual indicator)
 
 ## Slice S4: Letter-Jump Visual Indicator
-Status: Complete
+Status: Needs Fix
 Last updated: 2026-03-23
 
 ### Bug Report (2026-03-23)
 Reported by: Manual testing
 Description: (1) Pressing a letter key does not produce any visible border highlight. (2) Pressing the same letter again does not advance to the next matching item — it stays on the same item.
+
+### Bug Report (2026-03-23)
+Reported by: User report
+Description: Border flash (5px thickness pulse) is too visually jarring — user reports "weird blue board that blinks on every keypress". The 5px → 2px thickness transition is too prominent and distracting.
 
 ### What was implemented
 - `native/FileScout.Native/MainWindow.xaml.h` — added `m_letterJumpTimer{ nullptr }` member (DispatcherTimer, S4 comment)
