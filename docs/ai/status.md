@@ -2106,8 +2106,12 @@ Last updated: 2026-03-23
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S6 (FindFirstFileW fast enumeration)
 
 ## Slice S6: Performance — FindFirstFileW Fast Enumeration
-Status: Complete
+Status: Needs Fix
 Last updated: 2026-03-23
+
+### Bug Report (2026-03-23)
+Reported by: User report
+Description: C:\Windows\System32 is still very slow to load after S6. S6 eliminated GetFileAttributesExW and reduced icon calls, but FormatShellDateTime is still called 2× per item (write time + creation time), each invoking FileTimeToSystemTime + SystemTimeToTzSpecificLocalTime + GetDateFormatEx + GetTimeFormatEx = 8 NLS/timezone calls per item. For System32 (5120 items) = 40,960 calls remaining.
 
 ### What was implemented
 - `native/FileScout.Native/Shell/ShellInteropService.h` — added `BuildFastShellItemRef(WIN32_FIND_DATAW const&, std::filesystem::path const& dirPath) const` private declaration
