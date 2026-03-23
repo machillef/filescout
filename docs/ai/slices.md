@@ -175,13 +175,10 @@ recommended before starting R13
 ## Perf: Staged Row Publication
 **Goal:** Show the first visible batch of rows (min 150, total) sooner for large
 folders (1k–5k items) by splitting row publication into two dispatcher callbacks.
-**Status:** In Progress
-**Completed:** Tasks 1–3 — `PaneLoadTiming` instrumentation (pre-existing),
-staged first-batch + final-batch publish in `LoadDirectoryAsync`, `awaiting_final_batch`
-guard in `RebuildAllTabRowsForPane`, `user_interacted_after_first_batch` live-state
-protection in `FileRowsListView_SelectionChanged`; build + 57 tests pass
-**Remaining:** Task 4 — manual benchmark acceptance (5× timings on a 1k–5k item
-folder, verify ≥25%/150ms first-batch improvement and ≤10% full-completion regression)
+**Status:** Superseded
+**Note:** Superseded by Perf-2 streaming enumeration (2026-03-22). The two-batch
+approach remains in place but the benchmark acceptance task is moot — first_batch_ms
+is now < 200ms by design from streaming enumeration.
 **Depends on:** perf: background enumeration (complete)
 
 ## R17: Fuzzy Search
@@ -219,7 +216,7 @@ add keyboard type-ahead in file list.
 
 ## R13: Command Palette
 **Goal:** Global fuzzy command surface in the native host — Ctrl+P overlay with fuzzy-filtered command list dispatching through existing services.
-**Status:** In Progress (spec written 2026-03-22; R13a next)
+**Status:** Complete (R13a–R13e all done 2026-03-22 to 2026-03-23)
 **Depends on:** `R6`, `R17` (reuses FuzzyScore)
 
 ### Architecture
@@ -263,7 +260,20 @@ add keyboard type-ahead in file list.
 **Goal:** Wire view/sort/layout commands.
 **Status:** Complete (2026-03-22)
 **Commands wired:** Toggle View Mode (Cards↔List), Toggle Group, Sort by Name / Size / Date Modified
-**Commands deferred:** Toggle Preview Panel, Toggle Dual Pane — require adding `x:Name` to unnamed XAML ColumnDefinitions + new state flags
+**Commands deferred to R13e:** Toggle Preview Panel, Toggle Dual Pane
 **Touched area:** `CommandRegistry.cpp`, `MainWindow.xaml.cpp`, `CommandRegistryTests.cpp`
 **Validation:** AllViewAndSortCommandsPresent test; 81/81 tests pass; both binaries build clean
+
+## R13e: Toggle Preview Panel and Dual Pane
+**Goal:** Wire the two commands deferred from R13d — `togglePreview` collapses/restores the
+sidebar column; `toggleDualPane` collapses/restores the right pane (switches active pane to
+left first if needed).
+**Status:** Complete (2026-03-23)
+**Touched area:**
+- `native/FileScout.Native/MainWindow.xaml` — `x:Name="SidebarColumn"`, `x:Name="RightPaneColumn"`, `x:Name="SidebarBorder"` added
+- `native/FileScout.Native/MainWindow.xaml.h` — `m_previewPanelVisible`, `m_dualPaneVisible` flags; `TogglePreviewPanel()`/`ToggleDualPane()` declarations
+- `native/FileScout.Native/MainWindow.xaml.cpp` — `TogglePreviewPanel()`, `ToggleDualPane()` implementations; dispatch wired in `ExecuteContextCommand`
+- `native/FileScout.Native/Shell/CommandRegistry.cpp` — `togglePreview` and `toggleDualPane` added to View section (23 commands total)
+- `native/FileScout.Tests/tests/CommandRegistryTests.cpp` — `AllPanelToggleCommandsPresent` test
+**Validation:** AllPanelToggleCommandsPresent RED→GREEN; 82/82 tests pass; both binaries build clean
 

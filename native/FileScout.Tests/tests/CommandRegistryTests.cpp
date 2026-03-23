@@ -120,3 +120,19 @@ TEST(CommandRegistry, AllFileOperationCommandsPresent)
         EXPECT_TRUE(found) << "Missing file operation command id: " << id.c_str();
     }
 }
+
+// R13e: panel toggle commands must exist in the registry.
+TEST(CommandRegistry, AllPanelToggleCommandsPresent)
+{
+    CommandRegistry reg;
+    std::vector<std::wstring> const required = {
+        L"togglePreview", L"toggleDualPane"
+    };
+    for (auto const& id : required)
+    {
+        bool found = false;
+        for (auto const& cmd : reg.All())
+            if (cmd.id == id) { found = true; break; }
+        EXPECT_TRUE(found) << "Missing panel toggle command id: " << id.c_str();
+    }
+}

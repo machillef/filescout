@@ -170,6 +170,9 @@ namespace winrt::FileScoutNative::implementation
         // Guards against deferred WinUI TabView SelectionChanged events during init
         // overriding the intended default active pane (0 = left).
         bool m_initComplete{ false };
+        // Panel visibility state — toggled by togglePreview / toggleDualPane commands.
+        bool m_previewPanelVisible{ true };
+        bool m_dualPaneVisible{ true };
 
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;
@@ -259,6 +262,9 @@ namespace winrt::FileScoutNative::implementation
         void RefreshCommandPalette(std::wstring_view query);
         [[nodiscard]] winrt::Windows::Foundation::IInspectable CreateCommandRowView(
             ::FileScoutNative::Domain::CommandEntry const& cmd);
+        // R13e: panel toggle commands.
+        void TogglePreviewPanel();
+        void ToggleDualPane();
 
         // R17d: per-pane search ProgressBar accessor.
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);

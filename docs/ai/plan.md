@@ -48,7 +48,7 @@
   - [x] `R12e` case-transform preset family
   - [x] `R12f` shared Windows file-name validation parity
   - [x] `R12g` dialog layout and preview readability polish
-- [ ] `R13` command palette
+- [x] `R13` command palette (R13a–R13e)
 - [ ] `R14` Git-aware and power-user workflows
 - [ ] `R15` AI features after parity stabilizes
 

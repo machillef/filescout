@@ -195,12 +195,13 @@
 
         <Grid Grid.Row="1" Padding="20,0,20,12" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260" />
+                <ColumnDefinition x:Name="SidebarColumn" Width="260" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="RightPaneColumn" Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Padding="14,16,14,12"
+            <Border x:Name="SidebarBorder"
+                    Padding="14,16,14,12"
                     CornerRadius="0"
                     BorderThickness="0,0,1,0"
                     BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"

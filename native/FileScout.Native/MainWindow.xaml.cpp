@@ -3193,6 +3193,18 @@ namespace winrt::FileScoutNative::implementation
             SetSortColumn(m_activePaneIndex, SortColumn::DateModified);
             return;
         }
+
+        if (commandId == L"togglePreview")
+        {
+            TogglePreviewPanel();
+            return;
+        }
+
+        if (commandId == L"toggleDualPane")
+        {
+            ToggleDualPane();
+            return;
+        }
     }
 
     winrt::fire_and_forget MainWindow::ShowNewFolderDialogAsync()
@@ -5482,6 +5494,48 @@ namespace winrt::FileScoutNative::implementation
         catch (...)
         {
             StatusTextBlock().Text(L"Drive enumeration failed.");
+        }
+    }
+
+    // R13e: toggle the sidebar / preview panel on or off.
+    void MainWindow::TogglePreviewPanel()
+    {
+        using winrt::Microsoft::UI::Xaml::GridLength;
+        using winrt::Microsoft::UI::Xaml::GridUnitType;
+        using winrt::Microsoft::UI::Xaml::Visibility;
+
+        m_previewPanelVisible = !m_previewPanelVisible;
+        if (m_previewPanelVisible)
+        {
+            SidebarColumn().Width(GridLength{ 260.0, GridUnitType::Pixel });
+            SidebarBorder().Visibility(Visibility::Visible);
+        }
+        else
+        {
+            SidebarColumn().Width(GridLength{ 0.0, GridUnitType::Pixel });
+            SidebarBorder().Visibility(Visibility::Collapsed);
+        }
+    }
+
+    // R13e: toggle the right pane on or off; switches to left pane if right was active.
+    void MainWindow::ToggleDualPane()
+    {
+        using winrt::Microsoft::UI::Xaml::GridLength;
+        using winrt::Microsoft::UI::Xaml::GridUnitType;
+        using winrt::Microsoft::UI::Xaml::Visibility;
+
+        m_dualPaneVisible = !m_dualPaneVisible;
+        if (m_dualPaneVisible)
+        {
+            RightPaneColumn().Width(GridLength{ 1.0, GridUnitType::Star });
+            RightPaneBorder().Visibility(Visibility::Visible);
+        }
+        else
+        {
+            if (m_activePaneIndex == 1)
+                SetActivePaneIndex(0);
+            RightPaneColumn().Width(GridLength{ 0.0, GridUnitType::Pixel });
+            RightPaneBorder().Visibility(Visibility::Collapsed);
         }
     }
 }

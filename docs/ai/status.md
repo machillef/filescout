@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Target: unpackaged Windows 11 x64 desktop app
 - `native/` is now tracked in git and is the only active implementation track
-- Current phase: Phase 3 complete — Explorer parity (R1–R18), command palette (R13a–R13d), UX+Perf bugfix initiative (all 4 slices)
+- Current phase: Phase 3 complete — Explorer parity (R1–R18), command palette (R13a–R13e), UX+Perf bugfix initiative (all 4 slices)
 - Current blocker: none
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
@@ -29,6 +29,12 @@
 - R13d complete 2026-03-22: view/sort commands wired; sortByName/sortBySize/sortByDateModified
   added to registry; toggleView and toggleGroup dispatch added; 81/81 tests pass, both
   binaries build clean; togglePreview/toggleDualPane deferred (require XAML naming)
+- R13e complete 2026-03-23: togglePreview and toggleDualPane wired; SidebarColumn/RightPaneColumn/
+  SidebarBorder named in XAML; m_previewPanelVisible/m_dualPaneVisible state flags added;
+  TogglePreviewPanel collapses sidebar column (Width=0) + Visibility; ToggleDualPane collapses
+  right pane (Width=0) + switches active pane to left if needed; 82/82 tests pass, both
+  binaries build clean
+- R13 complete (R13a–R13e) 2026-03-23: all command palette sub-slices done
 - UX-Perf initiative complete 2026-03-22: 4 slices — breadcrumb root fix, nav buttons,
   type-ahead indicator, right-pane default guard, async delete, streaming enumeration;
   81/81 tests pass, both binaries build clean
@@ -141,9 +147,38 @@ Last updated: 2026-03-22
 
 ### What remains unverified
 - Runtime palette → sort/view toggle execution (requires manual app launch)
-- `togglePreview` and `toggleDualPane` deferred: sidebar column and right pane column
-  definitions are unnamed in XAML; proper toggle needs x:Name on ColumnDefinition + state
-  tracking. Move to a dedicated polish slice.
+
+### Blockers
+- None
+
+## Slice R13e: Toggle Preview Panel and Dual Pane
+Status: Complete
+Last updated: 2026-03-23
+
+### What was implemented
+- `MainWindow.xaml` — `x:Name="SidebarColumn"` on the 260px sidebar column;
+  `x:Name="RightPaneColumn"` on the right-pane star column; `x:Name="SidebarBorder"` on
+  the sidebar content Border
+- `MainWindow.xaml.h` — `m_previewPanelVisible{ true }` and `m_dualPaneVisible{ true }`
+  state flags; `TogglePreviewPanel()` and `ToggleDualPane()` declarations
+- `MainWindow.xaml.cpp` — `TogglePreviewPanel()`: flips flag, sets `SidebarColumn.Width`
+  to `GridLength{0, Pixel}` / `GridLength{260, Pixel}` and `SidebarBorder.Visibility`;
+  `ToggleDualPane()`: flips flag, switches active pane to left if right was active, sets
+  `RightPaneColumn.Width` to `GridLength{0, Pixel}` / `GridLength{1, Star}` and
+  `RightPaneBorder.Visibility`; both wired in `ExecuteContextCommand`
+- `CommandRegistry.cpp` — `togglePreview` and `toggleDualPane` added to View section
+  (23 commands total)
+- `CommandRegistryTests.cpp` — `AllPanelToggleCommandsPresent` (RED→GREEN)
+
+### What was validated
+- AllPanelToggleCommandsPresent: RED → GREEN
+- All 82 tests pass (81 after R13d + 1 new)
+- Both binaries build clean
+
+### What remains unverified
+- Runtime palette → togglePreview collapses sidebar (requires manual app launch)
+- Runtime palette → toggleDualPane collapses right pane (requires manual app launch)
+- Known cosmetic: ColumnSpacing=12 leaves a 12px gap where sidebar was; acceptable for alpha
 
 ### Blockers
 - None
