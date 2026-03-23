@@ -5,8 +5,9 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Target: unpackaged Windows 11 x64 desktop app
 - `native/` is now tracked in git and is the only active implementation track
-- Current phase: Phase 3 complete — Explorer parity (R1–R18), command palette (R13a–R13e), UX+Perf bugfix initiative (all 4 slices)
+- Current phase: UX+Perf Sprint Round 2 (S1–S7) — planned, not started
 - Current blocker: none
+- Next slice to execute: S1 (nav button passthrough fix)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
 - R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
@@ -42,6 +43,9 @@
   two-batch (rows.Clear() CollectionChange::Reset caused 7x perf regression); fixed left
   pane default via DispatcherQueuePriority::Low TryEnqueue in TitleBarDragHost_Loaded;
   added HH:MM:SS.mmm wall-clock timestamp to TraceLog; 81/81 tests pass
+- UX+Perf Sprint Round 2 planned 2026-03-23: 7 slices (S1–S7) for 6 bugs confirmed still
+  present + new perf strategy (FindFirstFileW fast path + icon backfill); plan at
+  .claude/plans/sprightly-stirring-hennessy.md; root causes confirmed by source analysis
 
 ## Slice R13a: CommandRegistry + Palette Scaffold
 Status: Complete

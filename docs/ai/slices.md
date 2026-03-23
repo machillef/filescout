@@ -277,3 +277,85 @@ left first if needed).
 - `native/FileScout.Tests/tests/CommandRegistryTests.cpp` — `AllPanelToggleCommandsPresent` test
 **Validation:** AllPanelToggleCommandsPresent RED→GREEN; 82/82 tests pass; both binaries build clean
 
+---
+
+## UX+Perf Sprint Round 2 (S1–S7)
+
+Six bugs confirmed still present after the previous UX-Perf initiative. The streaming
+enumeration revert (commit 75af856) also left performance still slow. This sprint addresses
+all six with confirmed root causes from source analysis on 2026-03-23.
+
+**Plan file:** `.claude/plans/sprightly-stirring-hennessy.md`
+**Status:** Planned — not started
+
+### S1: Nav Button Passthrough Fix
+**Goal:** Back/Forward buttons become clickable once they enable (currently title-bar drag
+region swallows the clicks because `appendRect` skips disabled controls and regions are never
+re-registered after `UpdateNavButtons` enables the buttons).
+**Root cause confirmed:** `appendRect` at line 1967 returns early for disabled controls.
+`UpdateNavButtons` (line 4041) enables the buttons but never calls
+`UpdateTitleBarInteractiveRegions`.
+**Fix:** Add `UpdateTitleBarInteractiveRegions()` at the end of `UpdateNavButtons`.
+**Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
+**Status:** Not started
+
+### S2: Default Left Pane Fix
+**Goal:** App always opens with the left pane active (thick accent border).
+**Root cause confirmed:** Pane 1's async `LoadDirectoryAsync` completion runs after
+`m_initComplete = true`. `rows.Clear()` in the dispatch lambda fires ListView
+`SelectionChanged` → `SetActivePaneIndex(1)` because `tab_switching` is `false` at that point.
+**Fix:** Wrap `rows.Clear()` and all `rows.Append()` batches in `tab_switching = true/false`
+inside the async dispatch lambdas (both archive and regular paths).
+**Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
+**Status:** Not started
+
+### S3: Breadcrumb Path Normalization
+**Goal:** Breadcrumb always shows full path (e.g. `C: › Windows › System32`).
+**Root cause confirmed:** First `UpdateBreadcrumbs(path)` call (line 2130) uses the raw
+pre-absolutization argument. Second call (line 2274) uses `absolute` but is guarded by
+`m_activePaneIndex == paneIndex` — a pane switch during enumeration silently skips it.
+**Fix:** Pre-compute `absolute = std::filesystem::absolute(path).lexically_normal()` on
+the UI thread before `co_await`, use it for the first breadcrumb call. Add `TraceLog`
+inside `UpdateBreadcrumbs` to log path + segments.
+**Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
+**Status:** Not started
+
+### S4: Letter-Jump Visual Indicator
+**Goal:** Pressing a letter key gives an obvious visual cue beyond the status bar text.
+**Root cause:** Status bar text `→ filename` is set but sits at the window bottom; users
+miss it when eyes are on the list.
+**Fix:** After a successful jump, briefly flash the active pane border to a lighter accent
+colour via a 300 ms `DispatcherTimer`, then restore via `UpdateActivePaneIndicator`.
+**Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
+**Status:** Not started
+
+### S5: Delete Progress Indicator
+**Goal:** Deleting files shows a ProgressBar so the operation is not silent.
+**Root cause:** "Deleting N items…" status text is set one instruction before
+`co_await winrt::resume_background()` — WinUI 3 may not render a frame in between.
+`IFileOperation::PerformOperations` for 2 500 recycle operations takes 10–15 s
+on the background thread with no visible feedback.
+**Fix:** Show `SearchProgressForPane(activePaneIndex)` (indeterminate ProgressBar) before
+`co_await`, hide it in the TryEnqueue success/failure callback. Add timing log around
+`PerformOperations`.
+**Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
+**Status:** Not started
+
+### S6: Performance — FindFirstFileW Fast Enumeration
+**Goal:** Replace `std::filesystem::directory_iterator` + `SHGetFileInfoW`-per-item with
+`FindFirstFileW/FindNextFile`. `WIN32_FIND_DATA` already contains name, size, attributes,
+write time, and creation time. Use a two-bucket fallback icon (folder/file) — zero shell
+calls. Target: enumerate_ms < 100 ms for System32 (5 120 items).
+**New function:** `ShellInteropService::BuildFastShellItemRef(WIN32_FIND_DATA, dirPath)`
+**Files:** `native/FileScout.Native/Shell/ShellInteropService.cpp/.h`,
+`native/FileScout.Native/MainWindow.xaml.cpp` (call site)
+**Status:** Not started
+
+### S7: Performance — Icon Backfill Phase 2
+**Goal:** After fast rows appear, fill in real icons silently without scroll reset.
+**Approach:** Second background dispatch loads `GetIconForItem` for all `pane.items`, posts
+updated items back, replaces rows via `rows.SetAt(i, CreateRowView(...))` wrapped in
+`tab_switching = true/false`. Guarded by `pane.load_generation`.
+**Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
+**Status:** Not started
+
