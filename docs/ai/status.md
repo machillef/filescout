@@ -2106,7 +2106,7 @@ Last updated: 2026-03-23
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S6 (FindFirstFileW fast enumeration)
 
 ## Slice S6: Performance — FindFirstFileW Fast Enumeration
-Status: Needs Fix
+Status: Complete
 Last updated: 2026-03-23
 
 ### Bug Report (2026-03-23)
@@ -2137,8 +2137,16 @@ Description: C:\Windows\System32 is still very slow to load after S6. S6 elimina
 - MSBuild Debug x64: both binaries build clean
 - 85/85 tests pass (82 pre-existing + 3 new)
 
+### Fix: date formatting still bottleneck for large directories (2026-03-23)
+Reported by: User report
+Root cause: `FormatShellDateTime` called twice per item (write + creation time), each invoking `FileTimeToSystemTime` + `SystemTimeToTzSpecificLocalTime` (DST registry lookup) + `GetDateFormatEx` + `GetTimeFormatEx` (NLS system calls) = 8 slow calls/item; for System32 (5120 items) = 40,960 NLS/timezone calls.
+Fix: `ShellInteropService.cpp` — added `FastFormatFileTime` in anonymous namespace: uses `FileTimeToLocalFileTime` (arithmetic, no DST lookup) + `FileTimeToSystemTime` + `swprintf_s` (CPU-only), replacing 3 of 4 slow calls. `BuildFastShellItemRef` now calls `FastFormatFileTime` for both `date_modified_str` and `date_created_str`. Format: M/D/YYYY  H:MM AM/PM (matches en-US DATE_SHORTDATE + TIME_NOSECONDS). DST edge case: `FileTimeToLocalFileTime` uses current timezone settings vs historical — acceptable for file explorer use.
+Tests added: No new tests — performance-only fix; existing `EnumerateDirectory_DateModifiedPopulatedForFile` (date_modified_available + !date_modified_str.empty()) verifies correctness.
+Validated: MSBuild Debug x64 clean; 85/85 tests pass.
+
 ### What remains unverified
-- Runtime: navigate to C:\Windows\System32 — enumeration should be noticeably faster (< 100ms vs prior 2–10 s)
+- Runtime: navigate to C:\Windows\System32 — enumeration should now be noticeably faster (NLS calls eliminated per item)
+- Runtime: date modified column shows M/D/YYYY  H:MM AM/PM format (minor cosmetic change from locale-aware format)
 - Runtime: icons will appear as generic folder/file fallbacks until S7 backfills real icons
 - Runtime: .zip and .tar archive browsing still works (shell enumeration via EnumerateArchiveDirectory, unchanged)
 

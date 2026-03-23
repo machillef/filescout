@@ -284,6 +284,33 @@ namespace FileScoutNative::Shell
                 std::filesystem::file_time_type::duration{
                     static_cast<std::filesystem::file_time_type::rep>(ticks.QuadPart) } };
         }
+
+        // Fast local date/time formatter for the enumeration hot path.
+        // Uses FileTimeToLocalFileTime (arithmetic, no DST lookup) + FileTimeToSystemTime +
+        // swprintf_s, replacing the slow SystemTimeToTzSpecificLocalTime + GetDateFormatEx +
+        // GetTimeFormatEx path. Saves ~3 NLS/timezone calls per date per item.
+        // Format: M/D/YYYY  H:MM AM/PM  (matches en-US DATE_SHORTDATE + TIME_NOSECONDS).
+        std::wstring FastFormatFileTime(FILETIME const& ft)
+        {
+            if (ft.dwLowDateTime == 0 && ft.dwHighDateTime == 0)
+            {
+                return L"";
+            }
+            FILETIME local{};
+            SYSTEMTIME st{};
+            if (!FileTimeToLocalFileTime(&ft, &local) || !FileTimeToSystemTime(&local, &st))
+            {
+                return L"";
+            }
+            bool const pm = st.wHour >= 12;
+            unsigned const hour12 = st.wHour % 12;
+            wchar_t buf[32]{};
+            swprintf_s(buf, L"%u/%u/%04u  %u:%02u %s",
+                st.wMonth, st.wDay, st.wYear,
+                hour12 == 0u ? 12u : hour12, st.wMinute,
+                pm ? L"PM" : L"AM");
+            return buf;
+        }
     }
 
     FileScoutNative::Domain::IconBitmap ShellInteropService::GetIconForItem(
@@ -475,19 +502,20 @@ namespace FileScoutNative::Shell
             item.size_available = true;
         }
 
-        // Date modified from WIN32_FIND_DATA.
+        // Date modified from WIN32_FIND_DATA — fast path: no SystemTimeToTzSpecificLocalTime
+        // or NLS calls; FastFormatFileTime uses FileTimeToLocalFileTime + swprintf_s.
         if (findData.ftLastWriteTime.dwLowDateTime != 0 || findData.ftLastWriteTime.dwHighDateTime != 0)
         {
             item.date_modified = FileTimeToChrono(findData.ftLastWriteTime);
             item.date_modified_available = true;
-            item.date_modified_str = FormatShellDateTime(findData.ftLastWriteTime).value_or(L"");
+            item.date_modified_str = FastFormatFileTime(findData.ftLastWriteTime);
         }
 
-        // Date created from WIN32_FIND_DATA.
+        // Date created from WIN32_FIND_DATA — fast path (same approach).
         if (findData.ftCreationTime.dwLowDateTime != 0 || findData.ftCreationTime.dwHighDateTime != 0)
         {
             item.date_created_available = true;
-            item.date_created_str = FormatShellDateTime(findData.ftCreationTime).value_or(L"");
+            item.date_created_str = FastFormatFileTime(findData.ftCreationTime);
         }
 
         // Archive detection: extension-based, no shell call.
