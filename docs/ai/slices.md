@@ -304,10 +304,11 @@ re-registered after `UpdateNavButtons` enables the buttons).
 **Root cause confirmed:** Pane 1's async `LoadDirectoryAsync` completion runs after
 `m_initComplete = true`. `rows.Clear()` in the dispatch lambda fires ListView
 `SelectionChanged` → `SetActivePaneIndex(1)` because `tab_switching` is `false` at that point.
-**Fix:** Wrap `rows.Clear()` and all `rows.Append()` batches in `tab_switching = true/false`
-inside the async dispatch lambdas (both archive and regular paths).
+**Fix:** Wrap only `rows.Clear()` (not the Append loop) in `tab_switching = true/false` inside
+the async dispatch lambdas (both archive and regular paths). `rows.Append()` does not
+fire SelectionChanged and does not need guarding.
 **Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
-**Status:** Not started
+**Status:** Complete (2026-03-23)
 
 ### S3: Breadcrumb Path Normalization
 **Goal:** Breadcrumb always shows full path (e.g. `C: › Windows › System32`).
@@ -315,7 +316,9 @@ inside the async dispatch lambdas (both archive and regular paths).
 pre-absolutization argument. Second call (line 2274) uses `absolute` but is guarded by
 `m_activePaneIndex == paneIndex` — a pane switch during enumeration silently skips it.
 **Fix:** Pre-compute `absolute = std::filesystem::absolute(path).lexically_normal()` on
-the UI thread before `co_await`, use it for the first breadcrumb call. Add `TraceLog`
+the UI thread before `co_await`, use it for the first breadcrumb call. Keep the
+`m_activePaneIndex == paneIndex` guard on the second call (breadcrumb should only reflect
+the active pane; first call now gives correct path on the common path). Add `TraceLog`
 inside `UpdateBreadcrumbs` to log path + segments.
 **Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
 **Status:** Not started
@@ -324,8 +327,11 @@ inside `UpdateBreadcrumbs` to log path + segments.
 **Goal:** Pressing a letter key gives an obvious visual cue beyond the status bar text.
 **Root cause:** Status bar text `→ filename` is set but sits at the window bottom; users
 miss it when eyes are on the list.
-**Fix:** After a successful jump, briefly flash the active pane border to a lighter accent
-colour via a 300 ms `DispatcherTimer`, then restore via `UpdateActivePaneIndicator`.
+**Fix:** After a successful jump, flash the active pane border to `AccentFillColorSecondaryBrush`
+(lighter system accent variant) for 300 ms, then restore via `UpdateActivePaneIndicator`.
+Use a `winrt::Microsoft::UI::Xaml::DispatcherTimer m_letterJumpTimer` member — stop and restart
+it on each successive letter press rather than creating a new timer. The Tick handler calls
+`UpdateActivePaneIndicator()` then `m_letterJumpTimer.Stop()`.
 **Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
 **Status:** Not started
 
@@ -335,9 +341,12 @@ colour via a 300 ms `DispatcherTimer`, then restore via `UpdateActivePaneIndicat
 `co_await winrt::resume_background()` — WinUI 3 may not render a frame in between.
 `IFileOperation::PerformOperations` for 2 500 recycle operations takes 10–15 s
 on the background thread with no visible feedback.
-**Fix:** Show `SearchProgressForPane(activePaneIndex)` (indeterminate ProgressBar) before
-`co_await`, hide it in the TryEnqueue success/failure callback. Add timing log around
-`PerformOperations`.
+**Fix:** Capture `int32_t const activePaneIndex = m_activePaneIndex` on the UI thread before
+`co_await`. Show `SearchProgressForPane(activePaneIndex)` (indeterminate ProgressBar, reuses
+the search bar) before `co_await`. In the TryEnqueue callback, hide the ProgressBar
+unconditionally at the top (before the `if (success)` branch) — on the success path
+`LoadDirectory` would also hide it, but the failure path has no LoadDirectory call. Add
+timing log around `PerformOperations`.
 **Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
 **Status:** Not started
 
@@ -347,6 +356,11 @@ on the background thread with no visible feedback.
 write time, and creation time. Use a two-bucket fallback icon (folder/file) — zero shell
 calls. Target: enumerate_ms < 100 ms for System32 (5 120 items).
 **New function:** `ShellInteropService::BuildFastShellItemRef(WIN32_FIND_DATA, dirPath)`
+**Archive detection:** Set `is_archive_candidate = true` by extension (zip/7z/tar/rar/etc.).
+Set `is_supported_archive = true` heuristically for `.zip` and `.tar` only (confirmed shell
+namespace support on Windows). Other formats stay `false`. If the user tries to browse an
+unsupported format, the existing "unsupported archive" fallback handles it. This avoids the
+regression where `CanEnumerateShellNamespace` was called per-item in `BuildShellItemRef`.
 **Files:** `native/FileScout.Native/Shell/ShellInteropService.cpp/.h`,
 `native/FileScout.Native/MainWindow.xaml.cpp` (call site)
 **Status:** Not started
@@ -354,8 +368,11 @@ calls. Target: enumerate_ms < 100 ms for System32 (5 120 items).
 ### S7: Performance — Icon Backfill Phase 2
 **Goal:** After fast rows appear, fill in real icons silently without scroll reset.
 **Approach:** Second background dispatch loads `GetIconForItem` for all `pane.items`, posts
-updated items back, replaces rows via `rows.SetAt(i, CreateRowView(...))` wrapped in
-`tab_switching = true/false`. Guarded by `pane.load_generation`.
+updated items back (icon field only), replaces rows via `rows.SetAt(i, CreateRowView(...))`.
+Use a single `tab_switching = true` before the entire `SetAt` loop, `false` after (not
+per-item — thrashing the flag for 5000 items defeats the purpose). Guarded by
+`pane.load_generation` to prevent stale backfill from overwriting a new navigation.
+`SetAt` fires `CollectionChanged::ItemChanged` (not Reset), so scroll position is preserved.
 **Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
 **Status:** Not started
 

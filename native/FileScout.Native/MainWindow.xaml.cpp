@@ -2189,7 +2189,9 @@ namespace winrt::FileScoutNative::implementation
 
                         bool const listMode = (pane.view_mode == ViewMode::List);
                         auto& rows = pane.tab_rows[tabIndex];
+                        pane.tab_switching = true;
                         rows.Clear();
+                        pane.tab_switching = false;
                         std::wstring previousGroupLabel;
                         for (auto const& item : pane.items)
                         {
@@ -2277,7 +2279,9 @@ namespace winrt::FileScoutNative::implementation
 
                         bool const listMode = (pane.view_mode == ViewMode::List);
                         auto& rows = pane.tab_rows[tabIndex];
+                        pane.tab_switching = true;
                         rows.Clear();
+                        pane.tab_switching = false;
 
                         constexpr std::size_t k_first_batch = 150;
                         std::size_t const firstBatchEnd = (std::min)(k_first_batch, totalItems);

@@ -7,7 +7,7 @@
 - `native/` is now tracked in git and is the only active implementation track
 - Current phase: UX+Perf Sprint Round 2 (S1–S7) — in progress
 - Current blocker: none
-- Next slice to execute: S2 (default left pane fix)
+- Next slice to execute: S3 (breadcrumb path normalization)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
 - R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
@@ -48,6 +48,35 @@
   .claude/plans/sprightly-stirring-hennessy.md; root causes confirmed by source analysis
 - S1 complete 2026-03-23: UpdateTitleBarInteractiveRegions() added at end of UpdateNavButtons();
   fixes title-bar drag region not re-registering after Back/Forward become enabled; build clean
+- S2 complete 2026-03-23: rows.Clear() wrapped in tab_switching=true/false in both async
+  TryEnqueue dispatch lambdas (archive path and regular directory first-batch path); prevents
+  CollectionChange::Reset from firing SelectionChanged → SetActivePaneIndex(1) during right-pane
+  startup load after m_initComplete=true; 82/82 tests pass, both binaries build clean
+
+## Slice S2: Default Left Pane Fix
+Status: Complete
+Last updated: 2026-03-23
+
+### What was implemented
+- `native/FileScout.Native/MainWindow.xaml.cpp` — two edits:
+  1. Archive path TryEnqueue lambda (~line 2192): added `pane.tab_switching = true/false`
+     around `rows.Clear()` to suppress SelectionChanged → SetActivePaneIndex during load
+  2. Regular directory first-batch TryEnqueue lambda (~line 2283): same guard around `rows.Clear()`
+- The existing guard around `pane.active_list_view.SelectedIndex(-1)` was already present;
+  this fix extends the same pattern to cover `rows.Clear()` which fires CollectionChange::Reset
+
+### What was validated
+- `FileScout.Tests.exe`: 82/82 tests pass
+- Both binaries (`FileScoutNative.exe`, `FileScout.Tests.exe`) build clean
+
+### What remains unverified
+- Runtime: launch app and confirm left pane has the thick accent border on startup (requires manual run)
+
+### Blockers
+- None
+
+### Next recommended step
+- Run `/continue-work UX+Perf Sprint Round 2` to start S3 (breadcrumb path normalization)
 
 ## Slice R13a: CommandRegistry + Palette Scaffold
 Status: Complete
