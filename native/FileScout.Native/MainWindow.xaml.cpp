@@ -2125,10 +2125,16 @@ namespace winrt::FileScoutNative::implementation
             pane.active_list_view.SelectedIndex(-1);
             pane.tab_switching = false;
         }
+        // Normalize path to absolute on the UI thread so the initial breadcrumb shows the full
+        // path immediately (before co_await returns the background thread).
+        std::filesystem::path absolute;
+        try { absolute = std::filesystem::absolute(path).lexically_normal(); }
+        catch (...) { absolute = path; }
+
         if (m_activePaneIndex == paneIndex)
         {
-            UpdateBreadcrumbs(path);
-            UpdateSearchPlaceholder(path);
+            UpdateBreadcrumbs(absolute);
+            UpdateSearchPlaceholder(absolute);
             HideAddressTextBox();
             ResetSelectionDetails();
         }
@@ -2139,10 +2145,8 @@ namespace winrt::FileScoutNative::implementation
         // Switch to a thread-pool thread for I/O and shell COM calls.
         co_await winrt::resume_background();
 
-        std::filesystem::path absolute;
         try
         {
-            absolute = std::filesystem::absolute(path).lexically_normal();
             if (m_shellInterop.IsArchivePath(absolute))
             {
                 // Archive: enumerate all at once, then publish on the UI thread.
@@ -4823,6 +4827,8 @@ namespace winrt::FileScoutNative::implementation
             if (segments.front() != root)
                 segments.insert(segments.begin(), root);
         }
+
+        TraceLog(L"UpdateBreadcrumbs: " + path.wstring() + L" (" + std::to_wstring(segments.size()) + L" segments)");
 
         namespace MUI = winrt::Microsoft::UI::Xaml::Controls;
 
