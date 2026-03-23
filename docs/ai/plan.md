@@ -49,8 +49,6 @@
   - [x] `R12f` shared Windows file-name validation parity
   - [x] `R12g` dialog layout and preview readability polish
 - [x] `R13` command palette (R13a–R13e)
-- [ ] `R14` Git-aware and power-user workflows
-- [ ] `R15` AI features after parity stabilizes
 
 ## Differentiated Features (Phase 3 — Completed)
 - [x] `R11` archive mode (R11a–R11e)
