@@ -2030,7 +2030,7 @@ Last updated: 2026-03-23
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S4 (letter-jump visual indicator)
 
 ## Slice S4: Letter-Jump Visual Indicator
-Status: Needs Fix
+Status: Complete
 Last updated: 2026-03-23
 
 ### Bug Report (2026-03-23)
@@ -2046,9 +2046,19 @@ Description: (1) Pressing a letter key does not produce any visible border highl
 - MSBuild Debug x64: `FileScoutNative.exe` rebuilt clean (only pre-existing MSB8027/LNK4042 warnings)
 - 82/82 tests pass (no new tests added — flash is pure UI visual, no testable logic)
 
+### Fix: flash invisible + same-letter repeat broken (2026-03-23)
+Reported by: Manual testing
+Root cause (bug #1): `AccentFillColorSecondaryBrush` is ~90% opacity of the accent — imperceptible on a 2px border; changing only the brush with no thickness change produces no visible delta.
+Root cause (bug #2): `SelectItemByIndex` updates only the domain selection model; it does not set `pane.active_list_view.SelectedIndex()`. Next keypress reads `SelectedIndex()` to calculate `start` — gets the stale value — so every press restarts from the same item.
+Fix:
+- `MainWindow.xaml.cpp` `FileRowsListView_KeyDown`: added `pane.active_list_view.SelectedIndex(idx)` after ScrollIntoView so the ListView tracks the selection (fixes bug #2)
+- `MainWindow.xaml.cpp` `FileRowsListView_KeyDown`: flash now also sets `BorderThickness({ 5,5,5,5 })` on the active pane border (fixes bug #1 — 5px pulse is clearly visible; `UpdateActivePaneIndicator` Tick restores to 2px)
+Tests added: No unit tests — both bugs are runtime-only UI behavior (ListView focus, visual border thickness)
+Validated: MSBuild Debug x64 clean; 82/82 tests pass
+
 ### What remains unverified
-- Runtime: press a letter key in the file list — active pane border should briefly flash to a lighter accent color then restore (requires manual app launch)
-- Rapid successive letters (e.g. A, B, C quickly) — timer should reset on each, not multi-fire
+- Runtime: press a letter key — border pulses to 5px thick then returns to 2px after 300ms
+- Runtime: press same letter repeatedly — each press advances to the next matching item
 
 ### Blockers
 - None
