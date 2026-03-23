@@ -443,12 +443,111 @@ namespace FileScoutNative::Shell
         return item;
     }
 
+    // S6: BuildFastShellItemRef — all data from WIN32_FIND_DATAW, no per-item shell calls.
+    // Icon: two-bucket fallback (folder or generic file); at most 2 SHGetFileInfoW calls total
+    // per enumeration (both cached after the first call to each bucket).
+    // Archive detection: extension-based heuristic; no CanEnumerateShellNamespace call.
+    FileScoutNative::Domain::ShellItemRef ShellInteropService::BuildFastShellItemRef(
+        WIN32_FIND_DATAW const& findData,
+        std::filesystem::path const& dirPath) const
+    {
+        FileScoutNative::Domain::ShellItemRef item;
+        item.display_name = findData.cFileName;
+        item.is_folder = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        item.path = dirPath / findData.cFileName;
+        item.parsing_name = item.path.wstring();
+        item.file_attributes = findData.dwFileAttributes;
+        item.file_attributes_available = true;
+        item.kind_label = BuildKindLabel(item.path, item.is_folder);
+
+        // Two-bucket icon: synthetic paths route to the "__folder__" or "__file__" cache entry.
+        item.icon = GetIconForItem(
+            item.is_folder ? std::filesystem::path{ L"folder" } : std::filesystem::path{ L"file" },
+            item.is_folder);
+
+        // Size from WIN32_FIND_DATA (files only; folders report no size).
+        if (!item.is_folder)
+        {
+            ULARGE_INTEGER size{};
+            size.LowPart = findData.nFileSizeLow;
+            size.HighPart = findData.nFileSizeHigh;
+            item.size_bytes = size.QuadPart;
+            item.size_available = true;
+        }
+
+        // Date modified from WIN32_FIND_DATA.
+        if (findData.ftLastWriteTime.dwLowDateTime != 0 || findData.ftLastWriteTime.dwHighDateTime != 0)
+        {
+            item.date_modified = FileTimeToChrono(findData.ftLastWriteTime);
+            item.date_modified_available = true;
+            item.date_modified_str = FormatShellDateTime(findData.ftLastWriteTime).value_or(L"");
+        }
+
+        // Date created from WIN32_FIND_DATA.
+        if (findData.ftCreationTime.dwLowDateTime != 0 || findData.ftCreationTime.dwHighDateTime != 0)
+        {
+            item.date_created_available = true;
+            item.date_created_str = FormatShellDateTime(findData.ftCreationTime).value_or(L"");
+        }
+
+        // Archive detection: extension-based, no shell call.
+        // is_supported_archive is a heuristic: .zip and .tar have confirmed Windows shell
+        // namespace support. Other formats are not whitelisted — if the user navigates into one
+        // and it turns out to be supported, the existing fallback path handles it.
+        if (!item.is_folder)
+        {
+            if (auto const archiveKindLabel = TryGetArchiveKindLabel(item.path); archiveKindLabel.has_value())
+            {
+                item.is_archive_candidate = true;
+                item.kind_label = *archiveKindLabel;
+                auto ext = item.path.extension().wstring();
+                std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t const ch)
+                    { return static_cast<wchar_t>(towlower(ch)); });
+                item.is_supported_archive = (ext == L".zip" || ext == L".tar");
+            }
+
+            // Image detection by extension.
+            auto ext = item.path.extension().wstring();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t const ch)
+                { return static_cast<wchar_t>(towlower(ch)); });
+            static constexpr std::array<std::wstring_view, 9> imgExts{
+                L".jpg", L".jpeg", L".png", L".gif", L".bmp",
+                L".ico", L".webp", L".tiff", L".tif",
+            };
+            item.is_image = std::ranges::any_of(imgExts, [&ext](std::wstring_view e)
+                { return ext == e; });
+        }
+
+        return item;
+    }
+
     std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateDirectory(
         std::filesystem::path const& path)
     {
+        // S6: Use FindFirstFileW/FindNextFileW instead of std::filesystem::directory_iterator.
+        // WIN32_FIND_DATA already contains name, size, attributes, write time, and creation time —
+        // no additional stat calls. BuildFastShellItemRef uses a two-bucket icon fallback and
+        // extension-based archive detection, eliminating all per-item shell calls.
+        auto const searchPattern = (path / L"*").wstring();
+        WIN32_FIND_DATAW findData{};
+        HANDLE const findHandle = FindFirstFileW(searchPattern.c_str(), &findData);
+        if (findHandle == INVALID_HANDLE_VALUE)
+        {
+            return {};
+        }
+
         std::vector<FileScoutNative::Domain::ShellItemRef> items;
-        for (auto const& entry : std::filesystem::directory_iterator(path))
-            items.push_back(BuildShellItemRef(entry));
+        do
+        {
+            if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0)
+            {
+                continue;
+            }
+            items.push_back(BuildFastShellItemRef(findData, path));
+        }
+        while (FindNextFileW(findHandle, &findData));
+
+        FindClose(findHandle);
         // NOTE: Sorting is intentionally omitted here — callers apply the user-selected
         // sort column and direction after enumeration.
         return items;

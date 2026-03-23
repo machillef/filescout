@@ -7,7 +7,7 @@
 - `native/` is now tracked in git and is the only active implementation track
 - Current phase: UX+Perf Sprint Round 2 (S1–S7) — in progress
 - Current blocker: none
-- Next slice to execute: S6 (FindFirstFileW fast enumeration)
+- Next slice to execute: S7 (icon backfill phase 2)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
 - R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
@@ -2104,3 +2104,42 @@ Last updated: 2026-03-23
 
 ### Next recommended step
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S6 (FindFirstFileW fast enumeration)
+
+## Slice S6: Performance — FindFirstFileW Fast Enumeration
+Status: Complete
+Last updated: 2026-03-23
+
+### What was implemented
+- `native/FileScout.Native/Shell/ShellInteropService.h` — added `BuildFastShellItemRef(WIN32_FIND_DATAW const&, std::filesystem::path const& dirPath) const` private declaration
+- `native/FileScout.Native/Shell/ShellInteropService.cpp`:
+  1. `BuildFastShellItemRef` — builds `ShellItemRef` from `WIN32_FIND_DATAW` fields; no per-item shell calls:
+     - name, is_folder, path, parsing_name, file_attributes from `WIN32_FIND_DATA` fields
+     - icon: two-bucket fallback — `GetIconForItem({L"folder"}, true)` → `"__folder__"` cache key for folders; `GetIconForItem({L"file"}, false)` → `"__file__"` cache key for files; at most 2 SHGetFileInfoW calls per session
+     - size: `ULARGE_INTEGER(nFileSizeHigh, nFileSizeLow)` for files; no size for folders
+     - date_modified: `FileTimeToChrono(ftLastWriteTime)` + `FormatShellDateTime` (zero-guarded)
+     - date_created: `FormatShellDateTime(ftCreationTime)` (zero-guarded)
+     - archive detection: `TryGetArchiveKindLabel` extension check; `is_supported_archive = (ext == ".zip" || ext == ".tar")` heuristic — NO `CanEnumerateShellNamespace` call
+     - image detection: same `.jpg/.jpeg/.png/.gif/.bmp/.ico/.webp/.tiff/.tif` extension check
+  2. `EnumerateDirectory` — replaced `std::filesystem::directory_iterator` loop with `FindFirstFileW`/`FindNextFileW`/`FindClose`; skips `.` and `..`; delegates to `BuildFastShellItemRef`
+- `native/FileScout.Tests/tests/ShellInteropServiceTests.cpp` — 3 new tests:
+  - `EnumerateDirectory_ZipIsSupportedArchive`: fake .zip → is_supported_archive = true
+  - `EnumerateDirectory_TarIsSupportedArchive`: fake .tar → is_supported_archive = true
+  - `EnumerateDirectory_7zIsNotSupportedArchive`: fake .7z → is_supported_archive = false (was RED with old code: 7-Zip shell ext installed on test machine returned true from CanEnumerateShellNamespace)
+
+### What was validated
+- `EnumerateDirectory_ZipIsSupportedArchive`: GREEN (heuristic returns true for .zip)
+- `EnumerateDirectory_TarIsSupportedArchive`: GREEN (heuristic returns true for .tar)
+- `EnumerateDirectory_7zIsNotSupportedArchive`: RED (old) → GREEN (new heuristic returns false)
+- MSBuild Debug x64: both binaries build clean
+- 85/85 tests pass (82 pre-existing + 3 new)
+
+### What remains unverified
+- Runtime: navigate to C:\Windows\System32 — enumeration should be noticeably faster (< 100ms vs prior 2–10 s)
+- Runtime: icons will appear as generic folder/file fallbacks until S7 backfills real icons
+- Runtime: .zip and .tar archive browsing still works (shell enumeration via EnumerateArchiveDirectory, unchanged)
+
+### Blockers
+- None
+
+### Next recommended step
+- Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S7 (icon backfill phase 2)

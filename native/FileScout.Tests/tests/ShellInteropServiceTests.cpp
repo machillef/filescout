@@ -171,6 +171,42 @@ TEST_F(ShellInteropFixture, EnumerateDirectory_PathsArePopulated)
     }
 }
 
+// S6: archive heuristic tests (BuildFastShellItemRef replaces CanEnumerateShellNamespace).
+// The new heuristic sets is_supported_archive = true only for .zip and .tar by extension,
+// without any shell call. These tests would fail with the old CanEnumerateShellNamespace path
+// for fake files (shell can't parse non-archive content).
+
+TEST_F(ShellInteropFixture, EnumerateDirectory_ZipIsSupportedArchive)
+{
+    { std::ofstream f{ m_root / L"fake.zip" }; f << "not a real zip file"; }
+    ShellInteropService svc;
+    auto items = svc.EnumerateDirectory(m_root);
+    auto zip = FindItem(items, L"fake.zip");
+    EXPECT_TRUE(zip.is_archive_candidate);
+    EXPECT_TRUE(zip.is_supported_archive);
+}
+
+TEST_F(ShellInteropFixture, EnumerateDirectory_TarIsSupportedArchive)
+{
+    { std::ofstream f{ m_root / L"fake.tar" }; f << "not a real tar file"; }
+    ShellInteropService svc;
+    auto items = svc.EnumerateDirectory(m_root);
+    auto tar = FindItem(items, L"fake.tar");
+    EXPECT_TRUE(tar.is_archive_candidate);
+    EXPECT_TRUE(tar.is_supported_archive);
+}
+
+TEST_F(ShellInteropFixture, EnumerateDirectory_7zIsNotSupportedArchive)
+{
+    // .7z is an archive candidate but NOT in the supported whitelist.
+    // Old CanEnumerateShellNamespace was non-deterministic (depended on installed shell handlers).
+    ShellInteropService svc;
+    auto items = svc.EnumerateDirectory(m_root);
+    auto archive = FindItem(items, L"archive.7z");
+    EXPECT_TRUE(archive.is_archive_candidate);
+    EXPECT_FALSE(archive.is_supported_archive);
+}
+
 // ── EnumerateDrives ────────────────────────────────────────────────────────────
 
 TEST(EnumerateDrivesTest, ReturnsAtLeastOneDrive)

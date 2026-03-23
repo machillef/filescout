@@ -363,7 +363,7 @@ unsupported format, the existing "unsupported archive" fallback handles it. This
 regression where `CanEnumerateShellNamespace` was called per-item in `BuildShellItemRef`.
 **Files:** `native/FileScout.Native/Shell/ShellInteropService.cpp/.h`,
 `native/FileScout.Native/MainWindow.xaml.cpp` (call site)
-**Status:** Not started
+**Status:** Complete (2026-03-23)
 
 ### S7: Performance — Icon Backfill Phase 2
 **Goal:** After fast rows appear, fill in real icons silently without scroll reset.
