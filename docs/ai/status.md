@@ -32,6 +32,10 @@
 - UX-Perf initiative complete 2026-03-22: 4 slices — breadcrumb root fix, nav buttons,
   type-ahead indicator, right-pane default guard, async delete, streaming enumeration;
   81/81 tests pass, both binaries build clean
+- UX-Perf regression fixes 2026-03-22 (commit 75af856): reverted streaming enum to
+  two-batch (rows.Clear() CollectionChange::Reset caused 7x perf regression); fixed left
+  pane default via DispatcherQueuePriority::Low TryEnqueue in TitleBarDragHost_Loaded;
+  added HH:MM:SS.mmm wall-clock timestamp to TraceLog; 81/81 tests pass
 
 ## Slice R13a: CommandRegistry + Palette Scaffold
 Status: Complete
