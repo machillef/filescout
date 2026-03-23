@@ -4522,21 +4522,6 @@ namespace winrt::FileScoutNative::implementation
                         pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
                 }
                 StatusTextBlock().Text(ToHString(L"\u2192 " + pane.items[static_cast<std::size_t>(idx)].display_name));
-                // S4: flash the active pane border — increase thickness to 5px for a clearly
-                // visible pulse (AccentFillColorSecondaryBrush alone is imperceptible on 2px).
-                auto const flashBrush = LookupBrush(L"AccentFillColorSecondaryBrush");
-                if (m_activePaneIndex == 0)
-                {
-                    LeftPaneBorder().BorderBrush(flashBrush);
-                    LeftPaneBorder().BorderThickness({ 5, 5, 5, 5 });
-                }
-                else
-                {
-                    RightPaneBorder().BorderBrush(flashBrush);
-                    RightPaneBorder().BorderThickness({ 5, 5, 5, 5 });
-                }
-                m_letterJumpTimer.Stop();
-                m_letterJumpTimer.Start();
                 args.Handled(true);
                 return;
             }

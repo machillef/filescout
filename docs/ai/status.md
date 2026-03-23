@@ -2033,7 +2033,7 @@ Last updated: 2026-03-23
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S4 (letter-jump visual indicator)
 
 ## Slice S4: Letter-Jump Visual Indicator
-Status: Needs Fix
+Status: Complete
 Last updated: 2026-03-23
 
 ### Bug Report (2026-03-23)
@@ -2063,8 +2063,15 @@ Fix:
 Tests added: No unit tests — both bugs are runtime-only UI behavior (ListView focus, visual border thickness)
 Validated: MSBuild Debug x64 clean; 82/82 tests pass
 
+### Fix: border flash too jarring on every keypress (2026-03-23)
+Reported by: User report
+Root cause: 5px BorderThickness pulse fires on every successful letter-jump — visually intrusive and distracting. The 5px → 2px transition is more prominent than intended.
+Fix: `MainWindow.xaml.cpp` `FileRowsListView_KeyDown`: removed border flash block entirely (BorderBrush change, BorderThickness change, timer Stop/Start). Status text `→ filename` + ScrollIntoView remain as the feedback. `m_letterJumpTimer` member and constructor init kept (dead code, no side effects; can be removed in a later cleanup).
+Tests added: No unit tests — pure UI visual behavior, not testable in headless environment.
+Validated: MSBuild Debug x64 clean; 82/82 tests pass (pre-commit hook).
+
 ### What remains unverified
-- Runtime: press a letter key — border pulses to 5px thick then returns to 2px after 300ms
+- Runtime: press a letter key — ListView scrolls to first match, status bar shows `→ filename`, no border flash
 - Runtime: press same letter repeatedly — each press advances to the next matching item
 
 ### Blockers
