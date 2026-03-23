@@ -7,7 +7,7 @@
 - `native/` is now tracked in git and is the only active implementation track
 - Current phase: UX+Perf Sprint Round 2 (S1–S7) — in progress
 - Current blocker: none
-- Next slice to execute: S5 (delete progress indicator)
+- Next slice to execute: S6 (FindFirstFileW fast enumeration)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
 - R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
@@ -57,6 +57,9 @@
 - S4 complete 2026-03-23: m_letterJumpTimer (DispatcherTimer, 300ms) added; letter-jump flashes
   active pane border to AccentFillColorSecondaryBrush then restores via UpdateActivePaneIndicator
   after 300ms; Stop+Start on each keypress resets window for rapid successive presses; 82/82 tests pass
+- S5 complete 2026-03-23: delete operations now show indeterminate ProgressBar (reuses search bar)
+  before co_await; timing logged to trace; ProgressBar hidden unconditionally in TryEnqueue callback
+  covering both success and failure paths; 82/82 tests pass
 
 ## Slice S2: Default Left Pane Fix
 Status: Complete
@@ -2065,3 +2068,28 @@ Validated: MSBuild Debug x64 clean; 82/82 tests pass
 
 ### Next recommended step
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S5 (delete progress indicator)
+
+## Slice S5: Delete Progress Indicator
+Status: Complete
+Last updated: 2026-03-23
+
+### What was implemented
+- `native/FileScout.Native/MainWindow.xaml.cpp` — `ShowDeleteDialogAsync`:
+  1. Added `int32_t const activePaneIndex = m_activePaneIndex` capture before `co_await`
+  2. Added `SearchProgressForPane(activePaneIndex).Visibility(Visible)` before `co_await` — shows indeterminate ProgressBar (reuses search bar) while background delete runs
+  3. Wrapped `DeleteItem`/`DeleteItems` in a `steady_clock` timing block; result logged via `TraceLog("Delete: N item(s) in Xms")`
+  4. Added `activePaneIndex` to `TryEnqueue` lambda capture; hide `SearchProgressForPane` unconditionally at the top of the lambda (before `if (success)`) — failure path has no `LoadDirectory` call that would otherwise hide it
+
+### What was validated
+- MSBuild Debug x64: both binaries build clean (only pre-existing MSB8027/LNK4042 warnings)
+- 82/82 tests pass
+
+### What remains unverified
+- Runtime: delete a file/folder — ProgressBar should appear in the active pane during the operation and disappear when done (success and failure paths both)
+- Runtime: TraceLog entry `Delete: N item(s) in Xms` visible in `%TEMP%\FileScout.Native.trace.log`
+
+### Blockers
+- None
+
+### Next recommended step
+- Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S6 (FindFirstFileW fast enumeration)

@@ -3835,11 +3835,18 @@ namespace winrt::FileScoutNative::implementation
         for (auto const& item : items)
             paths.push_back(item.path);
 
+        // Capture active pane before leaving the UI thread (m_activePaneIndex is UI-thread-only).
+        int32_t const activePaneIndex = m_activePaneIndex;
+
         // Show progress before blocking operation.
         StatusTextBlock().Text(ToHString(
             itemCount == 1
                 ? L"Deleting " + displayName + L"..."
                 : L"Deleting " + std::to_wstring(itemCount) + L" items..."));
+        // S5: show per-pane ProgressBar (reuses search bar, indeterminate) so long deletes
+        // are not silent. Hidden unconditionally at the top of the TryEnqueue callback.
+        SearchProgressForPane(activePaneIndex).Visibility(
+            winrt::Microsoft::UI::Xaml::Visibility::Visible);
 
         // Run IFileOperation::PerformOperations on a background thread so the UI stays
         // responsive. IFileOperation runs as CLSCTX_LOCAL_SERVER (out-of-process via
@@ -3851,6 +3858,7 @@ namespace winrt::FileScoutNative::implementation
         bool success = true;
         try
         {
+            auto const t0 = std::chrono::steady_clock::now();
             if (paths.size() == 1)
             {
                 m_shellFileOperationService.DeleteItem(ownerHwnd, paths.front());
@@ -3861,6 +3869,10 @@ namespace winrt::FileScoutNative::implementation
                     ownerHwnd,
                     std::span<std::filesystem::path const>{ paths.data(), paths.size() });
             }
+            auto const deleteMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            TraceLog(L"Delete: " + std::to_wstring(itemCount) + L" item(s) in "
+                + std::to_wstring(deleteMs) + L"ms");
         }
         catch (...)
         {
@@ -3868,8 +3880,12 @@ namespace winrt::FileScoutNative::implementation
         }
 
         m_dispatcherQueue.TryEnqueue(
-            [this, lifetime, success, currentPath, displayName, itemCount]()
+            [this, lifetime, success, currentPath, displayName, itemCount, activePaneIndex]()
             {
+                // S5: hide ProgressBar unconditionally — failure path has no LoadDirectory
+                // call that would otherwise hide it.
+                SearchProgressForPane(activePaneIndex).Visibility(
+                    winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
                 if (success)
                 {
                     LoadDirectory(currentPath);
