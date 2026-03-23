@@ -5,9 +5,9 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Target: unpackaged Windows 11 x64 desktop app
 - `native/` is now tracked in git and is the only active implementation track
-- Current phase: UX+Perf Sprint Round 2 (S1–S7) — planned, not started
+- Current phase: UX+Perf Sprint Round 2 (S1–S7) — in progress
 - Current blocker: none
-- Next slice to execute: S1 (nav button passthrough fix)
+- Next slice to execute: S2 (default left pane fix)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
 - R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
@@ -46,6 +46,8 @@
 - UX+Perf Sprint Round 2 planned 2026-03-23: 7 slices (S1–S7) for 6 bugs confirmed still
   present + new perf strategy (FindFirstFileW fast path + icon backfill); plan at
   .claude/plans/sprightly-stirring-hennessy.md; root causes confirmed by source analysis
+- S1 complete 2026-03-23: UpdateTitleBarInteractiveRegions() added at end of UpdateNavButtons();
+  fixes title-bar drag region not re-registering after Back/Forward become enabled; build clean
 
 ## Slice R13a: CommandRegistry + Palette Scaffold
 Status: Complete
@@ -1927,3 +1929,25 @@ Last updated: 2026-03-22
 - R18 chrome UX redesign initiative is code-complete (R18a–R18c); manual smoke test recommended
 - Next initiatives: async icon loading (perf), R13 command palette (spec needed)
 - Next automatable slice: R13 command palette (requires spec before implementation)
+
+## Slice S1: Nav Button Passthrough Fix
+Status: Complete
+Last updated: 2026-03-23
+
+### What was implemented
+- `native/FileScout.Native/MainWindow.xaml.cpp` — added `UpdateTitleBarInteractiveRegions()` call at the end of `UpdateNavButtons()`
+- Root cause: `appendRect` (line 1967) skips disabled controls, so Back/Forward are never registered in the passthrough region on initial load. `UpdateNavButtons` enables them after navigation but never re-registered the regions.
+- Fix: one line added; `UpdateNavButtons` → `UpdateBreadcrumbs` → called on every navigation via UI-thread dispatch. `UpdateTitleBarInteractiveRegions` has a null-guard and is safe to call any time after XamlRoot is set.
+
+### What was validated
+- MSBuild Debug x64: both FileScoutNative.exe and FileScout.Tests.exe build clean (only pre-existing MSB8027/LNK4042 warnings)
+- 82/82 tests pass (no regressions — no new tests added; fix is UI wiring, not logic)
+
+### What remains unverified
+- Runtime: navigate to a subfolder, then click Back/Forward — must be clickable (requires manual app launch)
+
+### Blockers
+- None
+
+### Next recommended step
+- Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S2 (default left pane fix)

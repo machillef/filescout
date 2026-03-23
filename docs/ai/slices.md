@@ -297,7 +297,7 @@ re-registered after `UpdateNavButtons` enables the buttons).
 `UpdateTitleBarInteractiveRegions`.
 **Fix:** Add `UpdateTitleBarInteractiveRegions()` at the end of `UpdateNavButtons`.
 **Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
-**Status:** Not started
+**Status:** Complete (2026-03-23)
 
 ### S2: Default Left Pane Fix
 **Goal:** App always opens with the left pane active (thick accent border).

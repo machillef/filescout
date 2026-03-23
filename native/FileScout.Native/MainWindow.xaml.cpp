@@ -4041,6 +4041,7 @@ namespace winrt::FileScoutNative::implementation
     {
         BackButton().IsEnabled(!ActivePane().back_stack.empty());
         ForwardButton().IsEnabled(!ActivePane().forward_stack.empty());
+        UpdateTitleBarInteractiveRegions();
     }
 
     // ────────────────────────────────────────────────────────────────────────
