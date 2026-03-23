@@ -173,6 +173,8 @@ namespace winrt::FileScoutNative::implementation
         // Panel visibility state — toggled by togglePreview / toggleDualPane commands.
         bool m_previewPanelVisible{ true };
         bool m_dualPaneVisible{ true };
+        // S4: letter-jump border flash timer (single-shot, 300 ms).
+        winrt::Microsoft::UI::Xaml::DispatcherTimer m_letterJumpTimer{ nullptr };
 
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;

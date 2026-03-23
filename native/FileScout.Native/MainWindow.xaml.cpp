@@ -1229,6 +1229,17 @@ namespace winrt::FileScoutNative::implementation
         // which prevents deferred WinUI TabView SelectionChanged events from switching to pane 1.
         m_activePaneIndex = 0;
         UpdateActivePaneIndicator();
+
+        // S4: letter-jump border flash timer — fires once after 300 ms to restore the normal
+        // pane indicator. Stop + Start on each keypress resets the 300 ms window.
+        m_letterJumpTimer = winrt::Microsoft::UI::Xaml::DispatcherTimer{};
+        m_letterJumpTimer.Interval(std::chrono::milliseconds{ 300 });
+        m_letterJumpTimer.Tick([this, lifetime = get_strong()](auto const&, auto const&)
+            {
+                UpdateActivePaneIndicator();
+                m_letterJumpTimer.Stop();
+            });
+
         TraceLog(L"MainWindow ctor: complete.");
     }
 
@@ -4488,6 +4499,14 @@ namespace winrt::FileScoutNative::implementation
                     pane.active_list_view.ScrollIntoView(
                         pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
                 StatusTextBlock().Text(ToHString(L"\u2192 " + pane.items[static_cast<std::size_t>(idx)].display_name));
+                // S4: flash the active pane border to the secondary accent variant for 300 ms.
+                auto const flashBrush = LookupBrush(L"AccentFillColorSecondaryBrush");
+                if (m_activePaneIndex == 0)
+                    LeftPaneBorder().BorderBrush(flashBrush);
+                else
+                    RightPaneBorder().BorderBrush(flashBrush);
+                m_letterJumpTimer.Stop();
+                m_letterJumpTimer.Start();
                 args.Handled(true);
                 return;
             }

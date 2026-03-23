@@ -7,7 +7,7 @@
 - `native/` is now tracked in git and is the only active implementation track
 - Current phase: UX+Perf Sprint Round 2 (S1–S7) — in progress
 - Current blocker: none
-- Next slice to execute: S3 (breadcrumb path normalization)
+- Next slice to execute: S5 (delete progress indicator)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
 - App launches and shows window as of 2026-03-20
 - R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
@@ -52,6 +52,11 @@
   TryEnqueue dispatch lambdas (archive path and regular directory first-batch path); prevents
   CollectionChange::Reset from firing SelectionChanged → SetActivePaneIndex(1) during right-pane
   startup load after m_initComplete=true; 82/82 tests pass, both binaries build clean
+- S3 complete 2026-03-23: pre-computed absolute path on UI thread before co_await for first
+  breadcrumb call; fixes breadcrumb showing raw relative path on first navigation; 82/82 tests pass
+- S4 complete 2026-03-23: m_letterJumpTimer (DispatcherTimer, 300ms) added; letter-jump flashes
+  active pane border to AccentFillColorSecondaryBrush then restores via UpdateActivePaneIndicator
+  after 300ms; Stop+Start on each keypress resets window for rapid successive presses; 82/82 tests pass
 
 ## Slice S2: Default Left Pane Fix
 Status: Complete
@@ -2023,3 +2028,26 @@ Last updated: 2026-03-23
 
 ### Next recommended step
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S4 (letter-jump visual indicator)
+
+## Slice S4: Letter-Jump Visual Indicator
+Status: Complete
+Last updated: 2026-03-23
+
+### What was implemented
+- `native/FileScout.Native/MainWindow.xaml.h` — added `m_letterJumpTimer{ nullptr }` member (DispatcherTimer, S4 comment)
+- `native/FileScout.Native/MainWindow.xaml.cpp` — constructor: initializes timer (300ms interval, Tick handler calls `UpdateActivePaneIndicator()` then `Stop()`)
+- `native/FileScout.Native/MainWindow.xaml.cpp` — `FileRowsListView_KeyDown`: on successful jump, looks up `AccentFillColorSecondaryBrush`, sets it on the active pane border, then calls `m_letterJumpTimer.Stop()` + `Start()` (stop+restart resets the 300ms window on rapid successive presses)
+
+### What was validated
+- MSBuild Debug x64: `FileScoutNative.exe` rebuilt clean (only pre-existing MSB8027/LNK4042 warnings)
+- 82/82 tests pass (no new tests added — flash is pure UI visual, no testable logic)
+
+### What remains unverified
+- Runtime: press a letter key in the file list — active pane border should briefly flash to a lighter accent color then restore (requires manual app launch)
+- Rapid successive letters (e.g. A, B, C quickly) — timer should reset on each, not multi-fire
+
+### Blockers
+- None
+
+### Next recommended step
+- Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S5 (delete progress indicator)
