@@ -4691,15 +4691,15 @@ namespace winrt::FileScoutNative::implementation
                 sep.Text(L" \u203A ");
                 sep.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
                 sep.Opacity(0.4);
-                sep.FontSize(12);
+                sep.FontSize(14);
                 panel.Children().Append(sep);
             }
 
             MUI::HyperlinkButton btn;
-            btn.Padding({ 4, 0, 4, 0 });
+            btn.Padding({ 6, 0, 6, 0 });
             MUI::TextBlock lbl;
             lbl.Text(winrt::hstring(label));
-            lbl.FontSize(12);
+            lbl.FontSize(14);
             lbl.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
             btn.Content(lbl);
 

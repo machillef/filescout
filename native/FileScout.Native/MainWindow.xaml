@@ -251,8 +251,8 @@
                         <Grid Grid.Column="1">
                             <!-- Breadcrumb bar — default view; tap to reveal address TextBox -->
                             <Border x:Name="BreadcrumbBarBorder"
-                                    MinHeight="38"
-                                    Padding="4,0,4,0"
+                                    MinHeight="44"
+                                    Padding="6,0,6,0"
                                     CornerRadius="10"
                                     BorderThickness="1"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
