@@ -207,6 +207,10 @@ namespace winrt::FileScoutNative::implementation
             bool skipHistoryRecord = false);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
             std::optional<std::filesystem::path> selectAfter);
+        // S7: backfill real per-extension icons asynchronously after fast rows appear.
+        winrt::fire_and_forget BackfillIconsAsync(
+            int32_t paneIndex, int32_t tabIndex, uint32_t generation,
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items, bool listMode);
         void UpdateRows(int32_t paneIndex, std::vector<::FileScoutNative::Domain::ShellItemRef> const& items);
         [[nodiscard]] std::vector<int32_t> GetSelectedItemIndices() const;
         [[nodiscard]] std::vector<::FileScoutNative::Domain::ShellItemRef> GetSelectedItems() const;

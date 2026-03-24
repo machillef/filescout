@@ -2341,6 +2341,13 @@ namespace winrt::FileScoutNative::implementation
                             TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
                             if (selectAfter.has_value())
                                 SelectItemByPath(*selectAfter);
+                            // S7: backfill real per-extension icons after rows appear.
+                            {
+                                auto backfillItems = pane.items;
+                                for (auto& bi : backfillItems) bi.icon = {};
+                                BackfillIconsAsync(paneIndex, tabIndex, generation,
+                                    std::move(backfillItems), listMode);
+                            }
                             return;
                         }
 
@@ -2380,6 +2387,13 @@ namespace winrt::FileScoutNative::implementation
                                 TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
                                 if (!pane.user_interacted_after_first_batch && selectAfter.has_value())
                                     SelectItemByPath(*selectAfter);
+                                // S7: backfill real per-extension icons after all rows appear.
+                                {
+                                    auto backfillItems = items;
+                                    for (auto& bi : backfillItems) bi.icon = {};
+                                    BackfillIconsAsync(paneIndex, tabIndex, generation,
+                                        std::move(backfillItems), listMode);
+                                }
                             });
                     });
             }
@@ -2395,6 +2409,50 @@ namespace winrt::FileScoutNative::implementation
             });
             co_return;
         }
+    }
+
+    // S7: Backfill real per-extension icons for fast-enumerated rows.
+    // Called after both row batches are published by LoadDirectoryAsync (regular dirs only).
+    // GetItemIcon runs on the background thread — thread-safe via m_cacheMutex; most calls
+    // are cache hits after the first unique extension per session is resolved.
+    // SetAt fires CollectionChanged::ItemChanged (not Reset), so scroll position is preserved.
+    winrt::fire_and_forget MainWindow::BackfillIconsAsync(
+        int32_t const paneIndex,
+        int32_t const tabIndex,
+        uint32_t const generation,
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items,
+        bool const listMode)
+    {
+        auto lifetime = get_strong();
+
+        co_await winrt::resume_background();
+
+        for (auto& item : items)
+            item.icon = m_shellInterop.GetItemIcon(item.path, item.is_folder);
+
+        m_dispatcherQueue.TryEnqueue(
+            [this, lifetime, paneIndex, tabIndex, generation,
+             items = std::move(items), listMode]() mutable
+            {
+                auto& pane = m_panes[paneIndex];
+                if (pane.load_generation != generation) return;
+                if (pane.active_tab_index != tabIndex) return;
+                // Grouped view intersperses group-header rows so row count != item count.
+                // Skip backfill to avoid index mismatches.
+                if (pane.group_by_sort_column) return;
+
+                auto& rows = pane.tab_rows[tabIndex];
+                auto const count = static_cast<uint32_t>(items.size());
+                if (rows.Size() != count) return;  // defensive: size mismatch
+
+                pane.tab_switching = true;
+                for (uint32_t i = 0; i < count; ++i)
+                    rows.SetAt(i, CreateRowView(items[i], listMode));
+                pane.tab_switching = false;
+
+                TraceLog(L"BackfillIcons: " + std::to_wstring(count) +
+                         L" rows for pane " + std::to_wstring(paneIndex));
+            });
     }
 
     void MainWindow::UpdateRows(int32_t const paneIndex,

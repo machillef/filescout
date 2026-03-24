@@ -373,6 +373,6 @@ Use a single `tab_switching = true` before the entire `SetAt` loop, `false` afte
 per-item — thrashing the flag for 5000 items defeats the purpose). Guarded by
 `pane.load_generation` to prevent stale backfill from overwriting a new navigation.
 `SetAt` fires `CollectionChanged::ItemChanged` (not Reset), so scroll position is preserved.
-**Files:** `native/FileScout.Native/MainWindow.xaml.cpp`
-**Status:** Not started
+**Files:** `native/FileScout.Native/MainWindow.xaml.cpp`, `native/FileScout.Native/MainWindow.xaml.h`
+**Status:** Complete (2026-03-24)
 

@@ -2155,3 +2155,76 @@ Validated: MSBuild Debug x64 clean; 85/85 tests pass.
 
 ### Next recommended step
 - Run `/bootstrap-commands:continue-work UX+Perf Sprint Round 2` to start S7 (icon backfill phase 2)
+
+## Slice S7: Performance — Icon Backfill Phase 2
+Status: Complete
+Last updated: 2026-03-24
+
+### What was implemented
+- `native/FileScout.Native/MainWindow.xaml.h` — added `BackfillIconsAsync` declaration:
+  `winrt::fire_and_forget BackfillIconsAsync(int32_t paneIndex, int32_t tabIndex, uint32_t generation, std::vector<ShellItemRef> items, bool listMode)`
+- `native/FileScout.Native/MainWindow.xaml.cpp` — `BackfillIconsAsync` implementation:
+  1. `co_await winrt::resume_background()` — switches to thread pool
+  2. Loops over items, calls `m_shellInterop.GetItemIcon(item.path, item.is_folder)` for each (thread-safe via `m_cacheMutex`; cache hits for repeated extensions)
+  3. `m_dispatcherQueue.TryEnqueue` — UI thread: checks `load_generation` + `active_tab_index` + `group_by_sort_column` + `rows.Size() == count`; wraps entire `SetAt` loop in single `tab_switching = true/false`; `TraceLog` entry for observability
+- `native/FileScout.Native/MainWindow.xaml.cpp` — call site 1 (small dir, ≤150 items): added after `SelectItemByPath` before `return;`; copies `pane.items` and clears each icon before handing to coroutine
+- `native/FileScout.Native/MainWindow.xaml.cpp` — call site 2 (large dir, second dispatch): added after final `SelectItemByPath` call; copies captured `items` and clears each icon
+- Archive path unchanged — `EnumerateArchiveDirectory` already calls `GetIconForItem` per-item at enumerate time
+
+### What was validated
+- MSBuild Debug x64: both binaries build clean (only pre-existing MSB8027/LNK4042 warnings)
+- 85/85 tests pass (no new tests — `BackfillIconsAsync` is WinUI dispatch behavior with no headless-testable domain logic; `GetItemIcon` already covered by `ShellInteropServiceTests`)
+
+### What remains unverified
+- Runtime: navigate to C:\Windows\System32 — rows appear immediately with generic icons, then icons update in-place to per-extension shell icons within ~1–2s (no scroll reset)
+- Runtime: navigate to a small folder (≤150 items) — same icon backfill behaviour at smaller scale
+- Runtime: navigate away during backfill — new directory appears correctly; stale backfill is silently dropped by generation guard
+- Runtime: grouped view — icon backfill skipped (expected); generic icons remain when group-by is active
+
+### Blockers
+- None
+
+### Next recommended step
+- All S1–S7 slices complete. Run `/retro UX+Perf Sprint Round 2` to extract metrics and learnings.
+- Manual validation of runtime behaviour (see "What remains unverified" for each slice S1–S7) before tagging a release build.
+
+---
+## End of Plan
+
+All slices S1–S7 are complete.
+
+### Definition of Done
+No formal scope-map.md exists for this initiative. Slice-level validation only.
+
+### Remaining Validation
+The following items require manual app launch to verify — all are runtime-only behaviours not testable in headless environment:
+
+**S1 — Nav Button Passthrough Fix**
+- Runtime: navigate to a subfolder, then click Back/Forward — must be clickable
+
+**S2 — Default Left Pane Fix**
+- Runtime: launch app cold — left pane should have thick accent border, right pane inactive
+
+**S3 — Breadcrumb Path Normalization**
+- Runtime: navigate to a subfolder — breadcrumb shows full path immediately before enumeration completes
+
+**S4 — Letter-Jump Visual Indicator**
+- Runtime: press a letter key — ListView scrolls to first match, status bar shows `→ filename`, no border flash
+- Runtime: press same letter repeatedly — each press advances to the next matching item
+
+**S5 — Delete Progress Indicator**
+- Runtime: delete a file/folder — ProgressBar appears in active pane during operation and disappears when done
+- Runtime: TraceLog entry `Delete: N item(s) in Xms` visible in trace log
+
+**S6 — FindFirstFileW Fast Enumeration**
+- Runtime: navigate to C:\Windows\System32 — enumeration noticeably faster; date modified column shows M/D/YYYY H:MM AM/PM format
+- Runtime: .zip and .tar archive browsing still works
+
+**S7 — Icon Backfill Phase 2**
+- Runtime: navigate to C:\Windows\System32 — rows appear immediately with generic icons, then icons update in-place to per-extension shell icons within ~1–2s (no scroll reset)
+- Runtime: navigate away during backfill — stale backfill silently dropped, new directory correct
+- Runtime: grouped view — icon backfill skipped, generic icons remain (expected)
+
+### Next Step
+Initiative is complete. Run `/retro UX+Perf Sprint Round 2` to extract metrics and learnings.
+If manual testing reveals bugs: Run `/fix-bugs UX+Perf Sprint Round 2`.
