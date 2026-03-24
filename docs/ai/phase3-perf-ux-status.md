@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Phase: phase3-perf-ux — In Progress
 - Current blocker: None
-- Next slice: U1 — Breadcrumb sizing
+- Next slice: U2 — Double-click to open folders/files
 - Tests at initiative start: 82/82 passing
 - Tests now: 93/93 passing (82 existing + 8 RowFormatting + 3 from other tracks)
 
@@ -92,7 +92,20 @@
 
 | P3 | Complete | 2026-03-24 |
 | P4 | Complete | 2026-03-24 |
-| U1 | Not Started | — |
+| U1 | Complete | 2026-03-24 |
+
+### U1 — Complete (2026-03-24)
+
+**What was done:**
+- `BreadcrumbBarBorder` in XAML: `MinHeight` 38→44, `Padding` 4→6
+- `UpdateBreadcrumbs` in C++: `lbl.FontSize` 12→14, `btn.Padding` {4,0,4,0}→{6,0,6,0}, separator `FontSize` 12→14
+- Slice spec said "pure XAML" but buttons are programmatic — change landed in both XAML and C++
+
+**Validation:** Build clean. 93/93 tests pass.
+
+**What remains unverified:**
+- Visual readability at runtime (requires manual host launch)
+
 | U2 | Not Started | — |
 | U3 | Not Started | — |
 | U4 | Not Started | — |
