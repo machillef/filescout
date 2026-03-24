@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Phase: phase3-perf-ux — In Progress
 - Current blocker: None
-- Next slice: P3 — Wire ListView to ViewModels (HIGH RISK)
+- Next slice: P4 — Async icon backfill via ViewModel INPC
 - Tests at initiative start: 82/82 passing
 - Tests now: 93/93 passing (82 existing + 8 RowFormatting + 3 from other tracks)
 
@@ -54,7 +54,30 @@
 **What remains unverified:**
 - Visual rendering at runtime (requires P3 to change ItemsSource to FileRowViewModel vector)
 
-| P3 | Not Started | — |
+### P3 — Complete (2026-03-24)
+
+**What was done:**
+- Deleted `CreateCardRow`, `CreateListRow`, `CreateRowView` from anonymous namespace (~170 lines removed)
+- Changed `tab_rows` from `IObservableVector<IInspectable>` to `IObservableVector<FileRowViewModel>` in `PaneContext`
+- Changed `single_threaded_observable_vector` instantiation to `FileRowViewModel` type in both `AddTab` and `InitPane`
+- Rewrote `BackfillIconsAsync`: drops `listMode` param, calls `rows.GetAt(i).IconSource(source)` via INPC (no SetAt/CreateRowView)
+- Simplified `UpdateRows` and `RebuildAllTabRowsForPane` to use `MakeFileRowViewModel` directly
+- Rewrote `CreateSearchRowView`: returns `FileRowViewModel` (Name=filename, TypeLabel/DetailText=relative path subtitle)
+- `CreateTabListView`: looks up `CardRowTemplate`/`ListRowTemplate` from XAML resources and assigns `ItemTemplate`
+- `SetViewMode`: updates `active_list_view.ItemTemplate()` on view mode change
+- Group headers disabled (flat list) — `group_by_sort_column` bool + `BuildGroupLabel` retained for toggle state; visual grouping deferred
+
+**Validation:** Build clean. 93/93 tests pass. Net diff: 62 insertions / 321 deletions.
+
+**Key decisions:**
+- Group header rows (WrapRowWithGroupHeader StackPanel wrappers) removed because mixed-type vector breaks x:Bind; visual grouping deferred to future slice
+- `CreateSearchRowView` stores relative path in both `TypeLabel` and `DetailText` for consistency with list/card templates
+
+**What remains unverified:**
+- Visual rendering at runtime (requires app launch with real directory)
+- Group-by visual behaviour disabled; restore path not yet planned
+
+| P3 | Complete | 2026-03-24 |
 | P4 | Not Started | — |
 | U1 | Not Started | — |
 | U2 | Not Started | — |
