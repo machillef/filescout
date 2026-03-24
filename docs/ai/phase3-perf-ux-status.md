@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Phase: phase3-perf-ux — In Progress
 - Current blocker: None
-- Next slice: U2 — Double-click to open folders/files
+- Next slice: U6 — Context menu right-click scroll fix (investigation)
 - Tests at initiative start: 82/82 passing
 - Tests now: 93/93 passing (82 existing + 8 RowFormatting + 3 from other tracks)
 
@@ -106,10 +106,37 @@
 **What remains unverified:**
 - Visual readability at runtime (requires manual host launch)
 
-| U2 | Not Started | — |
-| U3 | Not Started | — |
-| U4 | Not Started | — |
-| U5 | Not Started | — |
+### U2 — Complete (2026-03-24)
+
+**What was done:** No code change required — `FileRowsListView_DoubleTapped` was already fully
+implemented: folder navigation, archive paths, archive view items, regular file open with status text.
+
+### U3 — Complete (2026-03-24)
+
+**What was done:** No code change required — `SetupKeyboardAccelerators` already registers
+`AddAccelerator(VK::Delete, VKM::None, L"delete")` which routes through `ExecuteContextCommand`.
+
+### U4 — Complete (2026-03-24)
+
+**What was done:** No code change required — `AddAccelerator(VK::T, VKM::Control, L"newTab")`
+already registered in `SetupKeyboardAccelerators`. Ctrl+T opens a new tab.
+
+### U5 — Complete (2026-03-24)
+
+**What was done:**
+- Added `Ctrl+L` accelerator in `SetupKeyboardAccelerators` alongside existing F4 using a
+  structured-binding loop over `std::initializer_list<std::pair<VK, VKM>>`
+- Both F4 and Ctrl+L call `ShowAddressTextBox()`, which already calls `SelectAll()` + `Focus(Programmatic)`
+
+**Validation:** Build clean. 93/93 tests pass.
+
+**What remains unverified:**
+- Address bar visually appears and gets focus on Ctrl+L (manual host launch)
+
+| U2 | Complete | 2026-03-24 |
+| U3 | Complete | 2026-03-24 |
+| U4 | Complete | 2026-03-24 |
+| U5 | Complete | 2026-03-24 |
 | U6 | Not Started | — |
 | U7 | Not Started | — |
 | U8 | Not Started | — |
