@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Phase: phase3-perf-ux — In Progress
 - Current blocker: None
-- Next slice: P4 — Async icon backfill via ViewModel INPC
+- Next slice: U1 — Breadcrumb sizing
 - Tests at initiative start: 82/82 passing
 - Tests now: 93/93 passing (82 existing + 8 RowFormatting + 3 from other tracks)
 
@@ -77,8 +77,21 @@
 - Visual rendering at runtime (requires app launch with real directory)
 - Group-by visual behaviour disabled; restore path not yet planned
 
+### P4 — Complete (2026-03-24)
+
+**What was done:**
+- No new code required — `BackfillIconsAsync` was fully rewritten as part of P3
+- `rows.GetAt(i).IconSource(source)` updates the ViewModel in-place via INPC
+- Image binding in both DataTemplates uses `Mode=OneWay` (P2), so PropertyChanged triggers refresh automatically
+- `CreateRowView` / `SetAt` calls: 0 remaining
+
+**Validation:** Build clean (from P3). 93/93 tests pass.
+
+**What remains unverified:**
+- Icons actually update in-place without scroll reset (manual host launch → navigate large dir → icons should refresh without visual jump)
+
 | P3 | Complete | 2026-03-24 |
-| P4 | Not Started | — |
+| P4 | Complete | 2026-03-24 |
 | U1 | Not Started | — |
 | U2 | Not Started | — |
 | U3 | Not Started | — |
