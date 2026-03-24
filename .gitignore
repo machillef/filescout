@@ -41,16 +41,21 @@ test-img/
 /native/x64/
 /native/x86/
 /native/arm64/
+/native/**/x64/
+/native/**/x86/
+/native/**/arm64/
 /native/**/obj/
 /native/**/Generated Files/
 
 # Session-local build/test scripts and output files
 do_build.ps1
 build_fs.bat
+build_run.bat
 run_build*.bat
 run_build*.ps1
 run_tests.ps1
 build_output*.txt
+build_out*.txt
 build_result.txt
 test_result.txt
 
