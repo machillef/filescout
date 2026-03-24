@@ -127,9 +127,12 @@
     <ClInclude Include="Domain\ClipboardService.h" />
     <ClInclude Include="Domain\ContextMenuModel.h" />
     <ClInclude Include="Domain\ExplorerCommand.h" />
+    <ClInclude Include="Domain\FileRowViewModel.h" />
     <ClInclude Include="Domain\PaneSelectionState.h" />
     <ClInclude Include="Domain\FavoriteEntry.h" />
     <ClInclude Include="Domain\CommandEntry.h" />
+    <ClInclude Include="Domain\RowFormatting.h" />
+    <ClInclude Include="Domain\SidebarRecents.h" />
     <ClInclude Include="Domain\ShellItemRef.h" />
     <ClInclude Include="Shell\CommandRegistry.h" />
     <ClInclude Include="Shell\ContextMenuService.h" />
@@ -155,6 +158,9 @@
     <ClCompile Include="MainWindow.xaml.cpp">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
+    <ClCompile Include="Domain\FileRowViewModel.cpp" />
+    <ClCompile Include="Domain\RowFormatting.cpp" />
+    <ClCompile Include="Domain\SidebarRecents.cpp" />
     <ClCompile Include="Shell\CommandRegistry.cpp" />
     <ClCompile Include="Shell\ContextMenuService.cpp" />
     <ClCompile Include="Shell\FavoritesService.cpp" />
@@ -167,6 +173,9 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <Midl Include="Domain\FileRowViewModel.idl">
+      <SubType>Code</SubType>
+    </Midl>
     <Midl Include="Project.idl">
       <SubType>Code</SubType>
     </Midl>

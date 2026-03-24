@@ -8,6 +8,7 @@
 #include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
 #include "MainWindow.xaml.h"
 #include "Domain/FileNameValidation.h"
+#include "Domain/SidebarRecents.h"
 #include "Search/FuzzyMatcher.h"
 #include "TraceHelper.h"
 
@@ -1894,6 +1895,7 @@ namespace winrt::FileScoutNative::implementation
         {
             pane.back_stack.push_back(pane.current_path);
             pane.forward_stack.clear();
+            BuildSidebarFavorites();  // refresh recent paths section
         }
         if (pane.search_mode != SearchMode::None)
         {
@@ -5064,8 +5066,9 @@ namespace winrt::FileScoutNative::implementation
         auto const panel = SidebarPlacesPanel();
         panel.Children().Clear();
         bool addedPinnedHeader = false;
-        bool addedPrimaryHeader = false;
         auto const& activePane = ActivePane();
+        // Tracks paths already shown so recent paths can be deduplicated against them.
+        std::unordered_set<std::wstring> shownPathKeys;
         auto const favorites = m_favoritesService.GetSidebarFavorites();
         std::filesystem::path activeFavoritePath;
         std::size_t activeFavoriteScore = 0;
@@ -5093,14 +5096,6 @@ namespace winrt::FileScoutNative::implementation
         for (auto const& entry : favorites)
         {
             if (entry.is_drives_view) continue;  // This PC has its own Expander section (S1/S3)
-
-            if (!entry.is_pinned && !addedPrimaryHeader)
-            {
-                auto quickAccessHeader = BuildSidebarSectionLabel(L"QUICK ACCESS");
-                quickAccessHeader.Margin({ 2, 0, 0, 2 });
-                panel.Children().Append(quickAccessHeader);
-                addedPrimaryHeader = true;
-            }
 
             if (entry.is_pinned && !addedPinnedHeader)
             {
@@ -5200,7 +5195,76 @@ namespace winrt::FileScoutNative::implementation
                 });
             }
 
+            if (!entry.is_pinned && !entry.path.empty())
+                shownPathKeys.insert(::FileScoutNative::Domain::SidebarPathKey(entry.path));
             panel.Children().Append(btn);
+        }
+
+        // Recent paths: last 5 navigated folders not already shown above.
+        auto const recents = ::FileScoutNative::Domain::SelectRecentPaths(
+            m_panes[0].back_stack, shownPathKeys, 5);
+
+        if (!recents.empty())
+        {
+            auto recentSep = winrt::Microsoft::UI::Xaml::Controls::Border{};
+            recentSep.Height(1);
+            recentSep.Margin({ 0, 6, 0, 6 });
+            recentSep.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+            panel.Children().Append(recentSep);
+
+            for (auto const& recentPath : recents)
+            {
+                auto displayName = recentPath.filename().wstring();
+                if (displayName.empty())
+                    displayName = recentPath.root_name().wstring();
+                if (displayName.empty())
+                    displayName = recentPath.wstring();
+
+                auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
+                StyleSidebarButtonBase(btn);
+                btn.Margin({ 0, 0, 0, 2 });
+                winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+                    btn, winrt::box_value(ToHString(recentPath.wstring())));
+
+                auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+                auto iconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+                iconColumn.Width({ 20, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+                auto labelColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+                labelColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+                rowGrid.ColumnDefinitions().Append(iconColumn);
+                rowGrid.ColumnDefinitions().Append(labelColumn);
+                rowGrid.ColumnSpacing(8);
+
+                auto const entryIcon = m_shellInterop.GetItemIcon(recentPath, true);
+                auto iconTile = BuildSidebarTile(
+                    BuildSidebarGlyph(displayName, entryIcon, L"folder"),
+                    20.0);
+
+                auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+                label.Text(ToHString(displayName));
+                label.FontWeight(winrt::Microsoft::UI::Text::FontWeights::Normal());
+                label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+                label.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+                label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+
+                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
+                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(label, 1);
+                rowGrid.Children().Append(iconTile);
+                rowGrid.Children().Append(label);
+
+                auto const isSelected = activeFavoriteScore > 0 &&
+                    SidebarPathsEqual(recentPath, activeFavoritePath);
+                auto surface = BuildSidebarRowSurface(isSelected);
+                surface.Child(rowGrid);
+                btn.Content(surface);
+
+                auto const targetPath = recentPath;
+                btn.Click([this, targetPath](auto const&, auto const&)
+                {
+                    LoadDirectory(targetPath);
+                });
+                panel.Children().Append(btn);
+            }
         }
 
         auto const drives = BuildSidebarDriveUsage(m_shellInterop);

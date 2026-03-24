@@ -121,6 +121,8 @@
     <ClCompile Include="..\FileScout.Native\Shell\ShellFileOperationService.cpp" />
     <ClCompile Include="..\FileScout.Native\Search\SearchService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\CommandRegistry.cpp" />
+    <ClCompile Include="..\FileScout.Native\Domain\RowFormatting.cpp" />
+    <ClCompile Include="..\FileScout.Native\Domain\SidebarRecents.cpp" />
   </ItemGroup>
 
   <!-- Test sources -->
@@ -132,6 +134,8 @@
     <ClCompile Include="tests\FuzzyMatcherTests.cpp" />
     <ClCompile Include="tests\SearchServiceTests.cpp" />
     <ClCompile Include="tests\CommandRegistryTests.cpp" />
+    <ClCompile Include="tests\FileRowViewModelTests.cpp" />
+    <ClCompile Include="tests\SidebarRecentsTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

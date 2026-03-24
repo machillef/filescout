@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Phase: phase3-perf-ux — In Progress
 - Current blocker: None
-- Next slice: S2 — Quick Access data (populate sidebar from FavoritesService)
+- Next slice: S3 — This PC drives + capacity bars in ThisPCExpander
 - Tests at initiative start: 82/82 passing
 - Tests now: 93/93 passing (82 existing + 8 RowFormatting + 3 from other tracks)
 
@@ -141,7 +141,7 @@ already registered in `SetupKeyboardAccelerators`. Ctrl+T opens a new tab.
 | U7 | Complete | 2026-03-24 |
 | U8 | Complete | 2026-03-24 |
 | S1 | Complete | 2026-03-24 |
-| S2 | Not Started | — |
+| S2 | Complete | 2026-03-24 |
 | S3 | Not Started | — |
 | S4 | Not Started | — |
 
@@ -182,3 +182,32 @@ and navigate correctly.
 
 **What remains unverified:**
 - Expander sections visually collapse/expand correctly at runtime (manual host launch)
+
+### S2 — Complete (2026-03-24)
+
+**What was done:**
+- Created `Domain/SidebarRecents.h` + `.cpp` — pure C++ `SidebarPathKey` + `SelectRecentPaths`
+  (case-insensitive dedup, oldest-first back_stack, newest-first result, capped at `max`)
+- Added both files to `FileScout.Native.vcxproj` (ClInclude + ClCompile)
+- Added `SidebarRecents.cpp` + `SidebarRecentsTests.cpp` to `FileScout.Tests.vcxproj`
+- Wrote 7 tests (Empty, AllExcluded, CapAtMax, Dedup, MostRecentFirst, CaseInsensitiveExclusion,
+  EmptyPathsSkipped) — all RED→GREEN
+- In `BuildSidebarFavorites()` (`MainWindow.xaml.cpp`):
+  - Removed redundant "QUICK ACCESS" section label (Expander header in S1 already says "Quick Access")
+  - Added `shownPathKeys` set — populated with `SidebarPathKey` for each non-pinned shown path
+  - After existing favorites loop: added recent paths section (thin divider + up to 5 buttons)
+    built from `SelectRecentPaths(m_panes[0].back_stack, shownPathKeys, 5)`
+- In `LoadDirectory()`: added `BuildSidebarFavorites()` call when back_stack grows so the sidebar
+  refreshes on every navigation
+
+**Validation:** Build clean. 100/100 tests pass (7 new SidebarRecents tests all GREEN).
+
+**Key decisions:**
+- `m_panes[0].back_stack` per spec — only left pane's history contributes to recent paths
+- Recent paths appear after built-in favorites and before PINNED section (will be reordered in S4)
+- `BuildSidebarFavorites()` called synchronously before `LoadDirectoryAsync` — back_stack is
+  already updated at that point, so recent paths are always up-to-date
+
+**What remains unverified:**
+- Recent path buttons appear and are clickable after navigating several folders (manual host launch)
+
