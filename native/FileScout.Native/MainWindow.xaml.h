@@ -14,6 +14,7 @@
 #include "Shell\CommandRegistry.h"
 #include "Shell\ShellInteropService.h"
 #include "Search\SearchService.h"
+#include "Domain\FileRowViewModel.h"
 
 namespace winrt::FileScoutNative::implementation
 {
@@ -45,7 +46,7 @@ namespace winrt::FileScoutNative::implementation
         ::FileScoutNative::Domain::PaneSelectionState selection;
         std::vector<::FileScoutNative::Domain::TabState> tabs;
         std::vector<winrt::Windows::Foundation::Collections::IObservableVector<
-            winrt::Windows::Foundation::IInspectable>> tab_rows;
+            winrt::FileScoutNative::FileRowViewModel>> tab_rows;
         winrt::Microsoft::UI::Xaml::Controls::ListView active_list_view{ nullptr };
         int32_t active_tab_index{ 0 };
         bool tab_switching{ false };
@@ -210,7 +211,7 @@ namespace winrt::FileScoutNative::implementation
         // S7: backfill real per-extension icons asynchronously after fast rows appear.
         winrt::fire_and_forget BackfillIconsAsync(
             int32_t paneIndex, int32_t tabIndex, uint32_t generation,
-            std::vector<::FileScoutNative::Domain::ShellItemRef> items, bool listMode);
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
         void UpdateRows(int32_t paneIndex, std::vector<::FileScoutNative::Domain::ShellItemRef> const& items);
         [[nodiscard]] std::vector<int32_t> GetSelectedItemIndices() const;
         [[nodiscard]] std::vector<::FileScoutNative::Domain::ShellItemRef> GetSelectedItems() const;
@@ -275,7 +276,7 @@ namespace winrt::FileScoutNative::implementation
         // R17d: per-pane search ProgressBar accessor.
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);
         // R17e: search result row with relative-path subtitle.
-        [[nodiscard]] winrt::Windows::Foundation::IInspectable CreateSearchRowView(
+        [[nodiscard]] winrt::FileScoutNative::FileRowViewModel CreateSearchRowView(
             ::FileScoutNative::Search::SearchResult const& result,
             std::filesystem::path const& searchRoot);
 
@@ -298,7 +299,7 @@ namespace winrt::FileScoutNative::implementation
 
         winrt::Microsoft::UI::Xaml::Controls::ListView CreateTabListView(
             winrt::Windows::Foundation::Collections::IObservableVector<
-                winrt::Windows::Foundation::IInspectable> const& source,
+                winrt::FileScoutNative::FileRowViewModel> const& source,
             int32_t paneIndex);
         void AddTab(std::filesystem::path const& startPath);
         void CloseTab(int32_t index);

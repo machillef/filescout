@@ -988,203 +988,6 @@ namespace
         }
     }
 
-    winrt::Microsoft::UI::Xaml::FrameworkElement WrapRowWithGroupHeader(
-        winrt::Microsoft::UI::Xaml::FrameworkElement const& row,
-        std::optional<std::wstring> const& groupLabel,
-        bool const listView)
-    {
-        if (!groupLabel.has_value() || groupLabel->empty())
-        {
-            return row;
-        }
-
-        auto host = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
-        host.Spacing(listView ? 2 : 4);
-
-        auto header = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-        header.Text(ToHString(*groupLabel));
-        header.Margin({ 4.0, listView ? 10.0 : 12.0, 0.0, 0.0 });
-        header.Opacity(0.72);
-        header.FontSize(11);
-        header.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
-        header.CharacterSpacing(20);
-
-        host.Children().Append(header);
-        host.Children().Append(row);
-        return host;
-    }
-
-    // Creates a rich card row (Cards view mode).
-    winrt::Microsoft::UI::Xaml::FrameworkElement CreateCardRow(
-        ::FileScoutNative::Domain::ShellItemRef const& item)
-    {
-        // Build the detail chip: "Type  |  Size"
-        std::wstring details = item.kind_label;
-        if (item.size_available)
-        {
-            details += L"  |  " + FormatSize(item.size_bytes);
-        }
-
-        // Card container — clean modern card with subtle stroke.
-        auto rowBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
-        rowBorder.Padding({ 12, 10, 12, 10 });
-        rowBorder.Margin({ 0, 0, 0, 8 });  // Gap between cards — embedded here, not in ItemContainerStyle.
-        rowBorder.CornerRadius({ 8, 8, 8, 8 });
-        rowBorder.BorderThickness({ 1, 1, 1, 1 });
-        rowBorder.BorderBrush(LookupBrush(L"CardStrokeColorDefaultBrush"));
-        rowBorder.Background(LookupBrush(L"CardBackgroundFillColorSecondaryBrush"));
-
-        // Outer grid: [icon col] [content col]
-        auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
-        auto iconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-        iconColumn.Width({ 44, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
-        auto contentColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-        contentColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
-        rowGrid.ColumnDefinitions().Append(iconColumn);
-        rowGrid.ColumnDefinitions().Append(contentColumn);
-        rowGrid.ColumnSpacing(10);
-
-        // Icon tile — folder gets a tinted accent background, files get a neutral pill.
-        auto iconTile = winrt::Microsoft::UI::Xaml::Controls::Border{};
-        iconTile.Width(36);
-        iconTile.Height(36);
-        iconTile.CornerRadius({ 8, 8, 8, 8 });
-        iconTile.Background(item.is_folder
-                ? LookupBrush(L"AccentFillColorSecondaryBrush")
-                : LookupBrush(L"SubtleFillColorSecondaryBrush"));
-        iconTile.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
-
-        auto iconImage = winrt::Microsoft::UI::Xaml::Controls::Image{};
-        iconImage.Width(18);
-        iconImage.Height(18);
-        iconImage.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
-        iconImage.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
-        iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
-        iconImage.Source(BuildIconSource(item.icon));
-        iconTile.Child(iconImage);
-
-        // Content column: name + metadata row.
-        auto contentStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
-        contentStack.Spacing(2);
-        contentStack.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
-
-        auto titleText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-        titleText.Text(ToHString(item.display_name));
-        titleText.FontSize(14);
-        titleText.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
-        titleText.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
-
-        // Metadata row: type + size on left, date on right.
-        auto metaGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
-        auto metaLeftCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-        metaLeftCol.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
-        auto metaRightCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-        metaRightCol.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Auto });
-        metaGrid.ColumnDefinitions().Append(metaLeftCol);
-        metaGrid.ColumnDefinitions().Append(metaRightCol);
-
-        auto detailText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-        detailText.Text(ToHString(details));
-        detailText.Opacity(0.72);
-        detailText.FontSize(12);
-        detailText.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
-
-        metaGrid.Children().Append(detailText);
-        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(detailText, 0);
-
-        if (item.date_modified_available && !item.date_modified_str.empty())
-        {
-            auto dateText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-            dateText.Text(ToHString(item.date_modified_str));
-            dateText.Opacity(0.55);
-            dateText.FontSize(11);
-            dateText.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
-            metaGrid.Children().Append(dateText);
-            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(dateText, 1);
-        }
-
-        contentStack.Children().Append(titleText);
-        contentStack.Children().Append(metaGrid);
-
-        rowGrid.Children().Append(iconTile);
-        rowGrid.Children().Append(contentStack);
-        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(contentStack, 1);
-
-        rowBorder.Child(rowGrid);
-        return rowBorder;
-    }
-
-    // Creates a compact list row (List view mode). Columns: icon | name | type | size | date.
-    // Column proportions match BuildSortHeader's star ratios so headers align approximately.
-    winrt::Microsoft::UI::Xaml::FrameworkElement CreateListRow(
-        ::FileScoutNative::Domain::ShellItemRef const& item)
-    {
-        auto rowBorder = winrt::Microsoft::UI::Xaml::Controls::Border{};
-        rowBorder.Padding({ 12, 5, 12, 5 });
-
-        auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
-        rowGrid.ColumnSpacing(8);
-
-        // Columns: [20px icon] [3* name] [1.8* type] [1.2* size] [2.0* date]
-        struct ColSpec { double width; winrt::Microsoft::UI::Xaml::GridUnitType unit; };
-        static constexpr std::array<ColSpec, 5> cols{{
-            { 20.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel },
-            {  3.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star  },
-            {  1.8, winrt::Microsoft::UI::Xaml::GridUnitType::Star  },
-            {  1.2, winrt::Microsoft::UI::Xaml::GridUnitType::Star  },
-            {  2.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star  },
-        }};
-        for (auto const& col : cols)
-        {
-            auto colDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-            colDef.Width({ col.width, col.unit });
-            rowGrid.ColumnDefinitions().Append(colDef);
-        }
-
-        // Icon — small, flat, no tile background.
-        auto iconImage = winrt::Microsoft::UI::Xaml::Controls::Image{};
-        iconImage.Width(16);
-        iconImage.Height(16);
-        iconImage.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
-        iconImage.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
-        iconImage.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
-        iconImage.Source(BuildIconSource(item.icon));
-        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconImage, 0);
-        rowGrid.Children().Append(iconImage);
-
-        auto addTextCell = [&](std::wstring const& text, int32_t col, double opacity, double fontSize)
-        {
-            auto tb = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-            tb.Text(ToHString(text));
-            tb.FontSize(fontSize);
-            tb.Opacity(opacity);
-            tb.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
-            tb.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
-            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(tb, col);
-            rowGrid.Children().Append(tb);
-        };
-
-        addTextCell(item.display_name, 1, 1.0, 13.0);
-        addTextCell(item.kind_label, 2, 0.68, 12.0);
-        addTextCell(item.size_available ? FormatSize(item.size_bytes) : std::wstring{}, 3, 0.68, 12.0);
-        addTextCell(
-            (item.date_modified_available && !item.date_modified_str.empty())
-                ? item.date_modified_str
-                : std::wstring{},
-            4, 0.68, 12.0);
-
-        rowBorder.Child(rowGrid);
-        return rowBorder;
-    }
-
-    winrt::Microsoft::UI::Xaml::FrameworkElement CreateRowView(
-        ::FileScoutNative::Domain::ShellItemRef const& item,
-        bool const listView,
-        std::optional<std::wstring> const& groupLabel = std::nullopt)
-    {
-        auto row = listView ? CreateListRow(item) : CreateCardRow(item);
-        return WrapRowWithGroupHeader(row, groupLabel, listView);
-    }
 }
 
 namespace winrt::FileScoutNative::implementation
@@ -1350,9 +1153,8 @@ namespace winrt::FileScoutNative::implementation
                 // Restore ListView from snapshot.
                 auto& rows = pane.tab_rows[pane.active_tab_index];
                 rows.Clear();
-                bool const listMode = (pane.view_mode == ViewMode::List);
                 for (auto const& item : pane.search_snapshot)
-                    rows.Append(CreateRowView(item, listMode));
+                    rows.Append(MakeFileRowViewModel(item));
             }
             return;
         }
@@ -1443,9 +1245,8 @@ namespace winrt::FileScoutNative::implementation
                 pane.search_query.clear();
                 auto& rows = pane.tab_rows[pane.active_tab_index];
                 rows.Clear();
-                bool const listMode = (pane.view_mode == ViewMode::List);
                 for (auto const& item : pane.search_snapshot)
-                    rows.Append(CreateRowView(item, listMode));
+                    rows.Append(MakeFileRowViewModel(item));
             }
             return;
         }
@@ -1467,9 +1268,8 @@ namespace winrt::FileScoutNative::implementation
         if (query.size() < 2)
         {
             // Show all snapshot items unfiltered.
-            bool const listMode = (pane.view_mode == ViewMode::List);
             for (auto const& item : pane.search_snapshot)
-                rows.Append(CreateRowView(item, listMode));
+                rows.Append(MakeFileRowViewModel(item));
             return;
         }
 
@@ -1486,9 +1286,8 @@ namespace winrt::FileScoutNative::implementation
             [](auto const& a, auto const& b) { return a.first > b.first; });
         if (scored.size() > 200) scored.resize(200);
 
-        bool const listMode = (pane.view_mode == ViewMode::List);
         for (auto const& [score, itemPtr] : scored)
-            rows.Append(CreateRowView(*itemPtr, listMode));
+            rows.Append(MakeFileRowViewModel(*itemPtr));
     }
 
     void MainWindow::FileRowsListView_SelectionChanged(
@@ -2202,24 +2001,12 @@ namespace winrt::FileScoutNative::implementation
                             UpdateSearchPlaceholder(absolute);
                         }
 
-                        bool const listMode = (pane.view_mode == ViewMode::List);
                         auto& rows = pane.tab_rows[tabIndex];
                         pane.tab_switching = true;
                         rows.Clear();
                         pane.tab_switching = false;
-                        std::wstring previousGroupLabel;
                         for (auto const& item : pane.items)
-                        {
-                            std::optional<std::wstring> groupLabel;
-                            if (pane.group_by_sort_column)
-                            {
-                                auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
-                                if (rows.Size() == 0 || currentGroupLabel != previousGroupLabel)
-                                    groupLabel = currentGroupLabel;
-                                previousGroupLabel = std::move(currentGroupLabel);
-                            }
-                            rows.Append(CreateRowView(item, listMode, groupLabel));
-                        }
+                            rows.Append(MakeFileRowViewModel(item));
 
                         if (pane.active_list_view)
                         {
@@ -2292,7 +2079,6 @@ namespace winrt::FileScoutNative::implementation
                             UpdateSearchPlaceholder(absolute);
                         }
 
-                        bool const listMode = (pane.view_mode == ViewMode::List);
                         auto& rows = pane.tab_rows[tabIndex];
                         pane.tab_switching = true;
                         rows.Clear();
@@ -2301,20 +2087,8 @@ namespace winrt::FileScoutNative::implementation
                         constexpr std::size_t k_first_batch = 150;
                         std::size_t const firstBatchEnd = (std::min)(k_first_batch, totalItems);
 
-                        std::wstring previousGroupLabel;
                         for (std::size_t i = 0; i < firstBatchEnd; ++i)
-                        {
-                            auto const& item = items[i];
-                            std::optional<std::wstring> groupLabel;
-                            if (pane.group_by_sort_column)
-                            {
-                                auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
-                                if (rows.Size() == 0 || currentGroupLabel != previousGroupLabel)
-                                    groupLabel = currentGroupLabel;
-                                previousGroupLabel = std::move(currentGroupLabel);
-                            }
-                            rows.Append(CreateRowView(item, listMode, groupLabel));
-                        }
+                            rows.Append(MakeFileRowViewModel(items[i]));
 
                         timing.first_batch_publish_tick = ::GetTickCount64();
                         pane.user_interacted_after_first_batch = false;
@@ -2341,12 +2115,12 @@ namespace winrt::FileScoutNative::implementation
                             TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
                             if (selectAfter.has_value())
                                 SelectItemByPath(*selectAfter);
-                            // S7: backfill real per-extension icons after rows appear.
+                            // P4: backfill real per-extension icons after rows appear.
                             {
                                 auto backfillItems = pane.items;
                                 for (auto& bi : backfillItems) bi.icon = {};
                                 BackfillIconsAsync(paneIndex, tabIndex, generation,
-                                    std::move(backfillItems), listMode);
+                                    std::move(backfillItems));
                             }
                             return;
                         }
@@ -2357,8 +2131,7 @@ namespace winrt::FileScoutNative::implementation
                         m_dispatcherQueue.TryEnqueue(
                             [this, lifetime, paneIndex, tabIndex, generation, absolute, selectAfter,
                              items = std::move(items), timing,
-                             previousGroupLabel = std::move(previousGroupLabel),
-                             listMode, firstBatchEnd]() mutable
+                             firstBatchEnd]() mutable
                             {
                                 auto& pane = m_panes[paneIndex];
                                 if (pane.load_generation != generation) return;
@@ -2369,30 +2142,19 @@ namespace winrt::FileScoutNative::implementation
                                 auto& rows = pane.tab_rows[tabIndex];
                                 std::size_t const totalItems = items.size();
                                 for (std::size_t i = firstBatchEnd; i < totalItems; ++i)
-                                {
-                                    auto const& item = items[i];
-                                    std::optional<std::wstring> groupLabel;
-                                    if (pane.group_by_sort_column)
-                                    {
-                                        auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
-                                        if (currentGroupLabel != previousGroupLabel)
-                                            groupLabel = currentGroupLabel;
-                                        previousGroupLabel = std::move(currentGroupLabel);
-                                    }
-                                    rows.Append(CreateRowView(item, listMode, groupLabel));
-                                }
+                                    rows.Append(MakeFileRowViewModel(items[i]));
 
                                 timing.final_publish_tick = ::GetTickCount64();
                                 pane.last_load_timing = timing;
                                 TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
                                 if (!pane.user_interacted_after_first_batch && selectAfter.has_value())
                                     SelectItemByPath(*selectAfter);
-                                // S7: backfill real per-extension icons after all rows appear.
+                                // P4: backfill real per-extension icons after all rows appear.
                                 {
                                     auto backfillItems = items;
                                     for (auto& bi : backfillItems) bi.icon = {};
                                     BackfillIconsAsync(paneIndex, tabIndex, generation,
-                                        std::move(backfillItems), listMode);
+                                        std::move(backfillItems));
                                 }
                             });
                     });
@@ -2416,12 +2178,12 @@ namespace winrt::FileScoutNative::implementation
     // GetItemIcon runs on the background thread — thread-safe via m_cacheMutex; most calls
     // are cache hits after the first unique extension per session is resolved.
     // SetAt fires CollectionChanged::ItemChanged (not Reset), so scroll position is preserved.
+    // P4: Backfill real per-extension icons via ViewModel PropertyChanged (no row recreation).
     winrt::fire_and_forget MainWindow::BackfillIconsAsync(
         int32_t const paneIndex,
         int32_t const tabIndex,
         uint32_t const generation,
-        std::vector<::FileScoutNative::Domain::ShellItemRef> items,
-        bool const listMode)
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items)
     {
         auto lifetime = get_strong();
 
@@ -2432,23 +2194,22 @@ namespace winrt::FileScoutNative::implementation
 
         m_dispatcherQueue.TryEnqueue(
             [this, lifetime, paneIndex, tabIndex, generation,
-             items = std::move(items), listMode]() mutable
+             items = std::move(items)]() mutable
             {
                 auto& pane = m_panes[paneIndex];
                 if (pane.load_generation != generation) return;
                 if (pane.active_tab_index != tabIndex) return;
-                // Grouped view intersperses group-header rows so row count != item count.
-                // Skip backfill to avoid index mismatches.
-                if (pane.group_by_sort_column) return;
+                if (pane.group_by_sort_column) return;  // row count may not match item count
 
                 auto& rows = pane.tab_rows[tabIndex];
                 auto const count = static_cast<uint32_t>(items.size());
                 if (rows.Size() != count) return;  // defensive: size mismatch
 
-                pane.tab_switching = true;
                 for (uint32_t i = 0; i < count; ++i)
-                    rows.SetAt(i, CreateRowView(items[i], listMode));
-                pane.tab_switching = false;
+                {
+                    if (auto source = BuildIconSource(items[i].icon))
+                        rows.GetAt(i).IconSource(source);
+                }
 
                 TraceLog(L"BackfillIcons: " + std::to_wstring(count) +
                          L" rows for pane " + std::to_wstring(paneIndex));
@@ -2459,26 +2220,10 @@ namespace winrt::FileScoutNative::implementation
         std::vector<::FileScoutNative::Domain::ShellItemRef> const& items)
     {
         auto& pane = m_panes[paneIndex];
-        bool const listMode = (pane.view_mode == ViewMode::List);
         auto& rows = pane.tab_rows[pane.active_tab_index];
         rows.Clear();
-
-        std::wstring previousGroupLabel;
         for (auto const& item : items)
-        {
-            std::optional<std::wstring> groupLabel;
-            if (pane.group_by_sort_column)
-            {
-                auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
-                if (rows.Size() == 0 || currentGroupLabel != previousGroupLabel)
-                {
-                    groupLabel = currentGroupLabel;
-                }
-                previousGroupLabel = std::move(currentGroupLabel);
-            }
-
-            rows.Append(CreateRowView(item, listMode, groupLabel));
-        }
+            rows.Append(MakeFileRowViewModel(item));
     }
 
     std::vector<int32_t> MainWindow::GetSelectedItemIndices() const
@@ -4472,7 +4217,7 @@ namespace winrt::FileScoutNative::implementation
 
     winrt::Microsoft::UI::Xaml::Controls::ListView MainWindow::CreateTabListView(
         winrt::Windows::Foundation::Collections::IObservableVector<
-            winrt::Windows::Foundation::IInspectable> const& source,
+            winrt::FileScoutNative::FileRowViewModel> const& source,
         int32_t const paneIndex)
     {
         auto listView = winrt::Microsoft::UI::Xaml::Controls::ListView{};
@@ -4482,7 +4227,7 @@ namespace winrt::FileScoutNative::implementation
         listView.SelectionMode(winrt::Microsoft::UI::Xaml::Controls::ListViewSelectionMode::Extended);
         listView.ItemsSource(source);
 
-        // Apply item container style from the root Grid's resources.
+        // Apply item container style and DataTemplate from Grid resources.
         try
         {
             auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
@@ -4490,6 +4235,13 @@ namespace winrt::FileScoutNative::implementation
                 .Lookup(winrt::box_value(winrt::hstring{ L"FileRowItemStyle" }))
                 .as<winrt::Microsoft::UI::Xaml::Style>();
             listView.ItemContainerStyle(style);
+
+            auto const templateKey = (m_panes[paneIndex].view_mode == ViewMode::List)
+                ? L"ListRowTemplate" : L"CardRowTemplate";
+            auto const tmpl = rootGrid.Resources()
+                .Lookup(winrt::box_value(winrt::hstring{ templateKey }))
+                .as<winrt::Microsoft::UI::Xaml::DataTemplate>();
+            listView.ItemTemplate(tmpl);
         }
         catch (...) {}
 
@@ -4604,7 +4356,7 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
         }
 
-        auto newRows = winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>();
+        auto newRows = winrt::single_threaded_observable_vector<winrt::FileScoutNative::FileRowViewModel>();
         pane.tab_rows.push_back(newRows);
         pane.tabs.push_back({});
 
@@ -4792,7 +4544,7 @@ namespace winrt::FileScoutNative::implementation
         // Guard against SelectionChanged firing during initial tab setup.
         pane.tab_switching = true;
 
-        auto rows0 = winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>();
+        auto rows0 = winrt::single_threaded_observable_vector<winrt::FileScoutNative::FileRowViewModel>();
         pane.tab_rows.push_back(rows0);
         pane.tabs.push_back({});
 
@@ -4987,11 +4739,10 @@ namespace winrt::FileScoutNative::implementation
         SearchTextBox().PlaceholderText(L"Search " + folderName + L"\u2026");
     }
 
-    winrt::Windows::Foundation::IInspectable MainWindow::CreateSearchRowView(
+    winrt::FileScoutNative::FileRowViewModel MainWindow::CreateSearchRowView(
         ::FileScoutNative::Search::SearchResult const& result,
         std::filesystem::path const& searchRoot)
     {
-        // Build relative path subtitle (e.g. "src\components\").
         std::wstring subtitle;
         std::error_code ec;
         auto const rel = std::filesystem::relative(
@@ -4999,25 +4750,14 @@ namespace winrt::FileScoutNative::implementation
         if (!ec && !rel.empty() && rel.wstring() != L".")
             subtitle = rel.wstring() + L"\\";
 
-        namespace MUI = winrt::Microsoft::UI::Xaml::Controls;
-        MUI::StackPanel panel;
-        panel.Margin({ 12, 4, 12, 4 });
-
-        MUI::TextBlock nameText;
-        nameText.Text(winrt::hstring(result.filename));
-        nameText.FontSize(13);
-        panel.Children().Append(nameText);
-
-        if (!subtitle.empty())
-        {
-            MUI::TextBlock subText;
-            subText.Text(winrt::hstring(subtitle));
-            subText.FontSize(11);
-            subText.Opacity(0.6);
-            panel.Children().Append(subText);
-        }
-
-        return panel.as<winrt::Windows::Foundation::IInspectable>();
+        auto vm = winrt::make_self<winrt::FileScoutNative::implementation::FileRowViewModel>();
+        vm->SetName(result.filename);
+        vm->SetTypeLabel(subtitle);
+        vm->SetSizeText(L"");
+        vm->SetDateText(L"");
+        vm->SetDetailText(subtitle);
+        vm->SetIsFolder(false);
+        return vm.as<winrt::FileScoutNative::FileRowViewModel>();
     }
 
     void MainWindow::BuildSortHeader(int32_t const paneIndex)
@@ -5276,6 +5016,21 @@ namespace winrt::FileScoutNative::implementation
         BuildSortHeader(paneIndex);
         RebuildAllTabRowsForPane(paneIndex);
 
+        // Update ItemTemplate on the active ListView to match the new view mode.
+        if (pane.active_list_view)
+        {
+            try
+            {
+                auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
+                auto const key = (mode == ViewMode::List) ? L"ListRowTemplate" : L"CardRowTemplate";
+                auto const tmpl = rootGrid.Resources()
+                    .Lookup(winrt::box_value(winrt::hstring{ key }))
+                    .as<winrt::Microsoft::UI::Xaml::DataTemplate>();
+                pane.active_list_view.ItemTemplate(tmpl);
+            }
+            catch (...) {}
+        }
+
         StatusTextBlock().Text(ToHString(
             std::to_wstring(pane.items.size()) +
             (mode == ViewMode::Cards ? L" items  |  cards view" : L" items  |  list view")));
@@ -5286,7 +5041,6 @@ namespace winrt::FileScoutNative::implementation
         auto& pane = m_panes[paneIndex];
         // Cancel any pending staged-publish dispatch — this rebuild replaces it entirely.
         pane.awaiting_final_batch = false;
-        bool const listMode = (pane.view_mode == ViewMode::List);
 
         // Use (std::min)() to prevent expansion of the Windows.h min() macro.
         auto const tabCount = (std::min)(pane.tabs.size(), pane.tab_rows.size());
@@ -5298,22 +5052,8 @@ namespace winrt::FileScoutNative::implementation
 
             auto& rows = pane.tab_rows[i];
             rows.Clear();
-            std::wstring previousGroupLabel;
             for (auto const& item : source)
-            {
-                std::optional<std::wstring> groupLabel;
-                if (pane.group_by_sort_column)
-                {
-                    auto currentGroupLabel = BuildGroupLabel(item, pane.sort_column);
-                    if (rows.Size() == 0 || currentGroupLabel != previousGroupLabel)
-                    {
-                        groupLabel = currentGroupLabel;
-                    }
-                    previousGroupLabel = std::move(currentGroupLabel);
-                }
-
-                rows.Append(CreateRowView(item, listMode, groupLabel));
-            }
+                rows.Append(MakeFileRowViewModel(item));
         }
     }
 
