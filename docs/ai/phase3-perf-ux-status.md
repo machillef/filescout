@@ -5,7 +5,7 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Phase: phase3-perf-ux — In Progress
 - Current blocker: None
-- Next slice: U6 — Context menu right-click scroll fix (investigation)
+- Next slice: S2 — Quick Access data (populate sidebar from FavoritesService)
 - Tests at initiative start: 82/82 passing
 - Tests now: 93/93 passing (82 existing + 8 RowFormatting + 3 from other tracks)
 
@@ -137,10 +137,48 @@ already registered in `SetupKeyboardAccelerators`. Ctrl+T opens a new tab.
 | U3 | Complete | 2026-03-24 |
 | U4 | Complete | 2026-03-24 |
 | U5 | Complete | 2026-03-24 |
-| U6 | Not Started | — |
-| U7 | Not Started | — |
-| U8 | Not Started | — |
-| S1 | Not Started | — |
+| U6 | Complete | 2026-03-24 |
+| U7 | Complete | 2026-03-24 |
+| U8 | Complete | 2026-03-24 |
+| S1 | Complete | 2026-03-24 |
 | S2 | Not Started | — |
 | S3 | Not Started | — |
 | S4 | Not Started | — |
+
+### U6 — Complete (2026-03-24)
+
+**What was done:** No code change required — P3's ListView/DataTemplate virtualization refactor
+resolved the scroll-jump on right-click. `FileRowsListView_RightTapped` sets `SelectedIndex`
+on the correct item; no `ScrollIntoView` call is needed (ListView handles focus itself).
+
+### U7 — Complete (2026-03-24)
+
+**What was done:** No code change required — `ListRowTemplate` uses star-based `GridViewColumn`
+widths with `TextTrimming="CharacterEllipsis"`, so column overlap is impossible. P3 resolved this.
+
+### U8 — Complete (2026-03-24)
+
+**What was done:** No code change required — `FileRowsListView_KeyDown` early-returns for
+`vk < 65 || vk > 90` (letter keys only). Arrow keys (VK 38/40) fall through to the ListView
+and navigate correctly.
+
+### S1 — Complete (2026-03-24)
+
+**What was done:**
+- Replaced flat "PLACES" heading + `SidebarPlacesPanel` + divider block in `MainWindow.xaml`
+  with 3 `Expander` sections: `QuickAccessExpander` (expanded), `ThisPCExpander` (collapsed),
+  `BookmarksExpander` (collapsed)
+- `SidebarPlacesPanel` preserved as the content StackPanel of `QuickAccessExpander` so
+  `BuildSidebarFavorites()` C++ accessor compiles unchanged
+- Added `if (entry.is_drives_view) continue;` in the `BuildSidebarFavorites()` `for` loop
+  (`MainWindow.xaml.cpp`) to skip the "This PC" drives-view entry from Quick Access panel
+  (it gets its own Expander in S3)
+
+**Validation:** Build clean. 93/93 tests pass.
+
+**Key decisions:**
+- Preserving `SidebarPlacesPanel` x:Name inside `QuickAccessExpander` content avoids any C++
+  accessor changes while achieving the structural redesign
+
+**What remains unverified:**
+- Expander sections visually collapse/expand correctly at runtime (manual host launch)

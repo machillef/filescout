@@ -306,16 +306,32 @@
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                               VerticalScrollMode="Auto">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="PLACES"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   CharacterSpacing="120"
-                                   Opacity="0.82" />
-                        <!-- Sidebar navigation items are populated programmatically in BuildSidebarFavorites(). -->
-                        <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" />
-                        <Border Height="1" Margin="0,6,0,4" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <StackPanel Spacing="8">
+                        <!-- Quick Access: favorites populated by BuildSidebarFavorites(). -->
+                        <Expander x:Name="QuickAccessExpander"
+                                  Header="Quick Access"
+                                  IsExpanded="True"
+                                  HorizontalAlignment="Stretch"
+                                  HorizontalContentAlignment="Stretch">
+                            <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" Margin="0,4,0,0" />
+                        </Expander>
+                        <!-- This PC: drive list populated in S3. -->
+                        <Expander x:Name="ThisPCExpander"
+                                  Header="This PC"
+                                  IsExpanded="False"
+                                  HorizontalAlignment="Stretch"
+                                  HorizontalContentAlignment="Stretch">
+                            <StackPanel x:Name="ThisPCPanel" Spacing="2" Margin="0,4,0,0" />
+                        </Expander>
+                        <!-- Bookmarks: pinned folders populated in S4. -->
+                        <Expander x:Name="BookmarksExpander"
+                                  Header="Bookmarks"
+                                  IsExpanded="False"
+                                  HorizontalAlignment="Stretch"
+                                  HorizontalContentAlignment="Stretch">
+                            <StackPanel x:Name="BookmarksPanel" Spacing="2" Margin="0,4,0,0" />
+                        </Expander>
+                        <Border Height="1" Margin="0,2,0,4" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                         <TextBlock Text="SELECTION"
                                    FontSize="11"
                                    FontWeight="SemiBold"

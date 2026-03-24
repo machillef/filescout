@@ -5092,6 +5092,8 @@ namespace winrt::FileScoutNative::implementation
 
         for (auto const& entry : favorites)
         {
+            if (entry.is_drives_view) continue;  // This PC has its own Expander section (S1/S3)
+
             if (!entry.is_pinned && !addedPrimaryHeader)
             {
                 auto quickAccessHeader = BuildSidebarSectionLabel(L"QUICK ACCESS");
