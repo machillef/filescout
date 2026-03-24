@@ -3803,11 +3803,13 @@ namespace winrt::FileScoutNative::implementation
             accelerators.Append(accel);
         }
 
-        // F4 — reveal address TextBox for direct path entry.
+        // F4 / Ctrl+L — reveal address TextBox for direct path entry.
+        for (auto const& [key, mod] : std::initializer_list<std::pair<VK, VKM>>{
+                { VK::F4, VKM::None }, { VK::L, VKM::Control }})
         {
             auto accel = KA{};
-            accel.Key(VK::F4);
-            accel.Modifiers(VKM::None);
+            accel.Key(key);
+            accel.Modifiers(mod);
             accel.Invoked([this](winrt::Windows::Foundation::IInspectable const&, KAArgs const& e)
             {
                 e.Handled(true);
