@@ -2159,7 +2159,7 @@ namespace winrt::FileScoutNative::implementation
                             [this, lifetime, paneIndex, tabIndex, generation, absolute, selectAfter,
                              items = std::move(items),
                              prebuilt = std::move(prebuilt),
-                             timing, firstBatchEnd]() mutable
+                             timing]() mutable
                             {
                                 auto& pane = m_panes[paneIndex];
                                 if (pane.load_generation != generation) return;
@@ -2169,8 +2169,13 @@ namespace winrt::FileScoutNative::implementation
 
                                 auto& rows = pane.tab_rows[tabIndex];
                                 std::size_t const totalItems = prebuilt.size();
-                                for (std::size_t i = firstBatchEnd; i < totalItems; ++i)
-                                    rows.Append(prebuilt[i]);
+                                // L2: single VectorChanged::Reset instead of N ItemInserted events.
+                                // ReplaceAll replaces the first-batch rows + all remaining rows in
+                                // one call; ListView re-virtualises from scratch, instantiating
+                                // DataTemplates only for the visible rows.
+                                rows.as<winrt::Windows::Foundation::Collections::IVector<
+                                    winrt::FileScoutNative::FileRowViewModel>>()
+                                    .ReplaceAll(prebuilt);
 
                                 timing.final_publish_tick = ::GetTickCount64();
                                 pane.last_load_timing = timing;

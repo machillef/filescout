@@ -217,3 +217,78 @@ TEST(EnumerateDrivesTest, ReturnsAtLeastOneDrive)
     EXPECT_GE(drives.size(), 1u);
     CoUninitialize();
 }
+
+// ── Large directory enumeration benchmark ──────────────────────────────────────
+// Regression gate for the enumeration hot path: 1000 files across 10 extensions
+// must enumerate in < 300 ms. If this starts failing it means EnumerateDirectory
+// performance regressed (e.g. a blocking shell call was re-introduced per item).
+
+namespace
+{
+    class LargeDirectoryFixture : public ::testing::Test
+    {
+    protected:
+        std::filesystem::path m_root;
+
+        static constexpr int k_file_count = 1000;
+        static constexpr int k_ext_count = 10;
+        static constexpr wchar_t const* k_exts[k_ext_count] = {
+            L".txt", L".cpp", L".h",   L".xml", L".json",
+            L".log", L".csv", L".dat", L".cfg", L".ini"
+        };
+
+        void SetUp() override
+        {
+            CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            wchar_t tempPath[MAX_PATH]{};
+            ASSERT_NE(GetTempPathW(MAX_PATH, tempPath), 0u);
+            m_root = std::filesystem::path{ tempPath } / L"FileScoutTests_LargeDir";
+            std::filesystem::remove_all(m_root);
+            std::filesystem::create_directories(m_root);
+            // 100 files per extension × 10 extensions = 1000 files
+            for (int e = 0; e < k_ext_count; ++e)
+            {
+                for (int i = 0; i < k_file_count / k_ext_count; ++i)
+                {
+                    auto name = std::wstring(L"file")
+                        + std::to_wstring(e * 100 + i)
+                        + k_exts[e];
+                    std::ofstream f{ m_root / name };
+                    f << "x";
+                }
+            }
+        }
+
+        void TearDown() override
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(m_root, ec);
+            CoUninitialize();
+        }
+    };
+}
+
+TEST_F(LargeDirectoryFixture, LargeDirectoryEnumerationBenchmark)
+{
+    ShellInteropService svc;
+
+    auto const start_ms = ::GetTickCount64();
+    auto items = svc.EnumerateDirectory(m_root);
+    auto const elapsed_ms = ::GetTickCount64() - start_ms;
+
+    ASSERT_EQ(items.size(), static_cast<std::size_t>(k_file_count))
+        << "Expected exactly " << k_file_count << " items";
+
+    EXPECT_LT(elapsed_ms, 300u)
+        << "EnumerateDirectory(" << k_file_count << " files) took "
+        << elapsed_ms << " ms — regression limit is 300 ms";
+
+    for (auto const& item : items)
+    {
+        if (item.is_folder) continue;
+        EXPECT_TRUE(item.size_available)
+            << "size_available missing for: " << item.display_name;
+        EXPECT_TRUE(item.date_modified_available)
+            << "date_modified_available missing for: " << item.display_name;
+    }
+}
