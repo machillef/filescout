@@ -1116,6 +1116,13 @@ namespace winrt::FileScoutNative::implementation
         LoadDirectory(pathText);
     }
 
+    void MainWindow::AddressTextBox_LostFocus(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
+    {
+        HideAddressTextBox();
+    }
+
     void MainWindow::BreadcrumbBarBorder_Tapped(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::Input::TappedRoutedEventArgs const&)
@@ -4701,15 +4708,15 @@ namespace winrt::FileScoutNative::implementation
                 sep.Text(L" \u203A ");
                 sep.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
                 sep.Opacity(0.4);
-                sep.FontSize(16);
+                sep.FontSize(18);
                 panel.Children().Append(sep);
             }
 
             MUI::HyperlinkButton btn;
-            btn.Padding({ 8, 2, 8, 2 });
+            btn.Padding({ 10, 3, 10, 3 });
             MUI::TextBlock lbl;
             lbl.Text(winrt::hstring(label));
-            lbl.FontSize(16);
+            lbl.FontSize(18);
             lbl.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
             btn.Content(lbl);
 

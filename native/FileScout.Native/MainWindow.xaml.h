@@ -100,6 +100,9 @@ namespace winrt::FileScoutNative::implementation
         void AddressTextBox_KeyDown(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
+        void AddressTextBox_LostFocus(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void BreadcrumbBarBorder_Tapped(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Input::TappedRoutedEventArgs const&);

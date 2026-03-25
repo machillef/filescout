@@ -309,3 +309,39 @@ Fix:
 Tests added: No test framework for visual sizing — verified by code review.
 Validated: Build clean. 110/110 tests pass.
 
+### Bug Report: U1 — Escape doesn't dismiss address bar; breadcrumbs still too small (2026-03-25)
+Reported by: Manual testing
+Description: (1) Left-clicking the breadcrumb bar opens the editable TextBox but pressing Escape
+does not restore breadcrumbs. No way to dismiss the TextBox without navigating.
+(2) Breadcrumbs still visually too small after second pass — user wants a further increase.
+
+### Fix: address bar Escape + click-outside dismiss; breadcrumb third-pass sizing (2026-03-25)
+Reported by: Manual testing
+Root cause (Escape): `KeyDown` on TextBox fires after the control's own processing; WinUI 3 TextBox
+internally consumes Escape (for undo-buffer cancel) in the tunneling phase, setting Handled=true
+before our handler sees it. Fix: use `PreviewKeyDown` (tunneling phase, fires before TextBox
+internals) + add `LostFocus` for click-outside dismissal.
+Root cause (sizing): Second pass (16px/52px) still insufficient per user preference.
+Fix:
+- `MainWindow.xaml`: `AddressTextBox` changed `KeyDown` → `PreviewKeyDown`, added `LostFocus`
+- `MainWindow.xaml.h`: added `AddressTextBox_LostFocus` declaration
+- `MainWindow.xaml.cpp`: added `AddressTextBox_LostFocus` handler → calls `HideAddressTextBox()`
+- `MainWindow.xaml`: `BreadcrumbBarBorder` `MinHeight` 52→60, `Padding` 8→10
+- `MainWindow.xaml.cpp` (`UpdateBreadcrumbs`): font 16→18px, sep font 16→18px, padding {8,2}→{10,3}
+Tests added: No test framework for UI event routing — verified by code review.
+Validated: Build clean. 110/110 tests pass.
+
+### Bug Report: S3 — ThisPCExpander starts collapsed; user wants it expanded on launch (2026-03-25)
+Reported by: Manual testing
+Description: Drive capacity bars are hidden on launch behind a collapsed Expander. User wants
+disk space visible immediately without needing to click to expand.
+
+### Fix: ThisPCExpander expanded on launch (2026-03-25)
+Reported by: Manual testing
+Root cause: `IsExpanded="False"` was set by design at S1 (consistent-collapse policy), but user
+preference is to show drives immediately.
+Fix:
+- `MainWindow.xaml`: `ThisPCExpander` `IsExpanded` False→True
+Tests added: No test framework for XAML initial state — verified by code review.
+Validated: Build clean. 110/110 tests pass.
+

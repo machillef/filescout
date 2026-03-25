@@ -251,8 +251,8 @@
                         <Grid Grid.Column="1">
                             <!-- Breadcrumb bar — default view; tap to reveal address TextBox -->
                             <Border x:Name="BreadcrumbBarBorder"
-                                    MinHeight="52"
-                                    Padding="8,0,8,0"
+                                    MinHeight="60"
+                                    Padding="10,0,10,0"
                                     CornerRadius="10"
                                     BorderThickness="1"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -272,7 +272,8 @@
                                      Style="{StaticResource ChromeAddressTextBoxStyle}"
                                      PlaceholderText="Enter a filesystem path"
                                      Visibility="Collapsed"
-                                     KeyDown="AddressTextBox_KeyDown" />
+                                     PreviewKeyDown="AddressTextBox_KeyDown"
+                                     LostFocus="AddressTextBox_LostFocus" />
                         </Grid>
 
                         <!-- Dedicated search box (col 2) -->
@@ -318,7 +319,7 @@
                         <!-- This PC: drive list populated in S3. -->
                         <Expander x:Name="ThisPCExpander"
                                   Header="This PC"
-                                  IsExpanded="False"
+                                  IsExpanded="True"
                                   HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Stretch">
                             <StackPanel x:Name="ThisPCPanel" Spacing="2" Margin="0,4,0,0" />
