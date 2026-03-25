@@ -1834,7 +1834,7 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::SortItems(
         std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
         SortColumn const column,
-        SortDirection const direction) const
+        SortDirection const direction)
     {
         std::sort(items.begin(), items.end(),
             [column, direction](

@@ -300,8 +300,8 @@ namespace winrt::FileScoutNative::implementation
         void BuildSortHeader(int32_t paneIndex);
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::Border SortHeaderForPane(int32_t paneIndex);
         void SetSortColumn(int32_t paneIndex, SortColumn column);
-        void SortItems(std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
-                       SortColumn column, SortDirection direction) const;
+        static void SortItems(std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
+                              SortColumn column, SortDirection direction);
         void SetGroupingEnabled(int32_t paneIndex, bool enabled);
 
         // View mode helpers (R9b).
