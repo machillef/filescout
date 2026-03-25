@@ -143,7 +143,7 @@ already registered in `SetupKeyboardAccelerators`. Ctrl+T opens a new tab.
 | S1 | Complete | 2026-03-24 |
 | S2 | Complete | 2026-03-24 |
 | S3 | Complete | 2026-03-25 |
-| S4 | Complete | 2026-03-25 |
+| S4 | Needs Fix | 2026-03-25 |
 
 ### U6 — Complete (2026-03-24)
 
@@ -273,4 +273,10 @@ Net diff: ~95 lines added (`UpdateBookmarksSection`), ~20 lines removed (PINNED 
 - Bookmarks section shows pinned folders after "Pin to Bookmarks" via right-click menu (manual host launch)
 - × unpin button removes entry and collapses section when last bookmark removed (manual host launch)
 - Bookmarks highlights correctly when navigated to a pinned folder (manual host launch)
+
+### Bug Report (2026-03-25)
+Reported by: Manual testing
+Description: Right-click context menu appears in the bottom-left corner of the window (near the
+sidebar) instead of near the right-clicked file list item. Screenshot shows menu at ~(0, bottom)
+of the window regardless of where the user clicks.
 
