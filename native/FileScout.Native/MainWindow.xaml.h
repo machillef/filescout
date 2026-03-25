@@ -247,6 +247,7 @@ namespace winrt::FileScoutNative::implementation
             bool revealAfterExtract);
 
         void BuildSidebarFavorites();
+        void UpdateThisPCSection();
         void LoadDrivesView();
 
         // R18b: breadcrumb navigation bar + address overlay.

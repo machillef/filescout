@@ -131,6 +131,7 @@
     <ClInclude Include="Domain\PaneSelectionState.h" />
     <ClInclude Include="Domain\FavoriteEntry.h" />
     <ClInclude Include="Domain\CommandEntry.h" />
+    <ClInclude Include="Domain\DriveCapacity.h" />
     <ClInclude Include="Domain\RowFormatting.h" />
     <ClInclude Include="Domain\SidebarRecents.h" />
     <ClInclude Include="Domain\ShellItemRef.h" />
@@ -159,6 +160,7 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="Domain\FileRowViewModel.cpp" />
+    <ClCompile Include="Domain\DriveCapacity.cpp" />
     <ClCompile Include="Domain\RowFormatting.cpp" />
     <ClCompile Include="Domain\SidebarRecents.cpp" />
     <ClCompile Include="Shell\CommandRegistry.cpp" />

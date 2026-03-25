@@ -7,6 +7,7 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
 #include "MainWindow.xaml.h"
+#include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
 #include "Domain/SidebarRecents.h"
 #include "Search/FuzzyMatcher.h"
@@ -413,8 +414,7 @@ namespace
                 sidebarDrive.has_usage = true;
                 sidebarDrive.free_bytes = free;
                 sidebarDrive.total_bytes = total;
-                sidebarDrive.used_ratio =
-                    std::clamp(static_cast<double>(used) / static_cast<double>(total), 0.0, 1.0);
+                sidebarDrive.used_ratio = ::FileScoutNative::Domain::DriveUsedRatio(total, free);
             }
 
             usage.push_back(std::move(sidebarDrive));
@@ -5267,98 +5267,93 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
+        // Refresh the This PC expander to reflect the current active pane's drive.
+        UpdateThisPCSection();
+    }
+
+    void MainWindow::UpdateThisPCSection()
+    {
+        auto const panel = ThisPCPanel();
+        panel.Children().Clear();
+
+        auto const& activePane = ActivePane();
         auto const drives = BuildSidebarDriveUsage(m_shellInterop);
-        if (!drives.empty())
+        for (auto const& drive : drives)
         {
-            auto separator = winrt::Microsoft::UI::Xaml::Controls::Border{};
-            separator.Height(1);
-            separator.Margin({ 0, 10, 0, 8 });
-            separator.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
-            panel.Children().Append(separator);
+            auto button = winrt::Microsoft::UI::Xaml::Controls::Button{};
+            StyleSidebarButtonBase(button);
+            button.Margin({ 0, 0, 0, 2 });
+            winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+                button,
+                winrt::box_value(ToHString(drive.path.wstring())));
 
-            auto storageLabel = BuildSidebarSectionLabel(L"STORAGE");
-            storageLabel.Margin({ 2, 0, 0, 2 });
-            panel.Children().Append(storageLabel);
+            auto const driveSelected =
+                !activePane.is_drives_view &&
+                !activePane.current_path.empty() &&
+                _wcsnicmp(
+                    activePane.current_path.root_path().wstring().c_str(),
+                    drive.path.wstring().c_str(),
+                    drive.path.wstring().size()) == 0;
 
-            for (auto const& drive : drives)
+            auto card = BuildSidebarRowSurface(driveSelected);
+            card.Padding({ 8, 6, 8, 6 });
+
+            auto stack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+            stack.Spacing(6);
+
+            auto headerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+            auto driveIconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            driveIconColumn.Width({ 22, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+            auto driveLabelColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            driveLabelColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+            headerGrid.ColumnDefinitions().Append(driveIconColumn);
+            headerGrid.ColumnDefinitions().Append(driveLabelColumn);
+            headerGrid.ColumnSpacing(8);
+
+            auto iconTile = BuildSidebarTile(BuildSidebarDriveGlyph(drive), 18.0);
+
+            auto labelStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+            labelStack.Spacing(2);
+
+            auto title = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+            title.Text(ToHString(drive.display_name));
+            title.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+            title.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+
+            auto details = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+            details.Text(ToHString(BuildDriveUsageText(drive)));
+            details.FontSize(11);
+            details.Opacity(0.62);
+            details.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+
+            labelStack.Children().Append(title);
+            labelStack.Children().Append(details);
+
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(labelStack, 1);
+            headerGrid.Children().Append(iconTile);
+            headerGrid.Children().Append(labelStack);
+
+            stack.Children().Append(headerGrid);
+            if (drive.has_usage)
             {
-                auto button = winrt::Microsoft::UI::Xaml::Controls::Button{};
-                StyleSidebarButtonBase(button);
-                button.Margin({ 0, 0, 0, 2 });
-                winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
-                    button,
-                    winrt::box_value(ToHString(drive.path.wstring())));
-
-                auto const driveSelected =
-                    !activePane.is_drives_view &&
-                    !activePane.current_path.empty() &&
-                    _wcsnicmp(
-                        activePane.current_path.root_path().wstring().c_str(),
-                        drive.path.wstring().c_str(),
-                        drive.path.wstring().size()) == 0;
-
-                auto card = BuildSidebarRowSurface(driveSelected);
-                card.Padding({ 8, 6, 8, 6 });
-
-                auto stack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
-                stack.Spacing(6);
-
-                auto headerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
-                auto driveIconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-                driveIconColumn.Width({ 22, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
-                auto driveLabelColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-                driveLabelColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
-                headerGrid.ColumnDefinitions().Append(driveIconColumn);
-                headerGrid.ColumnDefinitions().Append(driveLabelColumn);
-                headerGrid.ColumnSpacing(8);
-
-                auto iconTile = BuildSidebarTile(
-                    BuildSidebarDriveGlyph(drive),
-                    18.0);
-
-                auto labelStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
-                labelStack.Spacing(2);
-
-                auto title = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-                title.Text(ToHString(drive.display_name));
-                title.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
-                title.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
-
-                auto details = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-                details.Text(ToHString(BuildDriveUsageText(drive)));
-                details.FontSize(11);
-                details.Opacity(0.62);
-                details.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
-
-                labelStack.Children().Append(title);
-                labelStack.Children().Append(details);
-
-                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
-                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(labelStack, 1);
-                headerGrid.Children().Append(iconTile);
-                headerGrid.Children().Append(labelStack);
-
-                stack.Children().Append(headerGrid);
-                if (drive.has_usage)
-                {
-                    auto bar = winrt::Microsoft::UI::Xaml::Controls::ProgressBar{};
-                    bar.Minimum(0);
-                    bar.Maximum(100);
-                    bar.Value(drive.used_ratio * 100.0);
-                    bar.Height(4);
-                    bar.Background(LookupBrush(L"SubtleFillColorSecondaryBrush"));
-                    stack.Children().Append(bar);
-                }
-                card.Child(stack);
-
-                auto const drivePath = drive.path;
-                button.Click([this, drivePath](auto const&, auto const&)
-                {
-                    LoadDirectory(drivePath);
-                });
-                button.Content(card);
-                panel.Children().Append(button);
+                auto bar = winrt::Microsoft::UI::Xaml::Controls::ProgressBar{};
+                bar.Minimum(0);
+                bar.Maximum(100);
+                bar.Value(drive.used_ratio * 100.0);
+                bar.Height(4);
+                bar.Background(LookupBrush(L"SubtleFillColorSecondaryBrush"));
+                stack.Children().Append(bar);
             }
+            card.Child(stack);
+
+            auto const drivePath = drive.path;
+            button.Click([this, drivePath](auto const&, auto const&)
+            {
+                LoadDirectory(drivePath);
+            });
+            button.Content(card);
+            panel.Children().Append(button);
         }
     }
 

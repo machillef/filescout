@@ -5,9 +5,9 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Phase: phase3-perf-ux — In Progress
 - Current blocker: None
-- Next slice: S3 — This PC drives + capacity bars in ThisPCExpander
+- Next slice: S4 — Bookmarks section
 - Tests at initiative start: 82/82 passing
-- Tests now: 93/93 passing (82 existing + 8 RowFormatting + 3 from other tracks)
+- Tests now: 106/106 passing (100 prior + 6 DriveCapacity)
 
 ## Slice Status
 
@@ -142,7 +142,7 @@ already registered in `SetupKeyboardAccelerators`. Ctrl+T opens a new tab.
 | U8 | Complete | 2026-03-24 |
 | S1 | Complete | 2026-03-24 |
 | S2 | Complete | 2026-03-24 |
-| S3 | Not Started | — |
+| S3 | Complete | 2026-03-25 |
 | S4 | Not Started | — |
 
 ### U6 — Complete (2026-03-24)
@@ -210,4 +210,35 @@ and navigate correctly.
 
 **What remains unverified:**
 - Recent path buttons appear and are clickable after navigating several folders (manual host launch)
+
+### S3 — Complete (2026-03-25)
+
+**What was done:**
+- Created `Domain/DriveCapacity.h` + `.cpp` — pure C++ `DriveUsedRatio(totalBytes, freeBytes)` that
+  returns fraction used (0.0–1.0), clamps against zero total and free > total edge cases
+- Updated `BuildSidebarDriveUsage` (anonymous namespace) to use `DriveUsedRatio` instead of
+  inline `std::clamp(used/total)` — delegates to domain function
+- Added `void UpdateThisPCSection()` declaration to `MainWindow.xaml.h`
+- Implemented `MainWindow::UpdateThisPCSection()`: clears `ThisPCPanel`, builds one Button per
+  drive (icon tile + SemiBold label + 11px capacity text + 4px ProgressBar when `has_usage`)
+- Added `#include "Domain/DriveCapacity.h"` to `MainWindow.xaml.cpp`
+- Removed ~93-line STORAGE block from `BuildSidebarFavorites`; replaced with `UpdateThisPCSection()`
+  call (drives now render in `ThisPCExpander` not `SidebarPlacesPanel`)
+- Added `DriveCapacity.h/.cpp` to `FileScout.Native.vcxproj`; `DriveCapacity.cpp` + `DriveCapacityTests.cpp`
+  to `FileScout.Tests.vcxproj`
+- Wrote 6 tests (ZeroTotal, FullDrive, EmptyDrive, HalfFull, QuarterFree, FreeExceedsTotal) — all RED→GREEN
+
+**Validation:** Build clean. 106/106 tests pass (6 new DriveCapacity tests all GREEN).
+Net diff: ~93 lines removed from BuildSidebarFavorites, ~95 lines added as UpdateThisPCSection.
+
+**Key decisions:**
+- `UpdateThisPCSection()` called from `BuildSidebarFavorites()` so drive selection highlight
+  (`driveSelected`) updates on every navigation, matching the Quick Access section refresh cadence
+- Drive rows omit `ProgressBar` when `has_usage = false` (GetDiskFreeSpaceExW failed) — no
+  misleading empty bar shown for unreadable drives
+
+**What remains unverified:**
+- `ThisPCExpander` expands and shows drive list at runtime (manual host launch)
+- Drive capacity bars reflect correct used% for each drive (manual host launch)
+- Clicking a drive row navigates the active pane to that drive root (manual host launch)
 
