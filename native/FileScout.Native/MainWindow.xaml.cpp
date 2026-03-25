@@ -2206,12 +2206,23 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    // S7: Backfill real per-extension icons for fast-enumerated rows.
-    // Called after both row batches are published by LoadDirectoryAsync (regular dirs only).
-    // GetItemIcon runs on the background thread — thread-safe via m_cacheMutex; most calls
-    // are cache hits after the first unique extension per session is resolved.
-    // SetAt fires CollectionChanged::ItemChanged (not Reset), so scroll position is preserved.
-    // P4: Backfill real per-extension icons via ViewModel PropertyChanged (no row recreation).
+    // L3: Returns the icon cache key for an item: lowercase extension (e.g. L".exe"),
+    // L"__folder__" for directories, or L"__file__" for files with no extension.
+    static std::wstring IconCacheKey(::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        if (item.is_folder) return L"__folder__";
+        auto ext = item.path.extension().wstring();
+        if (ext.empty()) return L"__file__";
+        for (wchar_t& ch : ext) ch = static_cast<wchar_t>(::towlower(ch));
+        return ext;
+    }
+
+    // S7 / L3: Backfill real per-extension icons for fast-enumerated rows.
+    // GetItemIcon runs on the background thread (all items).
+    // UI dispatch is chunked at k_iconChunkSize items to avoid one large UI-thread lambda
+    // that would block for thousands of WriteableBitmap assignments.
+    // m_iconSourceCache (UI-thread-only) ensures one WriteableBitmap per unique extension
+    // per session — cache hits skip the BGRA conversion and allocation entirely.
     winrt::fire_and_forget MainWindow::BackfillIconsAsync(
         int32_t const paneIndex,
         int32_t const tabIndex,
@@ -2225,28 +2236,52 @@ namespace winrt::FileScoutNative::implementation
         for (auto& item : items)
             item.icon = m_shellInterop.GetItemIcon(item.path, item.is_folder);
 
-        m_dispatcherQueue.TryEnqueue(
-            [this, lifetime, paneIndex, tabIndex, generation,
-             items = std::move(items)]() mutable
-            {
-                auto& pane = m_panes[paneIndex];
-                if (pane.load_generation != generation) return;
-                if (pane.active_tab_index != tabIndex) return;
-                if (pane.group_by_sort_column) return;  // row count may not match item count
+        // L3: Chunk UI dispatches at 500 items so the UI thread drains incrementally.
+        constexpr uint32_t k_iconChunkSize = 500;
+        auto const total = static_cast<uint32_t>(items.size());
+        auto shared_items =
+            std::make_shared<std::vector<::FileScoutNative::Domain::ShellItemRef>>(
+                std::move(items));
 
-                auto& rows = pane.tab_rows[tabIndex];
-                auto const count = static_cast<uint32_t>(items.size());
-                if (rows.Size() != count) return;  // defensive: size mismatch
+        for (uint32_t chunkStart = 0; chunkStart < total; chunkStart += k_iconChunkSize)
+        {
+            uint32_t const chunkEnd = (std::min)(chunkStart + k_iconChunkSize, total);
+            bool const isLastChunk = (chunkEnd == total);
 
-                for (uint32_t i = 0; i < count; ++i)
+            m_dispatcherQueue.TryEnqueue(
+                [this, lifetime, paneIndex, tabIndex, generation,
+                 shared_items, chunkStart, chunkEnd, total, isLastChunk]()
                 {
-                    if (auto source = BuildIconSource(items[i].icon))
-                        rows.GetAt(i).IconSource(source);
-                }
+                    auto& pane = m_panes[paneIndex];
+                    if (pane.load_generation != generation) return;
+                    if (pane.active_tab_index != tabIndex) return;
+                    if (pane.group_by_sort_column) return;
 
-                TraceLog(L"BackfillIcons: " + std::to_wstring(count) +
-                         L" rows for pane " + std::to_wstring(paneIndex));
-            });
+                    auto& rows = pane.tab_rows[tabIndex];
+                    if (rows.Size() != total) return;
+
+                    auto const& items_ref = *shared_items;
+                    for (uint32_t i = chunkStart; i < chunkEnd; ++i)
+                    {
+                        auto const& item = items_ref[i];
+                        auto const key = IconCacheKey(item);
+                        auto it = m_iconSourceCache.find(key);
+                        if (it != m_iconSourceCache.end())
+                        {
+                            rows.GetAt(i).IconSource(it->second);
+                        }
+                        else if (auto source = BuildIconSource(item.icon))
+                        {
+                            m_iconSourceCache.emplace(key, source);
+                            rows.GetAt(i).IconSource(source);
+                        }
+                    }
+
+                    if (isLastChunk)
+                        TraceLog(L"BackfillIcons: " + std::to_wstring(total) +
+                                 L" rows for pane " + std::to_wstring(paneIndex));
+                });
+        }
     }
 
     void MainWindow::UpdateRows(int32_t const paneIndex,

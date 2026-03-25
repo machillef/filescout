@@ -191,6 +191,11 @@ namespace winrt::FileScoutNative::implementation
         POINT m_lastContextMenuPoint{};
         bool m_hasLastContextMenuPoint{ false };
 
+        // L3: Session-persistent icon cache. Key = lowercase extension (e.g. L".exe"),
+        // L"__folder__" for directories, or L"__file__" for files with no extension.
+        // Avoids one WriteableBitmap allocation per item — one per unique extension per session.
+        std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::Media::ImageSource> m_iconSourceCache;
+
         // Active-pane accessors.
         [[nodiscard]] PaneContext& ActivePane() noexcept { return m_panes[m_activePaneIndex]; }
         [[nodiscard]] PaneContext const& ActivePane() const noexcept { return m_panes[m_activePaneIndex]; }
