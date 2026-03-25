@@ -150,3 +150,63 @@ TEST_F(FavoritesServiceFixture, AddPinnedFavoriteRejectsBuiltinFavoritePath)
     EXPECT_TRUE(service.IsSidebarFavorite(builtin->path));
     EXPECT_FALSE(service.AddPinnedFavorite(builtin->path));
 }
+
+TEST_F(FavoritesServiceFixture, RemovePinnedFavorite_RemovesExistingEntry)
+{
+    auto const targetPath = tempRoot / L"Workspace";
+    std::filesystem::create_directories(targetPath);
+
+    ASSERT_TRUE(service.AddPinnedFavorite(targetPath));
+    ASSERT_TRUE(service.IsSidebarFavorite(targetPath));
+
+    EXPECT_TRUE(service.RemovePinnedFavorite(targetPath));
+    EXPECT_FALSE(service.IsSidebarFavorite(targetPath));
+}
+
+TEST_F(FavoritesServiceFixture, RemovePinnedFavorite_ReturnsFalseWhenNotPinned)
+{
+    auto const targetPath = tempRoot / L"NotPinned";
+    std::filesystem::create_directories(targetPath);
+
+    EXPECT_FALSE(service.RemovePinnedFavorite(targetPath));
+}
+
+TEST_F(FavoritesServiceFixture, RemovePinnedFavorite_PersistsDeletion)
+{
+    auto const targetPath = tempRoot / L"ToRemove";
+    std::filesystem::create_directories(targetPath);
+
+    ASSERT_TRUE(service.AddPinnedFavorite(targetPath));
+    ASSERT_TRUE(service.RemovePinnedFavorite(targetPath));
+
+    // Fresh service instance reads the same storage file.
+    FavoritesService freshService;
+    EXPECT_FALSE(freshService.IsSidebarFavorite(targetPath));
+}
+
+TEST_F(FavoritesServiceFixture, RemovePinnedFavorite_GetSidebarFavoritesNoLongerContainsEntry)
+{
+    auto const pathA = tempRoot / L"FolderA";
+    auto const pathB = tempRoot / L"FolderB";
+    std::filesystem::create_directories(pathA);
+    std::filesystem::create_directories(pathB);
+
+    ASSERT_TRUE(service.AddPinnedFavorite(pathA));
+    ASSERT_TRUE(service.AddPinnedFavorite(pathB));
+    ASSERT_TRUE(service.RemovePinnedFavorite(pathA));
+
+    bool aFound = false;
+    bool bFound = false;
+    for (auto const& entry : service.GetSidebarFavorites())
+    {
+        if (entry.is_pinned && !entry.path.empty())
+        {
+            if (NormalizeForComparison(entry.path) == NormalizeForComparison(pathA))
+                aFound = true;
+            if (NormalizeForComparison(entry.path) == NormalizeForComparison(pathB))
+                bFound = true;
+        }
+    }
+    EXPECT_FALSE(aFound);
+    EXPECT_TRUE(bFound);
+}

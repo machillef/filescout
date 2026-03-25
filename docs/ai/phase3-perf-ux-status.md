@@ -5,9 +5,9 @@
 - Active track: `native/` C++20 + C++/WinRT + WinUI 3
 - Phase: phase3-perf-ux — In Progress
 - Current blocker: None
-- Next slice: S4 — Bookmarks section
+- Next slice: None — all slices complete
 - Tests at initiative start: 82/82 passing
-- Tests now: 106/106 passing (100 prior + 6 DriveCapacity)
+- Tests now: 110/110 passing (106 prior + 4 RemovePinnedFavorite/GetPinnedFavorites)
 
 ## Slice Status
 
@@ -143,7 +143,7 @@ already registered in `SetupKeyboardAccelerators`. Ctrl+T opens a new tab.
 | S1 | Complete | 2026-03-24 |
 | S2 | Complete | 2026-03-24 |
 | S3 | Complete | 2026-03-25 |
-| S4 | Not Started | — |
+| S4 | Complete | 2026-03-25 |
 
 ### U6 — Complete (2026-03-24)
 
@@ -241,4 +241,36 @@ Net diff: ~93 lines removed from BuildSidebarFavorites, ~95 lines added as Updat
 - `ThisPCExpander` expands and shows drive list at runtime (manual host launch)
 - Drive capacity bars reflect correct used% for each drive (manual host launch)
 - Clicking a drive row navigates the active pane to that drive root (manual host launch)
+
+### S4 — Complete (2026-03-25)
+
+**What was done:**
+- Added `RemovePinnedFavorite(path)` + `GetPinnedFavorites()` to `FavoritesService.h/.cpp`
+  — remove by case-insensitive path key, returns false if not found; loads pinned-only entries
+- Added 4 tests for `RemovePinnedFavorite` (RemovesExisting, ReturnsFalse, Persists, GetAll) — all RED→GREEN
+- Added `UpdateBookmarksSection()` to `MainWindow.xaml.h/.cpp`:
+  — clears `BookmarksPanel`, builds one Button per `GetPinnedFavorites()` entry
+  — each row: 20px icon tile + SemiBold label + × unpin button (transparent, `\uE711` glyph)
+  — × click: `RemovePinnedFavorite(path)` + `BuildSidebarFavorites()`
+  — row click: `LoadDirectory(path)`, `isSelected` highlights exact current-path match
+- Modified `BuildSidebarFavorites()`: pinned entries now `continue` early (removed "PINNED" header/badge)
+  — pinned paths still added to `shownPathKeys` so they don't duplicate in recent paths
+  — `UpdateBookmarksSection()` called at end (before `UpdateThisPCSection()`)
+- Updated `ContextMenuService.cpp`: "Pin to Places" → "Pin to Bookmarks" (both item + folder labels)
+- Updated `ExecuteContextCommand` status messages: "Places" → "Bookmarks" throughout
+
+**Validation:** Build clean (no new errors/warnings). 110/110 tests pass.
+Net diff: ~95 lines added (`UpdateBookmarksSection`), ~20 lines removed (PINNED header/badge from `BuildSidebarFavorites`).
+
+**Key decisions:**
+- `BookmarksExpander` remains `IsExpanded="False"` on launch (consistent with This PC behaviour;
+  user opens it manually after pinning the first bookmark)
+- Unpin uses `(void)` cast to discard `[[nodiscard]]` return value — UI rebuild is unconditional
+- `isSelected` in bookmark buttons uses exact `SidebarPathsEqual` match (not prefix scoring),
+  because bookmarks highlight the exact pinned folder, not parents
+
+**What remains unverified:**
+- Bookmarks section shows pinned folders after "Pin to Bookmarks" via right-click menu (manual host launch)
+- × unpin button removes entry and collapses section when last bookmark removed (manual host launch)
+- Bookmarks highlights correctly when navigated to a pinned folder (manual host launch)
 

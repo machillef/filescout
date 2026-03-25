@@ -8,9 +8,17 @@
 
 ## Build & Test
 
-```powershell
-cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /restore /p:RestorePackagesConfig=true"
-cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"
+**IMPORTANT:** Always use the PowerShell wrapper below. Never use `cmd /c "..."` directly from bash
+with MSBuild flags — bash interprets `\r` in `/restore` as an octal escape, producing the error
+`'estore' is not recognized`. Bash heredocs create LF-only .bat files that cmd.exe misparsess.
+The PowerShell single-quote approach avoids all of these escaping issues.
+
+```bash
+# Full build (NuGet restore + Debug x64 compile)
+powershell -Command "cmd /c 'call \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /restore /p:RestorePackagesConfig=true /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal'"
+
+# Run tests
+native/bin/x64/Debug/Tests/FileScout.Tests.exe
 ```
 
 ## Structure

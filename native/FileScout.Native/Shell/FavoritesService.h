@@ -20,6 +20,12 @@ namespace FileScoutNative::Shell
         // Adds a folder path to the persisted custom Places section.
         [[nodiscard]] bool AddPinnedFavorite(std::filesystem::path const& path) const;
 
+        // Removes a previously pinned folder path. Returns true if it was found and removed.
+        [[nodiscard]] bool RemovePinnedFavorite(std::filesystem::path const& path) const;
+
+        // Returns the user-pinned folder paths only (excludes built-in entries).
+        [[nodiscard]] std::vector<FileScoutNative::Domain::FavoriteEntry> GetPinnedFavorites() const;
+
         // Returns true when the path is already present in either the built-in or pinned sidebar list.
         [[nodiscard]] bool IsSidebarFavorite(std::filesystem::path const& path) const;
 

@@ -118,7 +118,7 @@ namespace FileScoutNative::Shell
             FileScoutNative::Domain::ContextMenuGroup inspectGroup;
             if (scenario.can_pin_to_places)
             {
-                AppendCommand(inspectGroup.commands, L"pinToPlaces", L"Pin to Places", L"pin");
+                AppendCommand(inspectGroup.commands, L"pinToPlaces", L"Pin to Bookmarks", L"pin");
             }
             AppendCommand(inspectGroup.commands, L"properties", L"Properties", L"properties", L"Alt+Enter");
             AppendCommand(
@@ -137,7 +137,7 @@ namespace FileScoutNative::Shell
         FileScoutNative::Domain::ContextMenuGroup workspaceGroup;
         if (scenario.can_pin_to_places && !hasSelection)
         {
-            AppendCommand(workspaceGroup.commands, L"pinToPlaces", L"Pin current folder to Places", L"pin");
+            AppendCommand(workspaceGroup.commands, L"pinToPlaces", L"Pin current folder to Bookmarks", L"pin");
         }
         AppendCommand(workspaceGroup.commands, L"newFolder", L"New folder", L"newFolder");
         AppendCommand(workspaceGroup.commands, L"refresh", L"Refresh", L"refresh", L"F5");

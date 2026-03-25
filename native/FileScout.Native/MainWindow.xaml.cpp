@@ -2694,7 +2694,7 @@ namespace winrt::FileScoutNative::implementation
 
             if (targetPath.empty())
             {
-                StatusTextBlock().Text(L"Pin to Places needs a folder.");
+                StatusTextBlock().Text(L"Pin to Bookmarks needs a folder.");
                 return;
             }
 
@@ -2702,8 +2702,8 @@ namespace winrt::FileScoutNative::implementation
             {
                 StatusTextBlock().Text(ToHString(
                     targetPath.filename().wstring().empty()
-                        ? L"That place is already in the sidebar."
-                        : targetPath.filename().wstring() + L" is already in Places."));
+                        ? L"That folder is already in Bookmarks or Quick Access."
+                        : targetPath.filename().wstring() + L" is already in Bookmarks."));
                 return;
             }
 
@@ -2713,11 +2713,11 @@ namespace winrt::FileScoutNative::implementation
                 auto const label = targetPath.filename().wstring().empty()
                     ? targetPath.wstring()
                     : targetPath.filename().wstring();
-                StatusTextBlock().Text(ToHString(L"Pinned " + label + L" to Places."));
+                StatusTextBlock().Text(ToHString(L"Pinned " + label + L" to Bookmarks."));
             }
             else
             {
-                StatusTextBlock().Text(L"Pin to Places failed.");
+                StatusTextBlock().Text(L"Pin to Bookmarks failed.");
             }
             return;
         }
@@ -5065,7 +5065,6 @@ namespace winrt::FileScoutNative::implementation
     {
         auto const panel = SidebarPlacesPanel();
         panel.Children().Clear();
-        bool addedPinnedHeader = false;
         auto const& activePane = ActivePane();
         // Tracks paths already shown so recent paths can be deduplicated against them.
         std::unordered_set<std::wstring> shownPathKeys;
@@ -5097,18 +5096,12 @@ namespace winrt::FileScoutNative::implementation
         {
             if (entry.is_drives_view) continue;  // This PC has its own Expander section (S1/S3)
 
-            if (entry.is_pinned && !addedPinnedHeader)
+            if (entry.is_pinned)
             {
-                auto separator = winrt::Microsoft::UI::Xaml::Controls::Border{};
-                separator.Height(1);
-                separator.Margin({ 0, 8, 0, 8 });
-                separator.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
-                panel.Children().Append(separator);
-
-                auto pinnedHeader = BuildSidebarSectionLabel(L"PINNED");
-                pinnedHeader.Margin({ 2, 0, 0, 2 });
-                panel.Children().Append(pinnedHeader);
-                addedPinnedHeader = true;
+                // Pinned entries render in BookmarksPanel — exclude from recents dedup.
+                if (!entry.path.empty())
+                    shownPathKeys.insert(::FileScoutNative::Domain::SidebarPathKey(entry.path));
+                continue;
             }
 
             auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
@@ -5155,14 +5148,6 @@ namespace winrt::FileScoutNative::implementation
             rowGrid.Children().Append(iconTile);
             rowGrid.Children().Append(label);
 
-            if (entry.is_pinned)
-            {
-                auto badge = BuildSidebarFontIcon(L"\uE718", 11.0);
-                badge.Opacity(0.58);
-                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(badge, 2);
-                rowGrid.Children().Append(badge);
-            }
-
             auto const isSelected =
                 (entry.is_drives_view && activePane.is_drives_view) ||
                 (!entry.path.empty() && activeFavoriteScore > 0 &&
@@ -5171,7 +5156,6 @@ namespace winrt::FileScoutNative::implementation
             auto surface = BuildSidebarRowSurface(isSelected);
             surface.Child(rowGrid);
             btn.Content(surface);
-
 
             if (entry.is_drives_view)
             {
@@ -5195,7 +5179,7 @@ namespace winrt::FileScoutNative::implementation
                 });
             }
 
-            if (!entry.is_pinned && !entry.path.empty())
+            if (!entry.path.empty())
                 shownPathKeys.insert(::FileScoutNative::Domain::SidebarPathKey(entry.path));
             panel.Children().Append(btn);
         }
@@ -5267,8 +5251,94 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
+        // Refresh the Bookmarks expander with user-pinned folders.
+        UpdateBookmarksSection();
         // Refresh the This PC expander to reflect the current active pane's drive.
         UpdateThisPCSection();
+    }
+
+    void MainWindow::UpdateBookmarksSection()
+    {
+        auto const panel = BookmarksPanel();
+        panel.Children().Clear();
+
+        auto const& activePane = ActivePane();
+        auto const bookmarks = m_favoritesService.GetPinnedFavorites();
+
+        for (auto const& entry : bookmarks)
+        {
+            auto const isSelected =
+                !entry.path.empty() &&
+                !activePane.is_drives_view &&
+                !activePane.current_path.empty() &&
+                SidebarPathsEqual(entry.path, activePane.current_path);
+
+            auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
+            StyleSidebarButtonBase(btn);
+            btn.Margin({ 0, 0, 0, 2 });
+            winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+                btn, winrt::box_value(ToHString(entry.path.wstring())));
+
+            auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+            auto iconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            iconColumn.Width({ 20, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+            auto labelColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            labelColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+            auto unpinColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            unpinColumn.Width({ 0, winrt::Microsoft::UI::Xaml::GridUnitType::Auto });
+            rowGrid.ColumnDefinitions().Append(iconColumn);
+            rowGrid.ColumnDefinitions().Append(labelColumn);
+            rowGrid.ColumnDefinitions().Append(unpinColumn);
+            rowGrid.ColumnSpacing(8);
+
+            auto const entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
+            auto iconTile = BuildSidebarTile(
+                BuildSidebarGlyph(entry.display_name, entryIcon, L"folder"),
+                20.0);
+
+            auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+            label.Text(ToHString(entry.display_name));
+            label.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+            label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            label.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+            label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+
+            // Unpin × button — transparent, minimal, right-aligned.
+            auto unpinBtn = winrt::Microsoft::UI::Xaml::Controls::Button{};
+            unpinBtn.Padding({ 4, 2, 4, 2 });
+            unpinBtn.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{
+                winrt::Microsoft::UI::Colors::Transparent() });
+            unpinBtn.BorderThickness({ 0, 0, 0, 0 });
+            auto unpinIcon = BuildSidebarFontIcon(L"\uE711", 10.0);
+            unpinIcon.Opacity(0.65);
+            unpinBtn.Content(unpinIcon);
+            winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+                unpinBtn, winrt::box_value(winrt::hstring{ L"Unpin" }));
+
+            auto const pinnedPath = entry.path;
+            unpinBtn.Click([this, pinnedPath](auto const&, auto const&)
+            {
+                (void)m_favoritesService.RemovePinnedFavorite(pinnedPath);
+                BuildSidebarFavorites();
+            });
+
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(label, 1);
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(unpinBtn, 2);
+            rowGrid.Children().Append(iconTile);
+            rowGrid.Children().Append(label);
+            rowGrid.Children().Append(unpinBtn);
+
+            auto surface = BuildSidebarRowSurface(isSelected);
+            surface.Child(rowGrid);
+            btn.Content(surface);
+
+            btn.Click([this, pinnedPath](auto const&, auto const&)
+            {
+                LoadDirectory(pinnedPath);
+            });
+            panel.Children().Append(btn);
+        }
     }
 
     void MainWindow::UpdateThisPCSection()

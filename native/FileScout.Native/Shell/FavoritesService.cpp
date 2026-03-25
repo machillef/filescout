@@ -313,6 +313,45 @@ namespace FileScoutNative::Shell
         return true;
     }
 
+    bool FavoritesService::RemovePinnedFavorite(std::filesystem::path const& path) const
+    {
+        auto const normalized = NormalizePath(path);
+        if (normalized.empty())
+        {
+            return false;
+        }
+
+        auto pinned = LoadPinnedFavoritePaths();
+        auto const key = PathKey(normalized);
+        auto const original = pinned.size();
+        pinned.erase(
+            std::remove_if(pinned.begin(), pinned.end(),
+                [&key](std::filesystem::path const& p) { return PathKey(p) == key; }),
+            pinned.end());
+
+        if (pinned.size() == original)
+        {
+            return false;
+        }
+
+        SavePinnedFavoritePaths(pinned);
+        return true;
+    }
+
+    std::vector<FileScoutNative::Domain::FavoriteEntry> FavoritesService::GetPinnedFavorites() const
+    {
+        std::vector<FileScoutNative::Domain::FavoriteEntry> result;
+        for (auto const& path : LoadPinnedFavoritePaths())
+        {
+            result.push_back(FileScoutNative::Domain::FavoriteEntry{
+                .display_name = BuildDisplayNameForPinnedPath(path),
+                .path = path,
+                .is_pinned = true,
+            });
+        }
+        return result;
+    }
+
     bool FavoritesService::IsSidebarFavorite(std::filesystem::path const& path) const
     {
         auto const key = PathKey(path);
