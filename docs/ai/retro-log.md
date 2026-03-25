@@ -2,6 +2,57 @@
 
 ---
 
+## large-dir-perf — 2026-03-25
+
+### Metrics
+
+| Metric | Value |
+|---|---|
+| Slices planned | 4 (L1–L4) |
+| Slices completed | 4 |
+| Slices blocked | 0 |
+| Completion rate | 100% |
+| Total commits | 4 (3 `perf`, 1 `refactor`) |
+| Decisions made | 0 formal (no decisions.md) |
+| Debugging escalations | 0 |
+| Post-acceptance fixes | 0 |
+| Design deviations | 2 (same root cause — `resume_foreground` incompatibility) |
+| Learnings extracted | 2 new gotchas added to execution-loop |
+
+### Key Learnings
+
+- **`winrt::resume_foreground` is UWP-only.** WinUI 3 uses `Microsoft::UI::Dispatching::DispatcherQueue`, which has no `operator co_await` in Windows App SDK 1.8. Design docs that call for `co_await resume_foreground(m_dispatcherQueue)` must use `TryEnqueue` instead. This applied to both L1 and L3 and was already saved to project memory.
+- **`IReplaceAll<T>` does not exist.** The correct QI target is `IVector<T>` and `ReplaceAll` is a method on it. The slices.md design doc referenced the wrong interface name. Saved to execution-loop gotchas (L2).
+- **`std::min` / `std::max` break under `<windows.h>` macros.** Use `(std::min)(a, b)` to suppress macro expansion. Saved to execution-loop gotchas (L3).
+- **PCH rebuild required after adding headers.** Adding `#include <unordered_map>` to `pch.h` caused a C1076 "compiler limit: internal heap limit reached" error on incremental build. A full `/t:Rebuild` cleared it. This is a MSBuild/PCH artefact, not a code error.
+
+### What Went Well
+
+- All 4 slices completed on first attempt — zero debugging escalations or post-acceptance fixes.
+- The `TryEnqueue`-based approach (L1 deviation) was validated immediately and reused correctly in L3 without re-discovering the issue.
+- `std::shared_ptr` for cross-chunk item sharing in L3 was clean and safe — no lifetime bugs.
+- L2 benchmark test (`LargeDirectoryEnumerationBenchmark`) provided a concrete regression gate that served the test suite beyond this initiative.
+- Narrow scope discipline held throughout: archive path (`IsArchivePath`) untouched in L1 per spec; `group_by_sort_column` and `rows.Size() != total` guards preserved in L3 without friction.
+
+### What Could Improve
+
+- **Design docs contained two incorrect API references** (`resume_foreground`, `IReplaceAll<T>`). Future slices.md files for WinUI 3 work should have a reviewer pass for WinUI 3 API accuracy before implementation begins.
+- **L4 was "Not Started" when `/retro` was invoked** (it was trivial but still incomplete). A better retro trigger is: all slices in status.md showing Complete, not just the last substantive slice. The execution-loop End of Plan block should check for this explicitly.
+- **Manual validation deferred entirely.** All three substantive slices left "manual navigate to System32" unverified. The Definition of Done criteria 1–3 and 5 require a running app — future initiatives with runtime-only verification should note this as a hard prerequisite for DoD signoff, not a footnote.
+
+### Skill Improvements Made
+
+- `gotchas/winrt-ireplaceall-does-not-exist.md` — created during L2
+- `gotchas/windows-min-max-macro.md` — created during L3
+
+### Recommendations for Next Initiative
+
+- When designing slices for WinUI 3: verify all API calls against `winrt/Microsoft.UI.Dispatching.h` and Windows App SDK 1.8 headers before writing slice definitions; do not copy UWP patterns verbatim.
+- For initiatives where the Definition of Done requires running the app manually: schedule a manual validation session as a dedicated slice or pre-commit gate, not an optional post-completion step.
+- `(std::min)` / `(std::max)` should be used consistently in all new Windows code in this project (or add `NOMINMAX` to pch.h permanently).
+
+---
+
 ## phase3-perf-ux — 2026-03-25
 
 ### Metrics
