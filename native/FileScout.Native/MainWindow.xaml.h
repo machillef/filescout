@@ -225,7 +225,8 @@ namespace winrt::FileScoutNative::implementation
         void ShowContextMenu(
             ::FileScoutNative::Domain::ContextMenuModel const& model,
             std::optional<int32_t> itemIndex,
-            winrt::Microsoft::UI::Xaml::FrameworkElement const& target);
+            winrt::Microsoft::UI::Xaml::FrameworkElement const& target,
+            winrt::Windows::Foundation::Point tapPoint);
         void AppendContextCommands(
             winrt::Microsoft::UI::Xaml::Controls::MenuFlyout const& flyout,
             std::vector<::FileScoutNative::Domain::ExplorerCommand> const& commands,

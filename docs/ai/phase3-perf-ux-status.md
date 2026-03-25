@@ -92,7 +92,7 @@
 
 | P3 | Complete | 2026-03-24 |
 | P4 | Complete | 2026-03-24 |
-| U1 | Complete | 2026-03-24 |
+| U1 | Complete | 2026-03-25 |
 
 ### U1 — Complete (2026-03-24)
 
@@ -143,7 +143,7 @@ already registered in `SetupKeyboardAccelerators`. Ctrl+T opens a new tab.
 | S1 | Complete | 2026-03-24 |
 | S2 | Complete | 2026-03-24 |
 | S3 | Complete | 2026-03-25 |
-| S4 | Needs Fix | 2026-03-25 |
+| S4 | Complete | 2026-03-25 |
 
 ### U6 — Complete (2026-03-24)
 
@@ -279,4 +279,33 @@ Reported by: Manual testing
 Description: Right-click context menu appears in the bottom-left corner of the window (near the
 sidebar) instead of near the right-clicked file list item. Screenshot shows menu at ~(0, bottom)
 of the window regardless of where the user clicks.
+
+### Fix: context menu positioned at wrong location (2026-03-25)
+Reported by: Manual testing
+Root cause: `m_contextMenu.ShowAt(target)` with no options anchors the flyout to the FrameworkElement's
+layout origin (0, 0 relative to the ListView), not the tap position. For a large ListView spanning
+most of the window, WinUI 3 placed the menu near the sidebar.
+Fix:
+- `MainWindow.xaml.h`: added `winrt::Windows::Foundation::Point tapPoint` parameter to `ShowContextMenu`
+- `MainWindow.xaml.cpp` (`ShowContextMenu`): replaced `m_contextMenu.ShowAt(target)` with
+  `FlyoutShowOptions` using `options.Position(tapPoint)` + `options.ShowMode(Transient)`
+- `MainWindow.xaml.cpp` (`FileRowsListView_RightTapped`): added
+  `auto const tapPoint = args.GetPosition(ActivePane().active_list_view)` and passed to `ShowContextMenu`
+Tests added: No test framework for UI placement — verified by code review (FlyoutShowOptions contract).
+Validated: Build clean. 110/110 tests pass.
+
+### Bug Report: U1 breadcrumbs still too small (2026-03-25)
+Reported by: Manual testing
+Description: After the U1 change (12→14px font, 38→44px height), breadcrumbs were still visually
+too small. User requested a more aggressive size increase.
+
+### Fix: breadcrumb font and container size — second pass (2026-03-25)
+Reported by: Manual testing
+Root cause: First pass delta (12→14px, 38→44px height) insufficient for comfortable readability.
+Fix:
+- `MainWindow.xaml`: `BreadcrumbBarBorder` `MinHeight` 44→52, `Padding` 6→8
+- `MainWindow.xaml.cpp` (`UpdateBreadcrumbs`): `lbl.FontSize` 14→16, `sep.FontSize` 14→16,
+  `btn.Padding` {6,0,6,0}→{8,2,8,2}
+Tests added: No test framework for visual sizing — verified by code review.
+Validated: Build clean. 110/110 tests pass.
 

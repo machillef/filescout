@@ -1466,10 +1466,12 @@ namespace winrt::FileScoutNative::implementation
 
         if (ActivePane().active_list_view)
         {
+            auto const tapPoint = args.GetPosition(ActivePane().active_list_view);
             ShowContextMenu(
                 m_contextMenuService.BuildMenu(scenario),
                 itemIndex,
-                ActivePane().active_list_view);
+                ActivePane().active_list_view,
+                tapPoint);
         }
 
         args.Handled(true);
@@ -2524,7 +2526,8 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::ShowContextMenu(
         ::FileScoutNative::Domain::ContextMenuModel const& model,
         std::optional<int32_t> const itemIndex,
-        winrt::Microsoft::UI::Xaml::FrameworkElement const& target)
+        winrt::Microsoft::UI::Xaml::FrameworkElement const& target,
+        winrt::Windows::Foundation::Point const tapPoint)
     {
         auto flyout = winrt::Microsoft::UI::Xaml::Controls::MenuFlyout{};
         AppendContextCommands(flyout, model.primary_commands, itemIndex);
@@ -2547,7 +2550,10 @@ namespace winrt::FileScoutNative::implementation
         }
 
         m_contextMenu = flyout;
-        m_contextMenu.ShowAt(target);
+        winrt::Microsoft::UI::Xaml::Controls::Primitives::FlyoutShowOptions options;
+        options.Position(tapPoint);
+        options.ShowMode(winrt::Microsoft::UI::Xaml::Controls::Primitives::FlyoutShowMode::Transient);
+        m_contextMenu.ShowAt(target, options);
     }
 
     void MainWindow::AppendContextCommands(
@@ -4695,15 +4701,15 @@ namespace winrt::FileScoutNative::implementation
                 sep.Text(L" \u203A ");
                 sep.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
                 sep.Opacity(0.4);
-                sep.FontSize(14);
+                sep.FontSize(16);
                 panel.Children().Append(sep);
             }
 
             MUI::HyperlinkButton btn;
-            btn.Padding({ 6, 0, 6, 0 });
+            btn.Padding({ 8, 2, 8, 2 });
             MUI::TextBlock lbl;
             lbl.Text(winrt::hstring(label));
-            lbl.FontSize(14);
+            lbl.FontSize(16);
             lbl.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
             btn.Content(lbl);
 
