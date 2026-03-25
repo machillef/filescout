@@ -1963,6 +1963,11 @@ namespace winrt::FileScoutNative::implementation
         // Prevent search Filter snapshot from capturing a partial item set during streaming.
         pane.awaiting_final_batch = true;
 
+        // Capture sort parameters while still on the UI thread so the background section
+        // can sort without accessing pane state across threads.
+        SortColumn const sort_column = pane.sort_column;
+        SortDirection const sort_direction = pane.sort_direction;
+
         // Switch to a thread-pool thread for I/O and shell COM calls.
         co_await winrt::resume_background();
 
@@ -2052,16 +2057,27 @@ namespace winrt::FileScoutNative::implementation
                 auto items = m_shellInterop.EnumerateDirectory(absolute);
                 timing.enumeration_end_tick = ::GetTickCount64();
 
+                // L1: Sort and pre-build all ViewModels on the background thread.
+                // MakeFileRowViewModel sets only hstring fields + bool — no WinUI/STA constraints.
+                // The prebuilt objects are handed to the UI thread via lambda capture; after
+                // handoff they are never accessed from the background thread again.
+                SortItems(items, sort_column, sort_direction);
+                std::vector<winrt::FileScoutNative::FileRowViewModel> prebuilt;
+                prebuilt.reserve(items.size());
+                for (auto const& item : items)
+                    prebuilt.push_back(MakeFileRowViewModel(item));
+
                 m_dispatcherQueue.TryEnqueue(
                     [this, lifetime, paneIndex, tabIndex, generation,
-                     absolute, selectAfter, timing, items = std::move(items)]() mutable
+                     absolute, selectAfter, timing,
+                     items = std::move(items),
+                     prebuilt = std::move(prebuilt)]() mutable
                     {
                         auto& pane = m_panes[paneIndex];
                         if (pane.load_generation != generation) return;
                         if (pane.active_tab_index != tabIndex) return;
 
-                        SortItems(items, pane.sort_column, pane.sort_direction);
-                        std::size_t const totalItems = items.size();
+                        std::size_t const totalItems = prebuilt.size();
                         pane.current_path = absolute;
                         pane.is_drives_view = false;
                         pane.is_archive_view = false;
@@ -2099,7 +2115,7 @@ namespace winrt::FileScoutNative::implementation
                         std::size_t const firstBatchEnd = (std::min)(k_first_batch, totalItems);
 
                         for (std::size_t i = 0; i < firstBatchEnd; ++i)
-                            rows.Append(MakeFileRowViewModel(items[i]));
+                            rows.Append(prebuilt[i]);
 
                         timing.first_batch_publish_tick = ::GetTickCount64();
                         pane.user_interacted_after_first_batch = false;
@@ -2141,8 +2157,9 @@ namespace winrt::FileScoutNative::implementation
                         pane.last_load_timing = timing;
                         m_dispatcherQueue.TryEnqueue(
                             [this, lifetime, paneIndex, tabIndex, generation, absolute, selectAfter,
-                             items = std::move(items), timing,
-                             firstBatchEnd]() mutable
+                             items = std::move(items),
+                             prebuilt = std::move(prebuilt),
+                             timing, firstBatchEnd]() mutable
                             {
                                 auto& pane = m_panes[paneIndex];
                                 if (pane.load_generation != generation) return;
@@ -2151,9 +2168,9 @@ namespace winrt::FileScoutNative::implementation
                                 pane.awaiting_final_batch = false;
 
                                 auto& rows = pane.tab_rows[tabIndex];
-                                std::size_t const totalItems = items.size();
+                                std::size_t const totalItems = prebuilt.size();
                                 for (std::size_t i = firstBatchEnd; i < totalItems; ++i)
-                                    rows.Append(MakeFileRowViewModel(items[i]));
+                                    rows.Append(prebuilt[i]);
 
                                 timing.final_publish_tick = ::GetTickCount64();
                                 pane.last_load_timing = timing;
