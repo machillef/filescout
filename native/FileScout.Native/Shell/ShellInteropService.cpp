@@ -633,6 +633,7 @@ namespace FileScoutNative::Shell
             item.display_name = displayName;
             item.parsing_name = drivePath.wstring();
             item.kind_label = kindLabel;
+            item.drive_type = driveType;
             item.is_folder = true;
             item.icon = GetIconForItem(drivePath, true);
 

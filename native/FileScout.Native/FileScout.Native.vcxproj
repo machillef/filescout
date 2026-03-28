@@ -133,8 +133,11 @@
     <ClInclude Include="Domain\CommandEntry.h" />
     <ClInclude Include="Domain\DriveCapacity.h" />
     <ClInclude Include="Domain\RowFormatting.h" />
+    <ClInclude Include="Domain\SidebarIconInfo.h" />
     <ClInclude Include="Domain\SidebarRecents.h" />
     <ClInclude Include="Domain\ShellItemRef.h" />
+    <ClInclude Include="Domain\ThemeDefinition.h" />
+    <ClInclude Include="Domain\ThemeService.h" />
     <ClInclude Include="Shell\CommandRegistry.h" />
     <ClInclude Include="Shell\ContextMenuService.h" />
     <ClInclude Include="Shell\FavoritesService.h" />
@@ -162,7 +165,9 @@
     <ClCompile Include="Domain\FileRowViewModel.cpp" />
     <ClCompile Include="Domain\DriveCapacity.cpp" />
     <ClCompile Include="Domain\RowFormatting.cpp" />
+    <ClCompile Include="Domain\SidebarIconInfo.cpp" />
     <ClCompile Include="Domain\SidebarRecents.cpp" />
+    <ClCompile Include="Domain\ThemeService.cpp" />
     <ClCompile Include="Shell\CommandRegistry.cpp" />
     <ClCompile Include="Shell\ContextMenuService.cpp" />
     <ClCompile Include="Shell\FavoritesService.cpp" />

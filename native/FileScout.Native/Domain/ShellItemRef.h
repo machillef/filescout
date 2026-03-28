@@ -15,6 +15,7 @@ namespace FileScoutNative::Domain
         std::wstring display_name;
         std::wstring parsing_name;
         std::wstring kind_label;
+        std::uint32_t drive_type{ 0 };
         IconBitmap icon;
         bool is_folder{ false };
         bool size_available{ false };

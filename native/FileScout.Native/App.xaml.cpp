@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "App.xaml.h"
+#include "Domain/ThemeService.h"
 #include "MainWindow.xaml.h"
 #include "TraceHelper.h"
 
@@ -9,6 +10,58 @@ namespace winrt::FileScoutNative::implementation
 {
     namespace
     {
+        winrt::Windows::UI::Color ColorFromArgb(std::uint32_t const argb)
+        {
+            return winrt::Windows::UI::Color{
+                static_cast<std::uint8_t>((argb >> 24) & 0xFF),
+                static_cast<std::uint8_t>((argb >> 16) & 0xFF),
+                static_cast<std::uint8_t>((argb >> 8) & 0xFF),
+                static_cast<std::uint8_t>(argb & 0xFF),
+            };
+        }
+
+        winrt::Microsoft::UI::Xaml::Media::SolidColorBrush BuildThemeBrush(
+            std::uint32_t const argb)
+        {
+            return winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(ColorFromArgb(argb));
+        }
+
+        winrt::Microsoft::UI::Xaml::ResourceDictionary BuildThemeResourceDictionary(
+            ::FileScoutNative::Domain::ThemeDefinition const& theme)
+        {
+            auto dictionary = winrt::Microsoft::UI::Xaml::ResourceDictionary{};
+            for (auto const& entry : ::FileScoutNative::Domain::BuildThemeResourceEntries(theme))
+            {
+                dictionary.Insert(
+                    winrt::box_value(winrt::hstring{ entry.resource_key }),
+                    BuildThemeBrush(entry.color));
+            }
+            return dictionary;
+        }
+
+        void UpdateThemeResourceDictionary(
+            winrt::Microsoft::UI::Xaml::ResourceDictionary const& dictionary,
+            ::FileScoutNative::Domain::ThemeDefinition const& theme)
+        {
+            for (auto const& entry : ::FileScoutNative::Domain::BuildThemeResourceEntries(theme))
+            {
+                auto const key = winrt::box_value(winrt::hstring{ entry.resource_key });
+                auto const color = ColorFromArgb(entry.color);
+
+                if (dictionary.HasKey(key))
+                {
+                    if (auto const brush =
+                        dictionary.Lookup(key).try_as<winrt::Microsoft::UI::Xaml::Media::SolidColorBrush>())
+                    {
+                        brush.Color(color);
+                        continue;
+                    }
+                }
+
+                dictionary.Insert(key, BuildThemeBrush(entry.color));
+            }
+        }
+
         void AppendStartupLog(std::wstring const& line)
         {
             auto const path = std::filesystem::temp_directory_path() / "FileScout.Native.startup.log";
@@ -51,6 +104,7 @@ namespace winrt::FileScoutNative::implementation
     App::App()
     {
         TraceLog(L"App::App() start");
+        s_current = this;
         InitializeComponent();
         TraceLog(L"App::App() InitializeComponent done");
 
@@ -74,6 +128,9 @@ namespace winrt::FileScoutNative::implementation
         TraceLog(L"App::OnLaunched start");
         try
         {
+            TraceLog(L"App::OnLaunched: ApplyTheme...");
+            ApplyTheme(::FileScoutNative::Domain::ThemeService::LoadSavedThemeId());
+            TraceLog(L"App::OnLaunched: ApplyTheme done");
             TraceLog(L"App::OnLaunched: make<MainWindow>...");
             m_window = winrt::make<MainWindow>();
             TraceLog(L"App::OnLaunched: Activate...");
@@ -96,5 +153,20 @@ namespace winrt::FileScoutNative::implementation
                 L"FileScout Native startup failed",
                 L"An unknown non-WinRT exception escaped during launch.");
         }
+    }
+
+    void App::ApplyTheme(std::wstring_view const themeId)
+    {
+        auto const theme = ::FileScoutNative::Domain::ThemeService::GetTheme(themeId);
+        auto const mergedDictionaries = Resources().MergedDictionaries();
+
+        if (!m_themeResources)
+        {
+            m_themeResources = BuildThemeResourceDictionary(theme);
+            mergedDictionaries.Append(m_themeResources);
+            return;
+        }
+
+        UpdateThemeResourceDictionary(m_themeResources, theme);
     }
 }

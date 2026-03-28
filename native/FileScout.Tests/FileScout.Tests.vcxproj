@@ -122,8 +122,11 @@
     <ClCompile Include="..\FileScout.Native\Search\SearchService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\CommandRegistry.cpp" />
     <ClCompile Include="..\FileScout.Native\Domain\DriveCapacity.cpp" />
+    <ClCompile Include="..\FileScout.Native\Domain\FileRowViewModel.cpp" />
     <ClCompile Include="..\FileScout.Native\Domain\RowFormatting.cpp" />
+    <ClCompile Include="..\FileScout.Native\Domain\SidebarIconInfo.cpp" />
     <ClCompile Include="..\FileScout.Native\Domain\SidebarRecents.cpp" />
+    <ClCompile Include="..\FileScout.Native\Domain\ThemeService.cpp" />
   </ItemGroup>
 
   <!-- Test sources -->
@@ -137,7 +140,11 @@
     <ClCompile Include="tests\CommandRegistryTests.cpp" />
     <ClCompile Include="tests\FileRowViewModelTests.cpp" />
     <ClCompile Include="tests\DriveCapacityTests.cpp" />
+    <ClCompile Include="tests\RowIconStateTests.cpp" />
+    <ClCompile Include="tests\SidebarIconInfoTests.cpp" />
+    <ClCompile Include="tests\ShellItemSortTests.cpp" />
     <ClCompile Include="tests\SidebarRecentsTests.cpp" />
+    <ClCompile Include="tests\ThemeServiceTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
