@@ -6,10 +6,15 @@
 #include <winrt/Windows.Graphics.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
+#include "App.xaml.h"
 #include "MainWindow.xaml.h"
 #include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
+#include "Domain/RowIconState.h"
+#include "Domain/ShellItemSort.h"
+#include "Domain/SidebarIconInfo.h"
 #include "Domain/SidebarRecents.h"
+#include "Domain/ThemeService.h"
 #include "Search/FuzzyMatcher.h"
 #include "TraceHelper.h"
 
@@ -26,6 +31,16 @@ namespace
         return winrt::hstring{ value };
     }
 
+    winrt::Windows::UI::Color ColorFromArgb(std::uint32_t const argb)
+    {
+        return winrt::Windows::UI::Color{
+            static_cast<std::uint8_t>((argb >> 24) & 0xFF),
+            static_cast<std::uint8_t>((argb >> 16) & 0xFF),
+            static_cast<std::uint8_t>((argb >> 8) & 0xFF),
+            static_cast<std::uint8_t>(argb & 0xFF),
+        };
+    }
+
     winrt::Microsoft::UI::Xaml::Media::Brush LookupBrush(std::wstring_view const key)
     {
         try
@@ -40,6 +55,46 @@ namespace
             return winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
                 winrt::Windows::UI::Color{ 0xFF, 0xF3, 0xF4, 0xF6 });
         }
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::FontIcon BuildThemeSwatchIcon(
+        std::uint32_t const argb,
+        double const fontSize = 12.0)
+    {
+        auto icon = winrt::Microsoft::UI::Xaml::Controls::FontIcon{};
+        icon.Glyph(L"\u25CF");
+        icon.FontFamily(winrt::Microsoft::UI::Xaml::Media::FontFamily(L"Segoe UI Symbol"));
+        icon.FontSize(fontSize);
+        icon.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(ColorFromArgb(argb)));
+        icon.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+        icon.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+        return icon;
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::StackPanel BuildThemeButtonContent(
+        ::FileScoutNative::Domain::ThemeDefinition const& theme)
+    {
+        auto panel = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
+        panel.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
+        panel.Spacing(8);
+        panel.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+
+        auto icon = BuildThemeSwatchIcon(theme.accent, 12.0);
+
+        auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+        label.Text(ToHString(theme.display_name));
+        label.FontWeight(winrt::Microsoft::UI::Text::FontWeights::SemiBold());
+        label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+        label.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+
+        panel.Children().Append(icon);
+        panel.Children().Append(label);
+        return panel;
+    }
+
+    winrt::FileScoutNative::implementation::App* CurrentAppImplementation()
+    {
+        return winrt::FileScoutNative::implementation::App::Current();
     }
 
     std::optional<winrt::Windows::Graphics::RectInt32> TryGetElementRect(
@@ -378,6 +433,7 @@ namespace
     {
         std::filesystem::path path;
         std::wstring display_name;
+        std::uint32_t drive_type{ 0 };
         bool has_usage{ false };
         std::uintmax_t free_bytes{ 0 };
         std::uintmax_t total_bytes{ 0 };
@@ -394,6 +450,7 @@ namespace
             SidebarDriveUsage sidebarDrive{
                 .path = drive.path,
                 .display_name = drive.display_name,
+                .drive_type = drive.drive_type,
                 .icon = drive.icon,
             };
 
@@ -409,7 +466,6 @@ namespace
             {
                 auto const total = static_cast<std::uintmax_t>(totalBytes.QuadPart);
                 auto const free = static_cast<std::uintmax_t>(totalFreeBytes.QuadPart);
-                auto const used = total > free ? total - free : 0;
 
                 sidebarDrive.has_usage = true;
                 sidebarDrive.free_bytes = free;
@@ -441,13 +497,14 @@ namespace
 
     winrt::Microsoft::UI::Xaml::Controls::FontIcon BuildSidebarFontIcon(
         std::wstring_view const glyph,
-        double const fontSize = 15.0)
+        double const fontSize = 15.0,
+        std::wstring_view const foregroundBrushKey = L"TextFillColorPrimaryBrush")
     {
         auto icon = winrt::Microsoft::UI::Xaml::Controls::FontIcon{};
         icon.Glyph(winrt::hstring{ glyph });
         icon.FontFamily(winrt::Microsoft::UI::Xaml::Media::FontFamily(L"Segoe Fluent Icons"));
         icon.FontSize(fontSize);
-        icon.Foreground(LookupBrush(L"TextFillColorSecondaryBrush"));
+        icon.Foreground(LookupBrush(foregroundBrushKey));
         icon.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
         icon.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
         return icon;
@@ -474,62 +531,24 @@ namespace
         return {};
     }
 
-    std::wstring_view KnownFolderGlyph(std::wstring_view const displayName)
+    void ApplyCachedRowIconsToRows(
+        std::vector<::FileScoutNative::Domain::ShellItemRef> const& items,
+        winrt::Windows::Foundation::Collections::IObservableVector<winrt::FileScoutNative::FileRowViewModel> const& rows,
+        std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::Media::ImageSource> const& iconCache)
     {
-        using namespace std::literals;
-        auto const equalsIgnoreCase = [](std::wstring_view const left, std::wstring_view const right)
-        {
-            return left.size() == right.size() &&
-                _wcsnicmp(left.data(), right.data(), left.size()) == 0;
-        };
+        auto const total = static_cast<uint32_t>(
+            (std::min)(items.size(), static_cast<std::size_t>(rows.Size())));
 
-        if (equalsIgnoreCase(displayName, L"Home"sv) ||
-            equalsIgnoreCase(displayName, L"Quick access"sv))
+        for (auto const index : ::FileScoutNative::Domain::CachedRowIconIndices(items, iconCache))
         {
-            return L"\uE80F";
+            if (index >= total)
+            {
+                continue;
+            }
+
+            rows.GetAt(index).IconSource(
+                iconCache.at(::FileScoutNative::Domain::RowIconCacheKey(items[index])));
         }
-
-        if (equalsIgnoreCase(displayName, L"Desktop"sv))
-        {
-            return L"\uEC64";
-        }
-
-        if (equalsIgnoreCase(displayName, L"Documents"sv))
-        {
-            return L"\uE8A5";
-        }
-
-        if (equalsIgnoreCase(displayName, L"Downloads"sv))
-        {
-            return L"\uE896";
-        }
-
-        if (equalsIgnoreCase(displayName, L"Pictures"sv))
-        {
-            return L"\uEB9F";
-        }
-
-        if (equalsIgnoreCase(displayName, L"Music"sv))
-        {
-            return L"\uEC4F";
-        }
-
-        if (equalsIgnoreCase(displayName, L"Videos"sv))
-        {
-            return L"\uE8B2";
-        }
-
-        if (equalsIgnoreCase(displayName, L"This PC"sv))
-        {
-            return L"\uEDA2";
-        }
-
-        if (equalsIgnoreCase(displayName, L"Recycle Bin"sv))
-        {
-            return L"\uE74D";
-        }
-
-        return {};
     }
 
     winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarGlyph(
@@ -537,6 +556,11 @@ namespace
         std::optional<::FileScoutNative::Domain::IconBitmap> const& icon,
         std::wstring const& fallbackText)
     {
+        if (auto const glyph = ::FileScoutNative::Domain::KnownFolderGlyph(displayName); !glyph.empty())
+        {
+            return BuildSidebarFontIcon(glyph);
+        }
+
         if (icon.has_value())
         {
             auto image = winrt::Microsoft::UI::Xaml::Controls::Image{};
@@ -550,11 +574,6 @@ namespace
                 image.Source(source);
                 return image;
             }
-        }
-
-        if (auto const glyph = KnownFolderGlyph(displayName); !glyph.empty())
-        {
-            return BuildSidebarFontIcon(glyph);
         }
 
         auto fallback = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
@@ -575,6 +594,93 @@ namespace
     {
         return winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
             winrt::Windows::UI::Color{ alpha, red, green, blue });
+    }
+
+    template<typename T>
+    T FindDescendantByType(winrt::Microsoft::UI::Xaml::DependencyObject const& root)
+    {
+        if (!root)
+        {
+            return nullptr;
+        }
+
+        auto const childCount =
+            winrt::Microsoft::UI::Xaml::Media::VisualTreeHelper::GetChildrenCount(root);
+        for (int32_t index = 0; index < childCount; ++index)
+        {
+            auto const child =
+                winrt::Microsoft::UI::Xaml::Media::VisualTreeHelper::GetChild(root, index);
+            if (auto const typed = child.try_as<T>())
+            {
+                return typed;
+            }
+
+            if (auto const descendant = FindDescendantByType<T>(child))
+            {
+                return descendant;
+            }
+        }
+
+        return nullptr;
+    }
+
+    template<typename T>
+    bool HasAncestorOfType(winrt::Windows::Foundation::IInspectable const& source)
+    {
+        auto dependencyObject = source.try_as<winrt::Microsoft::UI::Xaml::DependencyObject>();
+        while (dependencyObject)
+        {
+            if (dependencyObject.try_as<T>())
+            {
+                return true;
+            }
+
+            dependencyObject = winrt::Microsoft::UI::Xaml::Media::VisualTreeHelper::GetParent(dependencyObject);
+        }
+
+        return false;
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::Grid CreatePaneSurfaceHost(
+        winrt::Microsoft::UI::Xaml::Controls::ListView const& listView)
+    {
+        auto host = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        host.Background(SolidBrush(0x00, 0x00, 0x00, 0x00));
+        host.IsRightTapEnabled(true);
+        host.Children().Append(listView);
+        return host;
+    }
+
+    winrt::hstring RowItemStyleKeyForViewMode(
+        winrt::FileScoutNative::implementation::ViewMode const mode)
+    {
+        return mode == winrt::FileScoutNative::implementation::ViewMode::List
+            ? winrt::hstring{ L"ListRowItemStyle" }
+            : winrt::hstring{ L"CardRowItemStyle" };
+    }
+
+    winrt::hstring RowTemplateKeyForViewMode(
+        winrt::FileScoutNative::implementation::ViewMode const mode)
+    {
+        return mode == winrt::FileScoutNative::implementation::ViewMode::List
+            ? winrt::hstring{ L"ListRowTemplate" }
+            : winrt::hstring{ L"CardRowTemplate" };
+    }
+
+    winrt::Microsoft::UI::Xaml::Controls::ListView ResolveTabContentListView(
+        winrt::Windows::Foundation::IInspectable const& content)
+    {
+        if (auto const listView = content.try_as<winrt::Microsoft::UI::Xaml::Controls::ListView>())
+        {
+            return listView;
+        }
+
+        if (auto const element = content.try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>())
+        {
+            return FindDescendantByType<winrt::Microsoft::UI::Xaml::Controls::ListView>(element);
+        }
+
+        return nullptr;
     }
 
     winrt::Microsoft::UI::Xaml::Controls::Border BuildSidebarTile(
@@ -627,22 +733,9 @@ namespace
     winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarDriveGlyph(
         SidebarDriveUsage const& drive)
     {
-        if (!drive.icon.rgba.empty())
-        {
-            auto image = winrt::Microsoft::UI::Xaml::Controls::Image{};
-            image.Width(16);
-            image.Height(16);
-            image.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
-            image.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
-            image.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
-            if (auto const source = BuildIconSource(drive.icon))
-            {
-                image.Source(source);
-                return image;
-            }
-        }
-
-        return BuildSidebarFontIcon(L"\uEDA2", 16.0);
+        return BuildSidebarFontIcon(
+            ::FileScoutNative::Domain::DriveTypeGlyph(drive.drive_type),
+            16.0);
     }
 
     std::wstring BuildDriveUsageText(SidebarDriveUsage const& drive)
@@ -1002,7 +1095,21 @@ namespace winrt::FileScoutNative::implementation
         ConfigureWindow();
         TraceLog(L"MainWindow ctor: ConfigureWindow done. SetupKeyboardAccelerators...");
         SetupKeyboardAccelerators();
-        TraceLog(L"MainWindow ctor: SetupKeyboardAccelerators done.");
+        TraceLog(L"MainWindow ctor: SetupKeyboardAccelerators done. InitializeThemeDropDown...");
+        m_currentThemeId = ::FileScoutNative::Domain::ThemeService::LoadSavedThemeId();
+        InitializeThemeDropDown();
+        TraceLog(L"MainWindow ctor: InitializeThemeDropDown done.");
+
+        LeftPaneBorder().ContextRequested([this](auto const& sender, auto const& args)
+            {
+                SetActivePaneIndex(0);
+                PaneSurface_ContextRequested(sender, args);
+            });
+        RightPaneBorder().ContextRequested([this](auto const& sender, auto const& args)
+            {
+                SetActivePaneIndex(1);
+                PaneSurface_ContextRequested(sender, args);
+            });
 
         // Start in the user's home folder rather than the process working directory.
         auto const startPath = m_favoritesService.GetUserHomePath();
@@ -1072,6 +1179,80 @@ namespace winrt::FileScoutNative::implementation
         Microsoft::UI::Xaml::SizeChangedEventArgs const&)
     {
         UpdateTitleBarInteractiveRegions();
+    }
+
+    void MainWindow::InitializeThemeDropDown()
+    {
+        RefreshThemeDropDown();
+    }
+
+    void MainWindow::RefreshThemeDropDown()
+    {
+        auto const currentTheme =
+            ::FileScoutNative::Domain::ThemeService::GetTheme(m_currentThemeId);
+        m_currentThemeId = currentTheme.id;
+
+        ThemeDropDownButton().Content(BuildThemeButtonContent(currentTheme));
+
+        auto flyout = winrt::Microsoft::UI::Xaml::Controls::MenuFlyout{};
+        for (auto const& theme : ::FileScoutNative::Domain::ThemeService::GetAllThemes())
+        {
+            auto item = winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem{};
+            item.Icon(BuildThemeSwatchIcon(theme.accent, 11.0));
+            item.Text(ToHString(
+                theme.id == m_currentThemeId
+                    ? theme.display_name + L" (Current)"
+                    : theme.display_name));
+            item.FontWeight(
+                theme.id == m_currentThemeId
+                    ? winrt::Microsoft::UI::Text::FontWeights::SemiBold()
+                    : winrt::Microsoft::UI::Text::FontWeights::Normal());
+
+            auto const themeId = theme.id;
+            item.Click([this, themeId](auto const&, auto const&)
+            {
+                ApplyThemeSelection(themeId);
+            });
+
+            flyout.Items().Append(item);
+        }
+
+        ThemeDropDownButton().Flyout(flyout);
+        UpdateTitleBarInteractiveRegions();
+    }
+
+    void MainWindow::ApplyThemeSelection(std::wstring_view const themeId)
+    {
+        auto const theme = ::FileScoutNative::Domain::ThemeService::GetTheme(themeId);
+
+        try
+        {
+            CurrentAppImplementation()->ApplyTheme(theme.id);
+            ::FileScoutNative::Domain::ThemeService::SaveThemeId(theme.id);
+            m_currentThemeId = theme.id;
+
+            RefreshThemeDropDown();
+            RefreshThemeSensitiveChrome();
+            StatusTextBlock().Text(ToHString(L"Theme changed to " + theme.display_name + L"."));
+        }
+        catch (...)
+        {
+            StatusTextBlock().Text(L"Theme change failed.");
+        }
+    }
+
+    void MainWindow::RefreshThemeSensitiveChrome()
+    {
+        BuildSidebarFavorites();
+        BuildSortHeader(0);
+        BuildSortHeader(1);
+        UpdateActivePaneIndicator();
+
+        if (CommandPaletteOverlay().Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible)
+        {
+            auto const query = CommandPaletteTextBox().Text();
+            RefreshCommandPalette(query.c_str());
+        }
     }
 
     void MainWindow::RefreshButton_Click(
@@ -1408,6 +1589,13 @@ namespace winrt::FileScoutNative::implementation
         winrt::Windows::Foundation::IInspectable const&,
         Microsoft::UI::Xaml::Input::RightTappedRoutedEventArgs const& args)
     {
+        if (ShouldSkipPaneContextMenu(args.OriginalSource()))
+        {
+            return;
+        }
+
+        args.Handled(true);
+
         if (POINT point{}; GetCursorPos(&point))
         {
             m_lastContextMenuPoint = point;
@@ -1471,17 +1659,160 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
-        if (ActivePane().active_list_view)
+        if (auto const target = [&]() -> winrt::Microsoft::UI::Xaml::FrameworkElement
+            {
+                if (auto const senderTarget = args.OriginalSource().try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>())
+                {
+                    auto dependencyObject = senderTarget.try_as<winrt::Microsoft::UI::Xaml::DependencyObject>();
+                    while (dependencyObject)
+                    {
+                        if (auto const listView = dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::ListView>())
+                        {
+                            return listView;
+                        }
+
+                        if (auto const border = dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::Border>())
+                        {
+                            if (border == LeftPaneBorder() || border == RightPaneBorder())
+                            {
+                                return border;
+                            }
+                        }
+
+                        dependencyObject = winrt::Microsoft::UI::Xaml::Media::VisualTreeHelper::GetParent(dependencyObject);
+                    }
+                }
+
+                if (ActivePane().active_list_view)
+                {
+                    return ActivePane().active_list_view;
+                }
+
+                return nullptr;
+            }(); target)
         {
-            auto const tapPoint = args.GetPosition(ActivePane().active_list_view);
+            auto const tapPoint = args.GetPosition(target);
             ShowContextMenu(
                 m_contextMenuService.BuildMenu(scenario),
                 itemIndex,
-                ActivePane().active_list_view,
+                target,
                 tapPoint);
         }
 
         args.Handled(true);
+    }
+
+    void MainWindow::PaneSurface_ContextRequested(
+        winrt::Microsoft::UI::Xaml::UIElement const& sender,
+        winrt::Microsoft::UI::Xaml::Input::ContextRequestedEventArgs const& args)
+    {
+        if (ShouldSkipPaneContextMenu(args.OriginalSource()))
+        {
+            return;
+        }
+
+        auto const itemIndex = ResolveItemIndexFromSource(args.OriginalSource());
+        if (itemIndex.has_value())
+        {
+            return;
+        }
+
+        args.Handled(true);
+
+        if (POINT point{}; GetCursorPos(&point))
+        {
+            m_lastContextMenuPoint = point;
+            m_hasLastContextMenuPoint = true;
+        }
+
+        if (ActivePane().active_list_view)
+        {
+            ActivePane().active_list_view.SelectedIndex(-1);
+            SelectItemByIndex(-1);
+        }
+
+        ::FileScoutNative::Shell::ContextMenuScenario scenario;
+        scenario.can_paste =
+            !ActivePane().is_archive_view &&
+            m_shellClipboardService.CanPasteInto(ActivePane().current_path);
+        scenario.is_read_only_archive_view = ActivePane().is_archive_view;
+        scenario.selection_count = static_cast<uint32_t>(GetSelectedItemIndices().size());
+        if (itemIndex.has_value())
+        {
+            scenario.focused_item = ActivePane().items[static_cast<std::size_t>(*itemIndex)];
+        }
+        if (scenario.selection_count <= 1)
+        {
+            if (scenario.focused_item.has_value() &&
+                scenario.focused_item->is_folder &&
+                !scenario.focused_item->path.empty() &&
+                !m_favoritesService.IsSidebarFavorite(scenario.focused_item->path))
+            {
+                scenario.can_pin_to_places = true;
+            }
+            else if (!scenario.focused_item.has_value() &&
+                     !ActivePane().current_path.empty() &&
+                     !ActivePane().is_archive_view &&
+                     !m_favoritesService.IsSidebarFavorite(ActivePane().current_path))
+            {
+                scenario.can_pin_to_places = true;
+            }
+        }
+
+        if (auto const target = [&]() -> winrt::Microsoft::UI::Xaml::FrameworkElement
+            {
+                if (auto const senderTarget = args.OriginalSource().try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>())
+                {
+                    auto dependencyObject = senderTarget.try_as<winrt::Microsoft::UI::Xaml::DependencyObject>();
+                    while (dependencyObject)
+                    {
+                        if (auto const listView = dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::ListView>())
+                        {
+                            return listView;
+                        }
+
+                        if (auto const scrollViewer =
+                                dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>())
+                        {
+                            return scrollViewer;
+                        }
+
+                        if (auto const tabView =
+                                dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::TabView>())
+                        {
+                            return tabView;
+                        }
+
+                        dependencyObject = winrt::Microsoft::UI::Xaml::Media::VisualTreeHelper::GetParent(dependencyObject);
+                    }
+                }
+
+                if (auto const frameworkElement = sender.try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>())
+                {
+                    return frameworkElement;
+                }
+
+                if (ActivePane().active_list_view)
+                {
+                    return ActivePane().active_list_view;
+                }
+
+                return nullptr;
+            }(); target)
+        {
+            winrt::Windows::Foundation::Point tapPoint{};
+            auto const hasPoint = args.TryGetPosition(target.as<winrt::Microsoft::UI::Xaml::UIElement>(), tapPoint);
+            if (!hasPoint)
+            {
+                tapPoint = { 24.0f, 24.0f };
+            }
+
+            ShowContextMenu(
+                m_contextMenuService.BuildMenu(scenario),
+                itemIndex,
+                target,
+                tapPoint);
+        }
     }
 
     void MainWindow::FileRowsListView_DragItemsStarting(
@@ -1782,14 +2113,6 @@ namespace winrt::FileScoutNative::implementation
         auto const appendRect =
             [&](winrt::Microsoft::UI::Xaml::FrameworkElement const& element)
             {
-                if (auto const control = element.try_as<winrt::Microsoft::UI::Xaml::Controls::Control>())
-                {
-                    if (!control.IsEnabled())
-                    {
-                        return;
-                    }
-                }
-
                 if (auto const rect = TryGetElementRect(element, scale))
                 {
                     passthroughRects.push_back(*rect);
@@ -1802,6 +2125,7 @@ namespace winrt::FileScoutNative::implementation
         appendRect(BreadcrumbBarBorder());
         appendRect(AddressTextBox());
         appendRect(SearchTextBox());
+        appendRect(ThemeDropDownButton());
 
         if (passthroughRects.empty())
         {
@@ -1836,59 +2160,29 @@ namespace winrt::FileScoutNative::implementation
         SortColumn const column,
         SortDirection const direction)
     {
-        std::sort(items.begin(), items.end(),
-            [column, direction](
-                ::FileScoutNative::Domain::ShellItemRef const& a,
-                ::FileScoutNative::Domain::ShellItemRef const& b) -> bool
+        auto const mappedColumn = [&]() -> ::FileScoutNative::Domain::ShellItemSortColumn
+        {
+            switch (column)
             {
-                // Folders always sort before files regardless of column or direction —
-                // consistent with Windows Explorer behaviour on all columns.
-                if (a.is_folder != b.is_folder)
-                {
-                    return a.is_folder > b.is_folder;
-                }
+            case SortColumn::Name:
+                return ::FileScoutNative::Domain::ShellItemSortColumn::Name;
+            case SortColumn::Type:
+                return ::FileScoutNative::Domain::ShellItemSortColumn::Type;
+            case SortColumn::Size:
+                return ::FileScoutNative::Domain::ShellItemSortColumn::Size;
+            case SortColumn::DateModified:
+                return ::FileScoutNative::Domain::ShellItemSortColumn::DateModified;
+            }
 
-                bool ascending{};
-                switch (column)
-                {
-                case SortColumn::Name:
-                    ascending = _wcsicmp(a.display_name.c_str(), b.display_name.c_str()) < 0;
-                    break;
-                case SortColumn::Type:
-                    ascending = _wcsicmp(a.kind_label.c_str(), b.kind_label.c_str()) < 0;
-                    break;
-                case SortColumn::Size:
-                    // Items without size (folders) are already separated above; among files,
-                    // sort by size then fall back to name for equal sizes.
-                    if (a.size_available != b.size_available)
-                    {
-                        return a.size_available > b.size_available;
-                    }
-                    if (a.size_bytes != b.size_bytes)
-                    {
-                        ascending = a.size_bytes < b.size_bytes;
-                        break;
-                    }
-                    ascending = _wcsicmp(a.display_name.c_str(), b.display_name.c_str()) < 0;
-                    break;
-                case SortColumn::DateModified:
-                    if (a.date_modified_available != b.date_modified_available)
-                    {
-                        return a.date_modified_available > b.date_modified_available;
-                    }
-                    if (a.date_modified != b.date_modified)
-                    {
-                        ascending = a.date_modified < b.date_modified;
-                        break;
-                    }
-                    ascending = _wcsicmp(a.display_name.c_str(), b.display_name.c_str()) < 0;
-                    break;
-                default:
-                    ascending = _wcsicmp(a.display_name.c_str(), b.display_name.c_str()) < 0;
-                }
+            return ::FileScoutNative::Domain::ShellItemSortColumn::Name;
+        }();
 
-                return direction == SortDirection::Ascending ? ascending : !ascending;
-            });
+        auto const mappedDirection =
+            direction == SortDirection::Ascending
+                ? ::FileScoutNative::Domain::ShellItemSortDirection::Ascending
+                : ::FileScoutNative::Domain::ShellItemSortDirection::Descending;
+
+        ::FileScoutNative::Domain::SortShellItems(items, mappedColumn, mappedDirection);
     }
 
     void MainWindow::LoadDirectory(
@@ -1906,6 +2200,7 @@ namespace winrt::FileScoutNative::implementation
             pane.forward_stack.clear();
             BuildSidebarFavorites();  // refresh recent paths section
         }
+        UpdateNavButtons();
         if (pane.search_mode != SearchMode::None)
         {
             pane.search_service.Cancel();
@@ -2206,17 +2501,6 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    // L3: Returns the icon cache key for an item: lowercase extension (e.g. L".exe"),
-    // L"__folder__" for directories, or L"__file__" for files with no extension.
-    static std::wstring IconCacheKey(::FileScoutNative::Domain::ShellItemRef const& item)
-    {
-        if (item.is_folder) return L"__folder__";
-        auto ext = item.path.extension().wstring();
-        if (ext.empty()) return L"__file__";
-        for (wchar_t& ch : ext) ch = static_cast<wchar_t>(::towlower(ch));
-        return ext;
-    }
-
     // S7 / L3: Backfill real per-extension icons for fast-enumerated rows.
     // GetItemIcon runs on the background thread (all items).
     // UI dispatch is chunked at k_iconChunkSize items to avoid one large UI-thread lambda
@@ -2264,7 +2548,7 @@ namespace winrt::FileScoutNative::implementation
                     for (uint32_t i = chunkStart; i < chunkEnd; ++i)
                     {
                         auto const& item = items_ref[i];
-                        auto const key = IconCacheKey(item);
+                        auto const key = ::FileScoutNative::Domain::RowIconCacheKey(item);
                         auto it = m_iconSourceCache.find(key);
                         if (it != m_iconSourceCache.end())
                         {
@@ -2354,6 +2638,7 @@ namespace winrt::FileScoutNative::implementation
                 ActivePane().tabs[ActivePane().active_tab_index].selection = {};
                 ActivePane().tabs[ActivePane().active_tab_index].selected_item_index = -1;
             }
+            UpdateRowSelectionVisuals(ActivePane());
             return;
         }
 
@@ -2383,6 +2668,34 @@ namespace winrt::FileScoutNative::implementation
             ActivePane().tabs[ActivePane().active_tab_index].selected_item_index =
                 focusedIndex >= 0 ? focusedIndex : selectedIndices.front();
         }
+
+        UpdateRowSelectionVisuals(ActivePane());
+    }
+
+    void MainWindow::UpdateRowSelectionVisuals(PaneContext& pane)
+    {
+        if (pane.active_tab_index < 0 ||
+            pane.active_tab_index >= static_cast<int32_t>(pane.tab_rows.size()))
+        {
+            return;
+        }
+
+        auto const& rows = pane.tab_rows[static_cast<std::size_t>(pane.active_tab_index)];
+        auto const rowCount = rows.Size();
+        auto const selectedCount = static_cast<uint32_t>(
+            (std::min)(pane.items.size(), static_cast<std::size_t>(rowCount)));
+
+        for (uint32_t index = 0; index < selectedCount; ++index)
+        {
+            auto const isSelected =
+                pane.selection.IsSelected(pane.items[static_cast<std::size_t>(index)].parsing_name);
+            rows.GetAt(index).IsSelected(isSelected);
+        }
+
+        for (uint32_t index = selectedCount; index < rowCount; ++index)
+        {
+            rows.GetAt(index).IsSelected(false);
+        }
     }
 
     void MainWindow::SelectItemByIndex(int32_t const index)
@@ -2390,12 +2703,14 @@ namespace winrt::FileScoutNative::implementation
         if (index < 0 || index >= static_cast<int32_t>(ActivePane().items.size()))
         {
             ActivePane().selection.Clear();
+            UpdateRowSelectionVisuals(ActivePane());
             ResetSelectionDetails();
             return;
         }
 
         auto const& item = ActivePane().items[static_cast<std::size_t>(index)];
         ActivePane().selection.ReplaceWith(item.parsing_name);
+        UpdateRowSelectionVisuals(ActivePane());
         UpdateSelectionDetails(item);
 
         auto summary = item.kind_label;
@@ -2587,12 +2902,24 @@ namespace winrt::FileScoutNative::implementation
         return std::nullopt;
     }
 
+    bool MainWindow::ShouldSkipPaneContextMenu(
+        winrt::Windows::Foundation::IInspectable const& source) const
+    {
+        return HasAncestorOfType<winrt::Microsoft::UI::Xaml::Controls::Button>(source);
+    }
+
     void MainWindow::ShowContextMenu(
         ::FileScoutNative::Domain::ContextMenuModel const& model,
         std::optional<int32_t> const itemIndex,
         winrt::Microsoft::UI::Xaml::FrameworkElement const& target,
         winrt::Windows::Foundation::Point const tapPoint)
     {
+        if (m_contextMenu)
+        {
+            m_contextMenu.Hide();
+            m_contextMenu = nullptr;
+        }
+
         auto flyout = winrt::Microsoft::UI::Xaml::Controls::MenuFlyout{};
         AppendContextCommands(flyout, model.primary_commands, itemIndex);
 
@@ -2614,6 +2941,10 @@ namespace winrt::FileScoutNative::implementation
         }
 
         m_contextMenu = flyout;
+        flyout.Closed([this](auto const&, auto const&)
+        {
+            m_contextMenu = nullptr;
+        });
         winrt::Microsoft::UI::Xaml::Controls::Primitives::FlyoutShowOptions options;
         options.Position(tapPoint);
         options.ShowMode(winrt::Microsoft::UI::Xaml::Controls::Primitives::FlyoutShowMode::Transient);
@@ -2629,11 +2960,6 @@ namespace winrt::FileScoutNative::implementation
         {
             auto flyoutItem = winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem{};
             flyoutItem.Text(ToHString(command.label));
-            if (!command.shortcut_text.empty())
-            {
-                flyoutItem.KeyboardAcceleratorTextOverride(ToHString(command.shortcut_text));
-            }
-
             flyoutItem.IsEnabled(command.available);
 
             auto const glyph = GlyphForMenuIconKey(command.icon_key);
@@ -3833,6 +4159,8 @@ namespace winrt::FileScoutNative::implementation
         using KAArgs = winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs;
 
         auto const rootElement = Content().as<winrt::Microsoft::UI::Xaml::UIElement>();
+        rootElement.KeyboardAcceleratorPlacementMode(
+            winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorPlacementMode::Hidden);
         auto const& accelerators = rootElement.KeyboardAccelerators();
 
         auto const AddAccelerator = [&](VK const key, VKM const modifiers, std::wstring commandId)
@@ -3927,11 +4255,13 @@ namespace winrt::FileScoutNative::implementation
         if (pane.back_stack.empty())
         {
             StatusTextBlock().Text(L"No back history.");
+            UpdateNavButtons();
             return;
         }
         auto const prev = pane.back_stack.back();
         pane.back_stack.pop_back();
         pane.forward_stack.push_back(pane.current_path);
+        UpdateNavButtons();
         LoadDirectory(prev, std::nullopt, /*skipHistoryRecord=*/true);
     }
 
@@ -3941,11 +4271,13 @@ namespace winrt::FileScoutNative::implementation
         if (pane.forward_stack.empty())
         {
             StatusTextBlock().Text(L"No forward history.");
+            UpdateNavButtons();
             return;
         }
         auto const next = pane.forward_stack.back();
         pane.forward_stack.pop_back();
         pane.back_stack.push_back(pane.current_path);
+        UpdateNavButtons();
         LoadDirectory(next, std::nullopt, /*skipHistoryRecord=*/true);
     }
 
@@ -4296,6 +4628,8 @@ namespace winrt::FileScoutNative::implementation
     {
         auto listView = winrt::Microsoft::UI::Xaml::Controls::ListView{};
         listView.Margin({ 12, 0, 12, 12 });
+        listView.Background(SolidBrush(0x00, 0x00, 0x00, 0x00));
+        listView.IsRightTapEnabled(true);
         listView.AllowDrop(true);
         listView.CanDrag(true);
         listView.SelectionMode(winrt::Microsoft::UI::Xaml::Controls::ListViewSelectionMode::Extended);
@@ -4306,14 +4640,12 @@ namespace winrt::FileScoutNative::implementation
         {
             auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
             auto const style = rootGrid.Resources()
-                .Lookup(winrt::box_value(winrt::hstring{ L"FileRowItemStyle" }))
+                .Lookup(winrt::box_value(RowItemStyleKeyForViewMode(m_panes[paneIndex].view_mode)))
                 .as<winrt::Microsoft::UI::Xaml::Style>();
             listView.ItemContainerStyle(style);
 
-            auto const templateKey = (m_panes[paneIndex].view_mode == ViewMode::List)
-                ? L"ListRowTemplate" : L"CardRowTemplate";
             auto const tmpl = rootGrid.Resources()
-                .Lookup(winrt::box_value(winrt::hstring{ templateKey }))
+                .Lookup(winrt::box_value(RowTemplateKeyForViewMode(m_panes[paneIndex].view_mode)))
                 .as<winrt::Microsoft::UI::Xaml::DataTemplate>();
             listView.ItemTemplate(tmpl);
         }
@@ -4342,6 +4674,12 @@ namespace winrt::FileScoutNative::implementation
                 FileRowsListView_RightTapped(s, a);
             });
 
+        listView.ContextRequested([this, paneIndex](auto const& s, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                PaneSurface_ContextRequested(s, a);
+            });
+
         listView.DragItemsStarting([this, paneIndex](auto const& s, auto const& a)
             {
                 SetActivePaneIndex(paneIndex);
@@ -4364,6 +4702,38 @@ namespace winrt::FileScoutNative::implementation
             {
                 SetActivePaneIndex(paneIndex);
                 FileRowsListView_KeyDown(a);
+            });
+
+        listView.Loaded([this, paneIndex](auto const& sender, auto const&)
+            {
+                auto const list = sender.as<winrt::Microsoft::UI::Xaml::Controls::ListView>();
+                if (auto const scrollViewer =
+                        FindDescendantByType<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>(list))
+                {
+                    scrollViewer.Background(SolidBrush(0x00, 0x00, 0x00, 0x00));
+                    scrollViewer.IsRightTapEnabled(true);
+                    scrollViewer.VerticalScrollBarVisibility(
+                        winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Visible);
+
+                    auto const existingTag = scrollViewer.Tag();
+                    if (auto const tagValue = existingTag.try_as<winrt::hstring>();
+                        tagValue == winrt::hstring{ L"PaneContextWired" })
+                    {
+                        return;
+                    }
+
+                    scrollViewer.Tag(winrt::box_value(winrt::hstring{ L"PaneContextWired" }));
+                    scrollViewer.RightTapped([this, paneIndex](auto const& s, auto const& a)
+                        {
+                            SetActivePaneIndex(paneIndex);
+                            FileRowsListView_RightTapped(s, a);
+                        });
+                    scrollViewer.ContextRequested([this, paneIndex](auto const& s, auto const& a)
+                        {
+                            SetActivePaneIndex(paneIndex);
+                            PaneSurface_ContextRequested(s, a);
+                        });
+                }
             });
 
         return listView;
@@ -4435,11 +4805,23 @@ namespace winrt::FileScoutNative::implementation
         pane.tabs.push_back({});
 
         auto const newIndex = static_cast<int32_t>(pane.tabs.size()) - 1;
-        auto newListView = CreateTabListView(newRows, m_activePaneIndex);
+        auto const paneIndex = m_activePaneIndex;
+        auto newListView = CreateTabListView(newRows, paneIndex);
+        auto paneSurfaceHost = CreatePaneSurfaceHost(newListView);
+        paneSurfaceHost.RightTapped([this, paneIndex](auto const& s, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                FileRowsListView_RightTapped(s, a);
+            });
+        paneSurfaceHost.ContextRequested([this, paneIndex](auto const& s, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                PaneSurface_ContextRequested(s, a);
+            });
 
         auto tabItem = winrt::Microsoft::UI::Xaml::Controls::TabViewItem{};
         tabItem.Header(winrt::box_value(winrt::hstring{ L"New Tab" }));
-        tabItem.Content(newListView);
+        tabItem.Content(paneSurfaceHost);
         tabView.TabItems().Append(tabItem);
 
         pane.active_tab_index = newIndex;
@@ -4495,7 +4877,7 @@ namespace winrt::FileScoutNative::implementation
         // Get the ListView for the newly active tab.
         auto const tabItemObj = tabView.TabItems().GetAt(static_cast<uint32_t>(pane.active_tab_index));
         auto const tabItem = tabItemObj.as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>();
-        pane.active_list_view = tabItem.Content().as<winrt::Microsoft::UI::Xaml::Controls::ListView>();
+        pane.active_list_view = ResolveTabContentListView(tabItem.Content());
 
         auto const& tab = pane.tabs[pane.active_tab_index];
         pane.current_path = tab.path;
@@ -4579,6 +4961,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         pane.tab_switching = false;
+        UpdateRowSelectionVisuals(pane);
     }
 
     void MainWindow::UpdateTabHeader(int32_t const index)
@@ -4623,12 +5006,23 @@ namespace winrt::FileScoutNative::implementation
         pane.tabs.push_back({});
 
         auto listView0 = CreateTabListView(rows0, paneIndex);
+        auto paneSurfaceHost = CreatePaneSurfaceHost(listView0);
+        paneSurfaceHost.RightTapped([this, paneIndex](auto const& s, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                FileRowsListView_RightTapped(s, a);
+            });
+        paneSurfaceHost.ContextRequested([this, paneIndex](auto const& s, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                PaneSurface_ContextRequested(s, a);
+            });
         pane.active_list_view = listView0;
 
         auto tabItem0 = winrt::Microsoft::UI::Xaml::Controls::TabViewItem{};
         tabItem0.Header(winrt::box_value(winrt::hstring{ L"New Tab" }));
         tabItem0.IsClosable(false);
-        tabItem0.Content(listView0);
+        tabItem0.Content(paneSurfaceHost);
         tabView.TabItems().Append(tabItem0);
         tabView.SelectedIndex(0);
 
@@ -4690,6 +5084,7 @@ namespace winrt::FileScoutNative::implementation
         // Sync search box with incoming pane's search state.
         SearchTextBox().IsReadOnly(ActivePane().search_mode == SearchMode::Recursive);
         SearchTextBox().Text(winrt::hstring(ActivePane().search_query));
+        UpdateNavButtons();
     }
 
     void MainWindow::UpdateActivePaneIndicator()
@@ -5096,9 +5491,12 @@ namespace winrt::FileScoutNative::implementation
             try
             {
                 auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
-                auto const key = (mode == ViewMode::List) ? L"ListRowTemplate" : L"CardRowTemplate";
+                auto const style = rootGrid.Resources()
+                    .Lookup(winrt::box_value(RowItemStyleKeyForViewMode(mode)))
+                    .as<winrt::Microsoft::UI::Xaml::Style>();
+                pane.active_list_view.ItemContainerStyle(style);
                 auto const tmpl = rootGrid.Resources()
-                    .Lookup(winrt::box_value(winrt::hstring{ key }))
+                    .Lookup(winrt::box_value(RowTemplateKeyForViewMode(mode)))
                     .as<winrt::Microsoft::UI::Xaml::DataTemplate>();
                 pane.active_list_view.ItemTemplate(tmpl);
             }
@@ -5126,8 +5524,32 @@ namespace winrt::FileScoutNative::implementation
 
             auto& rows = pane.tab_rows[i];
             rows.Clear();
+            std::wstring previousGroupLabel;
             for (auto const& item : source)
-                rows.Append(MakeFileRowViewModel(item));
+            {
+                auto row = MakeFileRowViewModel(item);
+                auto rowImpl = winrt::get_self<winrt::FileScoutNative::implementation::FileRowViewModel>(row);
+
+                if (pane.group_by_sort_column)
+                {
+                    auto const groupLabel = BuildGroupLabel(item, pane.sort_column);
+                    auto const showGroupHeader = previousGroupLabel != groupLabel;
+                    rowImpl->SetGroupHeader(groupLabel, showGroupHeader);
+                    previousGroupLabel = groupLabel;
+                }
+                else
+                {
+                    rowImpl->SetGroupHeader(L"", false);
+                }
+
+                rows.Append(row);
+            }
+
+            ApplyCachedRowIconsToRows(source, rows, m_iconSourceCache);
+            if (static_cast<int32_t>(i) == pane.active_tab_index)
+            {
+                UpdateRowSelectionVisuals(pane);
+            }
         }
     }
 
@@ -5363,7 +5785,7 @@ namespace winrt::FileScoutNative::implementation
 
             auto const entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
             auto iconTile = BuildSidebarTile(
-                BuildSidebarGlyph(entry.display_name, entryIcon, L"folder"),
+                BuildSidebarGlyph(std::wstring{}, entryIcon, L"folder"),
                 20.0);
 
             auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
@@ -5379,7 +5801,10 @@ namespace winrt::FileScoutNative::implementation
             unpinBtn.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{
                 winrt::Microsoft::UI::Colors::Transparent() });
             unpinBtn.BorderThickness({ 0, 0, 0, 0 });
-            auto unpinIcon = BuildSidebarFontIcon(L"\uE711", 10.0);
+            auto unpinIcon = BuildSidebarFontIcon(
+                L"\uE711",
+                10.0,
+                L"TextFillColorSecondaryBrush");
             unpinIcon.Opacity(0.65);
             unpinBtn.Content(unpinIcon);
             winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
@@ -5390,6 +5815,26 @@ namespace winrt::FileScoutNative::implementation
             {
                 (void)m_favoritesService.RemovePinnedFavorite(pinnedPath);
                 BuildSidebarFavorites();
+            });
+
+            btn.RightTapped([this, pinnedPath, btn](auto const&, auto const& args)
+            {
+                auto flyout = winrt::Microsoft::UI::Xaml::Controls::MenuFlyout{};
+                auto unpinItem = winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem{};
+                unpinItem.Text(winrt::hstring{ L"Unpin" });
+                unpinItem.Click([this, pinnedPath](auto const&, auto const&)
+                {
+                    (void)m_favoritesService.RemovePinnedFavorite(pinnedPath);
+                    BuildSidebarFavorites();
+                });
+                flyout.Items().Append(unpinItem);
+
+                winrt::Microsoft::UI::Xaml::Controls::Primitives::FlyoutShowOptions options;
+                options.ShowMode(
+                    winrt::Microsoft::UI::Xaml::Controls::Primitives::FlyoutShowMode::Transient);
+                options.Position(args.GetPosition(btn));
+                flyout.ShowAt(btn, options);
+                args.Handled(true);
             });
 
             winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
@@ -5533,6 +5978,7 @@ namespace winrt::FileScoutNative::implementation
             }
 
             ResetSelectionDetails();
+            UpdateNavButtons();
 
             StatusTextBlock().Text(
                 ToHString(std::to_wstring(items.size()) + L" drive(s) available."));

@@ -289,3 +289,115 @@
 - **Next validation milestone.** All S1–S7 runtime behaviours are unverified. Schedule a
   manual host-launch session to close S1–S7's "What remains unverified" lists before
   starting the next initiative.
+
+---
+
+## ui-polish — 2026-03-28
+
+### Metrics
+
+| Metric | Value |
+|---|---|
+| Slices planned | 4 |
+| Slices completed | 4 |
+| Slices blocked | 0 |
+| Completion rate | 100% |
+| Total commits | 1 committed bootstrap doc set + current uncommitted implementation batch |
+| Decisions made | 0 formal |
+| Debugging escalations | 0 formal |
+| Post-acceptance fixes | 10 documented bug/fix rounds after Slice 4 landed |
+| Final manual acceptance | Clean on 2026-03-28 |
+| Learnings extracted | 1 next-phase design-input doc |
+
+### Key Learnings
+
+- **Visual acceptance needs its own explicit closure pass.** `ui-polish` looked code-complete
+  once the theme dropdown landed, but most important defects only surfaced during repeated
+  human retests: blank-space context ownership, selected-row readability, disabled title-bar
+  chrome behaviour, bookmark context affordances, and scrollbar discoverability.
+
+- **WinUI hit-testing depends on the real owning surface, not the surface that looks correct
+  in XAML.** Background context handling only became reliable after whitespace ownership moved
+  out of row spacing and onto the actual pane host / live scroll surface. In this codebase,
+  row-container margins and `ScrollViewer` event wiring are interaction decisions, not just
+  layout details.
+
+- **Rebuild paths must explicitly preserve transient row state.** View toggles and grouping
+  rebuilds silently dropped icons because the row factory recreated view models without
+  rehydrating cached UI state. Any future rebuild path should start from a checklist:
+  selection, icons, grouping metadata, and any other state not recomputed by the factory.
+
+- **Live theme switching in WinUI 3 works best by mutating long-lived brush instances.**
+  Cold-start theming worked early, but already-rendered controls only repainted reliably once
+  the app stopped replacing the merged dictionary object and instead updated the existing
+  `SolidColorBrush` values in place.
+
+- **View modes need structural differentiation, not just density changes.** `Group`, `Cards`,
+  and `List` initially drifted toward the same visual treatment. The fixes that held were the
+  ones that changed structure: visible group headers, real row surfaces, icon tiles, and
+  explicit selected-state overlays.
+
+### What Went Well
+
+- The initiative ended with a clean manual pass on the concrete UX checks that mattered:
+  background menu reachability, visible selection, history-boundary button safety, bookmark
+  `Unpin`, and always-discoverable scrollbars.
+
+- The domain-first helpers introduced during the fixes (`ThemeService`, `ShellItemSort`,
+  `RowIconState`, `SidebarIconInfo`) were the right shape for this repo. They kept WinUI
+  quirks at the edges and let targeted GoogleTest coverage lock down the non-visual logic.
+
+- Theme infrastructure closed in a reusable state instead of a one-off polish hack:
+  persisted theme IDs, startup application before window creation, and reliable runtime
+  repainting now form a stable base for any future theming work.
+
+### What Could Improve
+
+- `ui-polish` became too much of a catch-all bucket after Slice 4. Theme work, view-mode
+  semantics, pane hit-testing, title-bar passthrough, and scrollbar discoverability all ended
+  up sharing the same acceptance funnel. The next initiative should be framed around a tighter
+  problem family.
+
+- The acceptance criteria were initially stronger on color/theme goals than on interaction
+  invariants. For custom WinUI chrome, the checklist should explicitly include disabled-state
+  clicks, right-click blank space, empty-folder behaviour, and scrollbars without hover.
+
+- The initiative is not archival-ready from the worktree alone because the implementation is
+  still sitting as uncommitted local changes. Archive after the source batch is committed or
+  otherwise normalized; until then, keep the initiative docs accessible.
+
+### Recommendations for Next Initiative
+
+- Split the next phase around **view-mode clarity + interaction hardening**, not generic
+  "polish". That keeps the scope coherent and easier to accept.
+
+- Add a dedicated **manual acceptance slice** near the end of the next initiative with a fixed
+  checklist for blank-space input, selection contrast, disabled custom-title-bar controls,
+  context menus, and scrollbar discoverability.
+
+- When a slice rebuilds rows or swaps templates, require an explicit preservation audit for
+  icons, selection, grouping markers, and any cached view-model state before closing the work.
+
+- Keep new runtime-created surfaces theme-aware by default: prefer resource lookups and
+  existing brush instances over detached hardcoded brush objects.
+
+---
+
+## finalize-ui-polish-baseline — 2026-03-28
+
+### Metrics
+
+| Metric | Value |
+|---|---|
+| Slices planned | 3 |
+| Slices completed | 3 |
+| Purpose | Baseline normalization, not new feature delivery |
+| Hostile audit result | PASS |
+| Build gate | PASS |
+| Test gate | PASS (`129` tests) |
+
+### Key Learnings
+
+- A hostile audit is worth doing before beta-prep branches stack on top of a dirty local batch.
+- The repo needed one checked-in handoff artifact for Initiative 2; local-only notes are too easy to lose.
+- Scratch brainstorming output should stay out of baseline commits unless it is intentionally promoted into durable docs.

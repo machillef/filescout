@@ -124,6 +124,9 @@ namespace winrt::FileScoutNative::implementation
         void FileRowsListView_RightTapped(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Input::RightTappedRoutedEventArgs const&);
+        void PaneSurface_ContextRequested(
+            winrt::Microsoft::UI::Xaml::UIElement const&,
+            winrt::Microsoft::UI::Xaml::Input::ContextRequestedEventArgs const&);
         void FileRowsListView_DragItemsStarting(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::Controls::DragItemsStartingEventArgs const&);
@@ -179,6 +182,7 @@ namespace winrt::FileScoutNative::implementation
         bool m_dualPaneVisible{ true };
         // S4: letter-jump border flash timer (single-shot, 300 ms).
         winrt::Microsoft::UI::Xaml::DispatcherTimer m_letterJumpTimer{ nullptr };
+        std::wstring m_currentThemeId{ L"default-dark" };
 
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;
@@ -210,6 +214,10 @@ namespace winrt::FileScoutNative::implementation
         void ConfigureWindow();
         void ConfigureTitleBar();
         void UpdateTitleBarInteractiveRegions();
+        void InitializeThemeDropDown();
+        void RefreshThemeDropDown();
+        void ApplyThemeSelection(std::wstring_view themeId);
+        void RefreshThemeSensitiveChrome();
         void SetupKeyboardAccelerators();
         void LoadDirectory(std::filesystem::path const& path,
             std::optional<std::filesystem::path> selectAfter = std::nullopt,
@@ -225,6 +233,7 @@ namespace winrt::FileScoutNative::implementation
         [[nodiscard]] std::vector<::FileScoutNative::Domain::ShellItemRef> GetSelectedItems() const;
         void SyncSelectionFromListView();
         void SelectItemByIndex(int32_t index);
+        void UpdateRowSelectionVisuals(PaneContext& pane);
         void UpdateMultiSelectionDetails(std::vector<int32_t> const& indices);
         void ResetSelectionDetails();
         void UpdateSelectionDetails(::FileScoutNative::Domain::ShellItemRef const& item);
@@ -235,6 +244,8 @@ namespace winrt::FileScoutNative::implementation
             std::optional<int32_t> itemIndex,
             winrt::Microsoft::UI::Xaml::FrameworkElement const& target,
             winrt::Windows::Foundation::Point tapPoint);
+        [[nodiscard]] bool ShouldSkipPaneContextMenu(
+            winrt::Windows::Foundation::IInspectable const& source) const;
         void AppendContextCommands(
             winrt::Microsoft::UI::Xaml::Controls::MenuFlyout const& flyout,
             std::vector<::FileScoutNative::Domain::ExplorerCommand> const& commands,

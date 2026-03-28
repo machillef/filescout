@@ -1,0 +1,46 @@
+namespace FileScoutNative
+{
+    // ViewModel for a single row in the file list.
+    // All display-string properties are read-only; only IconSource can be set
+    // post-construction (used by BackfillIconsAsync to update icons in-place).
+    [default_interface]
+    runtimeclass FileRowViewModel : Microsoft.UI.Xaml.Data.INotifyPropertyChanged
+    {
+        FileRowViewModel();
+
+        // Display name shown as the row title / primary text.
+        String Name { get; };
+
+        // File type label (e.g. "Folder", "PDF Document", "PNG Image").
+        String TypeLabel { get; };
+
+        // Human-readable size (e.g. "1.2 MB") or empty string for folders.
+        String SizeText { get; };
+
+        // Locale-formatted date modified (e.g. "3/24/2026 2:15 PM") or empty.
+        String DateText { get; };
+
+        // Card-mode detail chip combining TypeLabel and SizeText:
+        // "PDF Document  |  1.2 MB"  or  "Folder"
+        String DetailText { get; };
+
+        // True when this row represents a folder (affects card icon tile background).
+        Boolean IsFolder { get; };
+
+        // True when the row is selected in the active ListView.
+        Boolean IsSelected { get; set; };
+
+        // Selection-driven visual helpers consumed by row templates.
+        Double SelectionOutlineOpacity { get; };
+        Double SelectionFillOpacity { get; };
+
+        // Group-mode visual helpers consumed by row templates.
+        String GroupHeaderText { get; };
+        Double GroupHeaderOpacity { get; };
+        Double GroupHeaderHeight { get; };
+
+        // Icon bitmap — null on first render; set by BackfillIconsAsync.
+        // Setter fires INotifyPropertyChanged so the bound Image updates in-place.
+        Microsoft.UI.Xaml.Media.ImageSource IconSource { get; set; };
+    }
+}

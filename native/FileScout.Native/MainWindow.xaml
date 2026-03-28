@@ -11,11 +11,16 @@
 
     <Grid>
         <Grid.Resources>
-            <!-- Margin is intentionally 0 here; row elements embed their own spacing. -->
-            <Style x:Key="FileRowItemStyle" TargetType="ListViewItem">
+            <Style x:Key="CardRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Margin" Value="0" />
+                <Setter Property="Margin" Value="0,0,0,8" />
+                <Setter Property="MinHeight" Value="0" />
+            </Style>
+            <Style x:Key="ListRowItemStyle" TargetType="ListViewItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0,0,0,6" />
                 <Setter Property="MinHeight" Value="0" />
             </Style>
             <Style x:Key="ChromeToolbarButtonStyle" TargetType="Button">
@@ -40,103 +45,205 @@
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
             </Style>
+            <Style x:Key="ChromeDropDownButtonStyle" TargetType="DropDownButton">
+                <Setter Property="MinHeight" Value="38" />
+                <Setter Property="MinWidth" Value="172" />
+                <Setter Property="Padding" Value="12,0,12,0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Setter Property="HorizontalAlignment" Value="Right" />
+            </Style>
 
             <!-- P2: DataTemplates for file rows. x:DataType enables x:Bind code-gen against FileRowViewModel.
                  ItemTemplate is assigned in CreateTabListView (P3). -->
             <DataTemplate x:Key="CardRowTemplate"
                           x:DataType="local:FileRowViewModel">
-                <Border Padding="12,10,12,10"
-                        Margin="0,0,0,8"
-                        CornerRadius="8"
-                        BorderThickness="1"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
-                    <Grid ColumnSpacing="10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="44" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <!-- Icon tile — accent for folders applied in P3 via IsFolder converter. -->
-                        <Border Width="36" Height="36"
-                                CornerRadius="8"
-                                Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                VerticalAlignment="Center">
-                            <Image Width="18" Height="18"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   Stretch="Uniform"
-                                   Source="{x:Bind IconSource, Mode=OneWay}" />
-                        </Border>
-                        <!-- Name + metadata -->
-                        <StackPanel Grid.Column="1"
-                                    Spacing="2"
-                                    VerticalAlignment="Center">
-                            <TextBlock Text="{x:Bind Name}"
-                                       FontSize="14"
-                                       FontWeight="SemiBold"
-                                       TextTrimming="CharacterEllipsis" />
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="{x:Bind DetailText}"
-                                           Opacity="0.72"
-                                           FontSize="12"
-                                           TextTrimming="CharacterEllipsis" />
-                                <TextBlock Grid.Column="1"
-                                           Text="{x:Bind DateText}"
-                                           Opacity="0.55"
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0"
+                          Height="{x:Bind GroupHeaderHeight, Mode=OneWay}"
+                          Opacity="{x:Bind GroupHeaderOpacity, Mode=OneWay}">
+                        <StackPanel Spacing="4"
+                                    VerticalAlignment="Bottom">
+                            <Border HorizontalAlignment="Left"
+                                    Padding="10,4,10,4"
+                                    CornerRadius="6"
+                                    BorderThickness="1"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{ThemeResource LayerFillColorAltBrush}">
+                                <TextBlock Text="{x:Bind GroupHeaderText, Mode=OneWay}"
                                            FontSize="11"
-                                           HorizontalAlignment="Right" />
-                            </Grid>
+                                           FontWeight="SemiBold"
+                                           CharacterSpacing="120"
+                                           Opacity="0.84"
+                                           TextWrapping="NoWrap" />
+                            </Border>
+                            <Rectangle Height="1"
+                                       Fill="{ThemeResource CardStrokeColorDefaultBrush}"
+                                       Opacity="0.8" />
                         </StackPanel>
                     </Grid>
-                </Border>
+                    <Border Grid.Row="1"
+                            CornerRadius="8"
+                            BorderThickness="2"
+                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                            Opacity="{x:Bind SelectionOutlineOpacity, Mode=OneWay}" />
+                    <Border Grid.Row="1"
+                            Padding="12,10,12,10"
+                            Margin="1"
+                            CornerRadius="7"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                        <Grid>
+                            <Border CornerRadius="7"
+                                    Background="{ThemeResource AccentFillColorSecondaryBrush}"
+                                    Opacity="{x:Bind SelectionFillOpacity, Mode=OneWay}" />
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <!-- Icon tile — accent for folders applied in P3 via IsFolder converter. -->
+                                <Border Width="36" Height="36"
+                                        CornerRadius="8"
+                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        VerticalAlignment="Center">
+                                    <Image Width="18" Height="18"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Stretch="Uniform"
+                                           Source="{x:Bind IconSource, Mode=OneWay}" />
+                                </Border>
+                                <!-- Name + metadata -->
+                                <StackPanel Grid.Column="1"
+                                            Spacing="2"
+                                            VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Name}"
+                                               FontSize="14"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind DetailText}"
+                                                   Opacity="0.72"
+                                                   FontSize="12"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{x:Bind DateText}"
+                                                   Opacity="0.55"
+                                                   FontSize="11"
+                                                   HorizontalAlignment="Right" />
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
             </DataTemplate>
 
             <DataTemplate x:Key="ListRowTemplate"
                           x:DataType="local:FileRowViewModel">
-                <Border Padding="12,5,12,5">
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <!-- Columns: [20px icon] [3* name] [1.8* type] [1.2* size] [2* date] -->
-                            <ColumnDefinition Width="20" />
-                            <ColumnDefinition Width="3*" />
-                            <ColumnDefinition Width="1.8*" />
-                            <ColumnDefinition Width="1.2*" />
-                            <ColumnDefinition Width="2*" />
-                        </Grid.ColumnDefinitions>
-                        <Image Width="16" Height="16"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Stretch="Uniform"
-                               Source="{x:Bind IconSource, Mode=OneWay}" />
-                        <TextBlock Grid.Column="1"
-                                   Text="{x:Bind Name}"
-                                   FontSize="13"
-                                   VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="2"
-                                   Text="{x:Bind TypeLabel}"
-                                   FontSize="12"
-                                   Opacity="0.68"
-                                   VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="3"
-                                   Text="{x:Bind SizeText}"
-                                   FontSize="12"
-                                   Opacity="0.68"
-                                   VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="4"
-                                   Text="{x:Bind DateText}"
-                                   FontSize="12"
-                                   Opacity="0.68"
-                                   VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" />
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0"
+                          Height="{x:Bind GroupHeaderHeight, Mode=OneWay}"
+                          Opacity="{x:Bind GroupHeaderOpacity, Mode=OneWay}">
+                        <StackPanel Spacing="3"
+                                    VerticalAlignment="Bottom">
+                            <Border HorizontalAlignment="Left"
+                                    Padding="8,3,8,3"
+                                    CornerRadius="5"
+                                    BorderThickness="1"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{ThemeResource LayerFillColorAltBrush}">
+                                <TextBlock Text="{x:Bind GroupHeaderText, Mode=OneWay}"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           CharacterSpacing="80"
+                                           Opacity="0.8"
+                                           TextWrapping="NoWrap" />
+                            </Border>
+                            <Rectangle Height="1"
+                                       Fill="{ThemeResource CardStrokeColorDefaultBrush}"
+                                       Opacity="0.7" />
+                        </StackPanel>
                     </Grid>
-                </Border>
+                    <Border Grid.Row="1"
+                            CornerRadius="6"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                            Opacity="{x:Bind SelectionOutlineOpacity, Mode=OneWay}" />
+                    <Border Grid.Row="1"
+                            Margin="1"
+                            Padding="10,6,10,6"
+                            CornerRadius="5"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Background="{ThemeResource LayerFillColorAltBrush}">
+                        <Grid>
+                            <Border CornerRadius="5"
+                                    Background="{ThemeResource AccentFillColorSecondaryBrush}"
+                                    Opacity="{x:Bind SelectionFillOpacity, Mode=OneWay}" />
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <!-- Columns: [28px icon tile] [3* name] [1.8* type] [1.2* size] [2* date] -->
+                                    <ColumnDefinition Width="28" />
+                                    <ColumnDefinition Width="3*" />
+                                    <ColumnDefinition Width="1.8*" />
+                                    <ColumnDefinition Width="1.2*" />
+                                    <ColumnDefinition Width="2*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="24"
+                                        Height="24"
+                                        CornerRadius="6"
+                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        VerticalAlignment="Center">
+                                    <Image Width="16" Height="16"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Stretch="Uniform"
+                                           Source="{x:Bind IconSource, Mode=OneWay}" />
+                                </Border>
+                                <TextBlock Grid.Column="1"
+                                           Text="{x:Bind Name}"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{x:Bind TypeLabel}"
+                                           FontSize="12"
+                                           Opacity="0.78"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="3"
+                                           Text="{x:Bind SizeText}"
+                                           FontSize="12"
+                                           Opacity="0.72"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="4"
+                                           Text="{x:Bind DateText}"
+                                           FontSize="12"
+                                           Opacity="0.72"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
             </DataTemplate>
         </Grid.Resources>
         <Grid.Background>
@@ -211,6 +318,7 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="220" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Orientation="Horizontal"
@@ -283,6 +391,23 @@
                                  PlaceholderText="Search&#x2026;"
                                  KeyDown="SearchTextBox_KeyDown"
                                  TextChanged="SearchTextBox_TextChanged" />
+
+                        <DropDownButton x:Name="ThemeDropDownButton"
+                                        Grid.Column="3"
+                                        Style="{StaticResource ChromeDropDownButtonStyle}"
+                                        AutomationProperties.Name="Theme"
+                                        ToolTipService.ToolTip="Change theme">
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="8"
+                                        VerticalAlignment="Center">
+                                <FontIcon Glyph="●"
+                                          FontFamily="Segoe UI Symbol"
+                                          FontSize="12" />
+                                <TextBlock Text="Theme"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DropDownButton>
                     </Grid>
                 </Grid>
                 <Border Height="1"
@@ -305,8 +430,8 @@
                     BorderThickness="0,0,1,0"
                     BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto"
-                              VerticalScrollMode="Auto">
+                <ScrollViewer VerticalScrollBarVisibility="Visible"
+                               VerticalScrollMode="Auto">
                     <StackPanel Spacing="8">
                         <!-- Quick Access: favorites populated by BuildSidebarFavorites(). -->
                         <Expander x:Name="QuickAccessExpander"
