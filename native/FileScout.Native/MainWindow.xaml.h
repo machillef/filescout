@@ -79,6 +79,8 @@ namespace winrt::FileScoutNative::implementation
         // Snapshot of current tab's items taken at Filter entry.
         // Used for both scoring and Escape-restore; avoids live pane.items divergence.
         std::vector<::FileScoutNative::Domain::ShellItemRef> search_snapshot;
+        // Visible filter-mode items, indexed in lockstep with the current ListView rows.
+        std::vector<::FileScoutNative::Domain::ShellItemRef> filtered_items;
         // Last Recursive-mode result batch — indexed parallel to ListView rows for navigate-on-select.
         std::vector<::FileScoutNative::Search::SearchResult> search_results;
         ::FileScoutNative::Search::SearchService search_service;
@@ -152,6 +154,9 @@ namespace winrt::FileScoutNative::implementation
         void TitleBarDragHost_SizeChanged(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const&);
+        void DualPaneButton_Click(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 
         // R13a: command palette event handlers (must be public for XAML Connect).
         void CommandPalette_TextChanged(
@@ -239,6 +244,11 @@ namespace winrt::FileScoutNative::implementation
         void UpdateSelectionDetails(::FileScoutNative::Domain::ShellItemRef const& item);
         [[nodiscard]] std::optional<int32_t> ResolveItemIndexFromSource(
             winrt::Windows::Foundation::IInspectable const& source);
+        [[nodiscard]] std::vector<::FileScoutNative::Domain::ShellItemRef> const& DisplayedItems(
+            PaneContext const& pane) const;
+        [[nodiscard]] std::vector<::FileScoutNative::Domain::ShellItemRef> const& DisplayedItems() const;
+        [[nodiscard]] ::FileScoutNative::Domain::ShellItemRef const* TryGetDisplayedItemByIndex(
+            int32_t index) const;
         void ShowContextMenu(
             ::FileScoutNative::Domain::ContextMenuModel const& model,
             std::optional<int32_t> itemIndex,
@@ -246,7 +256,7 @@ namespace winrt::FileScoutNative::implementation
             winrt::Windows::Foundation::Point tapPoint);
         [[nodiscard]] bool ShouldSkipPaneContextMenu(
             winrt::Windows::Foundation::IInspectable const& source) const;
-        void AppendContextCommands(
+        bool AppendContextCommands(
             winrt::Microsoft::UI::Xaml::Controls::MenuFlyout const& flyout,
             std::vector<::FileScoutNative::Domain::ExplorerCommand> const& commands,
             std::optional<int32_t> itemIndex);
@@ -289,6 +299,8 @@ namespace winrt::FileScoutNative::implementation
         void ShowCommandPalette();
         void HideCommandPalette();
         void RefreshCommandPalette(std::wstring_view query);
+        void RefreshDualPaneButton();
+        void ApplyPaneLayoutVisibility();
         [[nodiscard]] winrt::Windows::Foundation::IInspectable CreateCommandRowView(
             ::FileScoutNative::Domain::CommandEntry const& cmd);
         // R13e: panel toggle commands.

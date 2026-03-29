@@ -75,5 +75,5 @@ TEST(FileRowViewModel, GroupHeaderVisibleWhenConfigured)
 
     EXPECT_EQ(L"Folders", std::wstring{ vm.GroupHeaderText() });
     EXPECT_DOUBLE_EQ(1.0, vm.GroupHeaderOpacity());
-    EXPECT_GT(vm.GroupHeaderHeight(), 0.0);
+    EXPECT_DOUBLE_EQ(42.0, vm.GroupHeaderHeight());
 }

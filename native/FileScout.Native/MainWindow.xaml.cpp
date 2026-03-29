@@ -15,6 +15,7 @@
 #include "Domain/SidebarIconInfo.h"
 #include "Domain/SidebarRecents.h"
 #include "Domain/ThemeService.h"
+#include "Domain/Wave1FeatureGate.h"
 #include "Search/FuzzyMatcher.h"
 #include "TraceHelper.h"
 
@@ -25,6 +26,10 @@
 namespace
 {
     using SortColumn = winrt::FileScoutNative::implementation::SortColumn;
+
+    std::wstring BuildGroupLabel(
+        ::FileScoutNative::Domain::ShellItemRef const& item,
+        SortColumn const sortColumn);
 
     winrt::hstring ToHString(std::wstring const& value)
     {
@@ -233,6 +238,39 @@ namespace
         return action + L": " + item->display_name;
     }
 
+    std::wstring BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature const feature)
+    {
+        return std::wstring{ ::FileScoutNative::Domain::Wave1FeatureUnavailableStatus(feature) };
+    }
+
+    std::wstring DescribePathForStatus(std::filesystem::path const& path)
+    {
+        auto label = path.filename().wstring();
+        if (label.empty())
+        {
+            label = path.wstring();
+        }
+
+        return label;
+    }
+
+    std::wstring BuildWave1ArchiveStatus(
+        std::filesystem::path const& path,
+        bool const openSucceeded)
+    {
+        auto status = BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing);
+        if (openSucceeded)
+        {
+            status += L" Opened " + DescribePathForStatus(path) + L" in Windows.";
+        }
+        else
+        {
+            status += L" Open failed for " + DescribePathForStatus(path) + L".";
+        }
+
+        return status;
+    }
+
     bool IsSupportedArchiveItem(::FileScoutNative::Domain::ShellItemRef const& item)
     {
         return !item.is_folder && item.is_supported_archive;
@@ -247,6 +285,12 @@ namespace
         std::wstring metadata,
         ::FileScoutNative::Domain::ShellItemRef const& item)
     {
+        if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                ::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing))
+        {
+            return metadata;
+        }
+
         if (IsSupportedArchiveItem(item))
         {
             metadata += L"  |  Double-click to browse";
@@ -551,6 +595,37 @@ namespace
         }
     }
 
+    void ApplyPaneStateToRows(
+        winrt::FileScoutNative::implementation::PaneContext const& pane,
+        std::vector<::FileScoutNative::Domain::ShellItemRef> const& items,
+        winrt::Windows::Foundation::Collections::IObservableVector<winrt::FileScoutNative::FileRowViewModel> const& rows,
+        std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::Media::ImageSource> const& iconCache)
+    {
+        auto const total = static_cast<uint32_t>(
+            (std::min)(items.size(), static_cast<std::size_t>(rows.Size())));
+        std::wstring previousGroupLabel;
+
+        for (uint32_t i = 0; i < total; ++i)
+        {
+            auto const row = rows.GetAt(i);
+            auto rowImpl = winrt::get_self<winrt::FileScoutNative::implementation::FileRowViewModel>(row);
+
+            if (pane.group_by_sort_column)
+            {
+                auto const groupLabel = BuildGroupLabel(items[i], pane.sort_column);
+                auto const showGroupHeader = previousGroupLabel != groupLabel;
+                rowImpl->SetGroupHeader(groupLabel, showGroupHeader);
+                previousGroupLabel = groupLabel;
+            }
+            else
+            {
+                rowImpl->SetGroupHeader(L"", false);
+            }
+        }
+
+        ApplyCachedRowIconsToRows(items, rows, iconCache);
+    }
+
     winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarGlyph(
         std::wstring const& displayName,
         std::optional<::FileScoutNative::Domain::IconBitmap> const& icon,
@@ -651,20 +726,84 @@ namespace
         return host;
     }
 
-    winrt::hstring RowItemStyleKeyForViewMode(
-        winrt::FileScoutNative::implementation::ViewMode const mode)
+    enum class RowPresentation
     {
-        return mode == winrt::FileScoutNative::implementation::ViewMode::List
-            ? winrt::hstring{ L"ListRowItemStyle" }
-            : winrt::hstring{ L"CardRowItemStyle" };
+        Cards,
+        List,
+        Group,
+    };
+
+    RowPresentation ResolveRowPresentation(
+        winrt::FileScoutNative::implementation::PaneContext const& pane)
+    {
+        if (pane.group_by_sort_column)
+        {
+            return RowPresentation::Group;
+        }
+
+        return pane.view_mode == winrt::FileScoutNative::implementation::ViewMode::List
+            ? RowPresentation::List
+            : RowPresentation::Cards;
     }
 
-    winrt::hstring RowTemplateKeyForViewMode(
-        winrt::FileScoutNative::implementation::ViewMode const mode)
+    winrt::hstring RowItemStyleKeyForPresentation(RowPresentation const presentation)
     {
-        return mode == winrt::FileScoutNative::implementation::ViewMode::List
-            ? winrt::hstring{ L"ListRowTemplate" }
-            : winrt::hstring{ L"CardRowTemplate" };
+        switch (presentation)
+        {
+        case RowPresentation::List:
+            return winrt::hstring{ L"ListRowItemStyle" };
+        case RowPresentation::Group:
+            return winrt::hstring{ L"GroupRowItemStyle" };
+        case RowPresentation::Cards:
+        default:
+            return winrt::hstring{ L"CardRowItemStyle" };
+        }
+    }
+
+    winrt::hstring RowTemplateKeyForPresentation(RowPresentation const presentation)
+    {
+        switch (presentation)
+        {
+        case RowPresentation::List:
+            return winrt::hstring{ L"ListRowTemplate" };
+        case RowPresentation::Group:
+            return winrt::hstring{ L"GroupRowTemplate" };
+        case RowPresentation::Cards:
+        default:
+            return winrt::hstring{ L"CardRowTemplate" };
+        }
+    }
+
+    std::wstring RowPresentationStatusLabel(
+        winrt::FileScoutNative::implementation::PaneContext const& pane)
+    {
+        switch (ResolveRowPresentation(pane))
+        {
+        case RowPresentation::Group:
+            return L"group view";
+        case RowPresentation::List:
+            return L"list view";
+        case RowPresentation::Cards:
+        default:
+            return L"cards view";
+        }
+    }
+
+    void ApplyRowPresentation(
+        winrt::Microsoft::UI::Xaml::Controls::ListView const& listView,
+        winrt::Microsoft::UI::Xaml::Controls::Grid const& rootGrid,
+        winrt::FileScoutNative::implementation::PaneContext const& pane)
+    {
+        auto const presentation = ResolveRowPresentation(pane);
+        auto const style = rootGrid.Resources()
+            .Lookup(winrt::box_value(RowItemStyleKeyForPresentation(presentation)))
+            .as<winrt::Microsoft::UI::Xaml::Style>();
+        listView.ItemContainerStyle(style);
+
+        auto const tmpl = rootGrid.Resources()
+            .Lookup(winrt::box_value(RowTemplateKeyForPresentation(presentation)))
+            .as<winrt::Microsoft::UI::Xaml::DataTemplate>();
+        listView.ItemTemplate(tmpl);
     }
 
     winrt::Microsoft::UI::Xaml::Controls::ListView ResolveTabContentListView(
@@ -1097,6 +1236,7 @@ namespace winrt::FileScoutNative::implementation
         SetupKeyboardAccelerators();
         TraceLog(L"MainWindow ctor: SetupKeyboardAccelerators done. InitializeThemeDropDown...");
         m_currentThemeId = ::FileScoutNative::Domain::ThemeService::LoadSavedThemeId();
+        m_dualPaneVisible = !::FileScoutNative::Domain::Wave1UsesSinglePaneFirstLaunch();
         InitializeThemeDropDown();
         TraceLog(L"MainWindow ctor: InitializeThemeDropDown done.");
 
@@ -1140,6 +1280,8 @@ namespace winrt::FileScoutNative::implementation
         // which prevents deferred WinUI TabView SelectionChanged events from switching to pane 1.
         m_activePaneIndex = 0;
         UpdateActivePaneIndicator();
+        ApplyPaneLayoutVisibility();
+        RefreshDualPaneButton();
 
         // S4: letter-jump border flash timer — fires once after 300 ms to restore the normal
         // pane indicator. Stop + Start on each keypress resets the 300 ms window.
@@ -1247,8 +1389,11 @@ namespace winrt::FileScoutNative::implementation
         BuildSortHeader(0);
         BuildSortHeader(1);
         UpdateActivePaneIndicator();
+        RefreshDualPaneButton();
 
-        if (CommandPaletteOverlay().Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible)
+        if (::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                ::FileScoutNative::Domain::Wave1Feature::CommandPalette) &&
+            CommandPaletteOverlay().Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible)
         {
             auto const query = CommandPaletteTextBox().Text();
             RefreshCommandPalette(query.c_str());
@@ -1336,6 +1481,7 @@ namespace winrt::FileScoutNative::implementation
                     winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
                 pane.search_mode = SearchMode::None;
                 pane.search_query.clear();
+                pane.filtered_items.clear();
                 SearchTextBox().IsReadOnly(false);
                 SearchTextBox().Text(L"");
 
@@ -1344,6 +1490,7 @@ namespace winrt::FileScoutNative::implementation
                 rows.Clear();
                 for (auto const& item : pane.search_snapshot)
                     rows.Append(MakeFileRowViewModel(item));
+                ApplyPaneStateToRows(pane, pane.search_snapshot, rows, m_iconSourceCache);
             }
             return;
         }
@@ -1356,6 +1503,7 @@ namespace winrt::FileScoutNative::implementation
             if (pane.search_query.size() < 2) return;
 
             pane.search_mode = SearchMode::Recursive;
+            pane.filtered_items.clear();
             SearchTextBox().IsReadOnly(true);
 
             // Show per-pane progress bar.
@@ -1432,10 +1580,12 @@ namespace winrt::FileScoutNative::implementation
             {
                 pane.search_mode = SearchMode::None;
                 pane.search_query.clear();
+                pane.filtered_items.clear();
                 auto& rows = pane.tab_rows[pane.active_tab_index];
                 rows.Clear();
                 for (auto const& item : pane.search_snapshot)
                     rows.Append(MakeFileRowViewModel(item));
+                ApplyPaneStateToRows(pane, pane.search_snapshot, rows, m_iconSourceCache);
             }
             return;
         }
@@ -1459,6 +1609,8 @@ namespace winrt::FileScoutNative::implementation
             // Show all snapshot items unfiltered.
             for (auto const& item : pane.search_snapshot)
                 rows.Append(MakeFileRowViewModel(item));
+            pane.filtered_items = pane.search_snapshot;
+            ApplyPaneStateToRows(pane, pane.search_snapshot, rows, m_iconSourceCache);
             return;
         }
 
@@ -1475,8 +1627,16 @@ namespace winrt::FileScoutNative::implementation
             [](auto const& a, auto const& b) { return a.first > b.first; });
         if (scored.size() > 200) scored.resize(200);
 
+        std::vector<::FileScoutNative::Domain::ShellItemRef> filteredItems;
+        filteredItems.reserve(scored.size());
         for (auto const& [score, itemPtr] : scored)
+        {
             rows.Append(MakeFileRowViewModel(*itemPtr));
+            filteredItems.push_back(*itemPtr);
+        }
+
+        pane.filtered_items = filteredItems;
+        ApplyPaneStateToRows(pane, filteredItems, rows, m_iconSourceCache);
     }
 
     void MainWindow::FileRowsListView_SelectionChanged(
@@ -1534,53 +1694,59 @@ namespace winrt::FileScoutNative::implementation
         }
 
         auto const index = ResolveItemIndexFromSource(args.OriginalSource());
-        if (!index.has_value() ||
-            *index < 0 ||
-            *index >= static_cast<int32_t>(ActivePane().items.size()))
+        auto const* item = index.has_value() ? TryGetDisplayedItemByIndex(*index) : nullptr;
+        if (item == nullptr)
         {
             return;
         }
 
-        auto const& item = ActivePane().items[static_cast<std::size_t>(*index)];
-        if (!ActivePane().is_archive_view && m_shellInterop.IsArchivePath(item.path))
+        if (!ActivePane().is_archive_view && m_shellInterop.IsArchivePath(item->path))
         {
-            LoadDirectory(item.path);
+            LoadDirectory(item->path);
             return;
         }
 
-        if (item.is_folder)
+        if (item->is_folder)
         {
-            LoadDirectory(item.path);
+            LoadDirectory(item->path);
             return;
         }
 
         if (ActivePane().is_archive_view)
         {
-            OpenArchiveItemAsync(item);
+            if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                    ::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing))
+            {
+                StatusTextBlock().Text(ToHString(
+                    BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing)));
+                return;
+            }
+
+            OpenArchiveItemAsync(*item);
             return;
         }
 
         try
         {
-            m_shellFileOperationService.OpenPath(GetWindowHandle(), item.path);
-            if (IsUnsupportedArchiveItem(item))
+            m_shellFileOperationService.OpenPath(GetWindowHandle(), item->path);
+            if (IsUnsupportedArchiveItem(*item))
             {
-                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(item, true)));
+                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, true)));
             }
             else
             {
-                StatusTextBlock().Text(ToHString(L"Opened " + item.display_name));
+                StatusTextBlock().Text(ToHString(L"Opened " + item->display_name));
             }
         }
         catch (std::exception const&)
         {
-            if (IsUnsupportedArchiveItem(item))
+            if (IsUnsupportedArchiveItem(*item))
             {
-                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(item, false)));
+                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, false)));
             }
             else
             {
-                StatusTextBlock().Text(ToHString(L"Open failed: " + item.display_name));
+                StatusTextBlock().Text(ToHString(L"Open failed: " + item->display_name));
             }
         }
     }
@@ -1605,8 +1771,13 @@ namespace winrt::FileScoutNative::implementation
         auto const itemIndex = ResolveItemIndexFromSource(args.OriginalSource());
         if (itemIndex.has_value() && ActivePane().active_list_view)
         {
-            auto const& item = ActivePane().items[static_cast<std::size_t>(*itemIndex)];
-            if (!ActivePane().selection.IsSelected(item.parsing_name))
+            auto const* item = TryGetDisplayedItemByIndex(*itemIndex);
+            if (item == nullptr)
+            {
+                return;
+            }
+
+            if (!ActivePane().selection.IsSelected(item->parsing_name))
             {
                 ActivePane().active_list_view.SelectedIndex(*itemIndex);
                 SelectItemByIndex(*itemIndex);
@@ -1639,7 +1810,10 @@ namespace winrt::FileScoutNative::implementation
         scenario.selection_count = static_cast<uint32_t>(GetSelectedItemIndices().size());
         if (itemIndex.has_value())
         {
-            scenario.focused_item = ActivePane().items[static_cast<std::size_t>(*itemIndex)];
+            if (auto const* item = TryGetDisplayedItemByIndex(*itemIndex))
+            {
+                scenario.focused_item = *item;
+            }
         }
         if (scenario.selection_count <= 1)
         {
@@ -1739,7 +1913,10 @@ namespace winrt::FileScoutNative::implementation
         scenario.selection_count = static_cast<uint32_t>(GetSelectedItemIndices().size());
         if (itemIndex.has_value())
         {
-            scenario.focused_item = ActivePane().items[static_cast<std::size_t>(*itemIndex)];
+            if (auto const* item = TryGetDisplayedItemByIndex(*itemIndex))
+            {
+                scenario.focused_item = *item;
+            }
         }
         if (scenario.selection_count <= 1)
         {
@@ -2125,6 +2302,7 @@ namespace winrt::FileScoutNative::implementation
         appendRect(BreadcrumbBarBorder());
         appendRect(AddressTextBox());
         appendRect(SearchTextBox());
+        appendRect(DualPaneButton());
         appendRect(ThemeDropDownButton());
 
         if (passthroughRects.empty())
@@ -2190,6 +2368,33 @@ namespace winrt::FileScoutNative::implementation
         std::optional<std::filesystem::path> selectAfter,
         bool skipHistoryRecord)
     {
+        std::filesystem::path absolutePath;
+        try
+        {
+            absolutePath = std::filesystem::absolute(path).lexically_normal();
+        }
+        catch (...)
+        {
+            absolutePath = path;
+        }
+
+        if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                ::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing) &&
+            m_shellInterop.IsArchivePath(absolutePath))
+        {
+            try
+            {
+                m_shellFileOperationService.OpenPath(GetWindowHandle(), absolutePath);
+                StatusTextBlock().Text(ToHString(BuildWave1ArchiveStatus(absolutePath, true)));
+            }
+            catch (std::exception const&)
+            {
+                StatusTextBlock().Text(ToHString(BuildWave1ArchiveStatus(absolutePath, false)));
+            }
+
+            return;
+        }
+
         // Exit search mode before navigating.
         auto& pane = ActivePane();
 
@@ -2208,13 +2413,14 @@ namespace winrt::FileScoutNative::implementation
                 winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             pane.search_mode = SearchMode::None;
             pane.search_query.clear();
+            pane.filtered_items.clear();
             SearchTextBox().IsReadOnly(false);
             SearchTextBox().Text(L"");
         }
 
         // Capture pane/tab index synchronously so async work targets the right pane
         // even if the user switches panes before the enumeration finishes.
-        LoadDirectoryAsync(path, m_activePaneIndex, std::move(selectAfter));
+        LoadDirectoryAsync(absolutePath, m_activePaneIndex, std::move(selectAfter));
     }
 
     winrt::fire_and_forget MainWindow::LoadDirectoryAsync(
@@ -2318,6 +2524,7 @@ namespace winrt::FileScoutNative::implementation
                         pane.tab_switching = false;
                         for (auto const& item : pane.items)
                             rows.Append(MakeFileRowViewModel(item));
+                        ApplyPaneStateToRows(pane, pane.items, rows, m_iconSourceCache);
 
                         if (pane.active_list_view)
                         {
@@ -2411,6 +2618,7 @@ namespace winrt::FileScoutNative::implementation
 
                         for (std::size_t i = 0; i < firstBatchEnd; ++i)
                             rows.Append(prebuilt[i]);
+                        ApplyPaneStateToRows(pane, pane.items, rows, m_iconSourceCache);
 
                         timing.first_batch_publish_tick = ::GetTickCount64();
                         pane.user_interacted_after_first_batch = false;
@@ -2471,6 +2679,7 @@ namespace winrt::FileScoutNative::implementation
                                 rows.as<winrt::Windows::Foundation::Collections::IVector<
                                     winrt::FileScoutNative::FileRowViewModel>>()
                                     .ReplaceAll(prebuilt);
+                                ApplyPaneStateToRows(pane, items, rows, m_iconSourceCache);
 
                                 timing.final_publish_tick = ::GetTickCount64();
                                 pane.last_load_timing = timing;
@@ -2539,7 +2748,6 @@ namespace winrt::FileScoutNative::implementation
                     auto& pane = m_panes[paneIndex];
                     if (pane.load_generation != generation) return;
                     if (pane.active_tab_index != tabIndex) return;
-                    if (pane.group_by_sort_column) return;
 
                     auto& rows = pane.tab_rows[tabIndex];
                     if (rows.Size() != total) return;
@@ -2586,12 +2794,14 @@ namespace winrt::FileScoutNative::implementation
             return indices;
         }
 
+        auto const& items = DisplayedItems();
+
         for (auto const& range : ActivePane().active_list_view.SelectedRanges())
         {
             for (uint32_t offset = 0; offset < range.Length(); ++offset)
             {
                 auto const index = range.FirstIndex() + static_cast<int32_t>(offset);
-                if (index >= 0 && index < static_cast<int32_t>(ActivePane().items.size()))
+                if (index >= 0 && index < static_cast<int32_t>(items.size()))
                 {
                     indices.push_back(index);
                 }
@@ -2601,7 +2811,7 @@ namespace winrt::FileScoutNative::implementation
         if (indices.empty())
         {
             auto const index = ActivePane().active_list_view.SelectedIndex();
-            if (index >= 0 && index < static_cast<int32_t>(ActivePane().items.size()))
+            if (index >= 0 && index < static_cast<int32_t>(items.size()))
             {
                 indices.push_back(index);
             }
@@ -2617,10 +2827,11 @@ namespace winrt::FileScoutNative::implementation
         std::vector<::FileScoutNative::Domain::ShellItemRef> items;
         auto const selectedIndices = GetSelectedItemIndices();
         items.reserve(selectedIndices.size());
+        auto const& displayedItems = DisplayedItems();
 
         for (auto const index : selectedIndices)
         {
-            items.push_back(ActivePane().items[static_cast<std::size_t>(index)]);
+            items.push_back(displayedItems[static_cast<std::size_t>(index)]);
         }
 
         return items;
@@ -2644,16 +2855,17 @@ namespace winrt::FileScoutNative::implementation
 
         std::vector<std::wstring> selectedIds;
         selectedIds.reserve(selectedIndices.size());
+        auto const& displayedItems = DisplayedItems();
         for (auto const index : selectedIndices)
         {
-            selectedIds.push_back(ActivePane().items[static_cast<std::size_t>(index)].parsing_name);
+            selectedIds.push_back(displayedItems[static_cast<std::size_t>(index)].parsing_name);
         }
 
         std::optional<std::wstring> focusedId;
         auto const focusedIndex = ActivePane().active_list_view.SelectedIndex();
-        if (focusedIndex >= 0 && focusedIndex < static_cast<int32_t>(ActivePane().items.size()))
+        if (focusedIndex >= 0 && focusedIndex < static_cast<int32_t>(displayedItems.size()))
         {
-            focusedId = ActivePane().items[static_cast<std::size_t>(focusedIndex)].parsing_name;
+            focusedId = displayedItems[static_cast<std::size_t>(focusedIndex)].parsing_name;
         }
         else if (!selectedIds.empty())
         {
@@ -2682,13 +2894,14 @@ namespace winrt::FileScoutNative::implementation
 
         auto const& rows = pane.tab_rows[static_cast<std::size_t>(pane.active_tab_index)];
         auto const rowCount = rows.Size();
+        auto const& displayedItems = DisplayedItems(pane);
         auto const selectedCount = static_cast<uint32_t>(
-            (std::min)(pane.items.size(), static_cast<std::size_t>(rowCount)));
+            (std::min)(displayedItems.size(), static_cast<std::size_t>(rowCount)));
 
         for (uint32_t index = 0; index < selectedCount; ++index)
         {
             auto const isSelected =
-                pane.selection.IsSelected(pane.items[static_cast<std::size_t>(index)].parsing_name);
+                pane.selection.IsSelected(displayedItems[static_cast<std::size_t>(index)].parsing_name);
             rows.GetAt(index).IsSelected(isSelected);
         }
 
@@ -2700,7 +2913,8 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::SelectItemByIndex(int32_t const index)
     {
-        if (index < 0 || index >= static_cast<int32_t>(ActivePane().items.size()))
+        auto const* item = TryGetDisplayedItemByIndex(index);
+        if (item == nullptr)
         {
             ActivePane().selection.Clear();
             UpdateRowSelectionVisuals(ActivePane());
@@ -2708,30 +2922,30 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        auto const& item = ActivePane().items[static_cast<std::size_t>(index)];
-        ActivePane().selection.ReplaceWith(item.parsing_name);
+        ActivePane().selection.ReplaceWith(item->parsing_name);
         UpdateRowSelectionVisuals(ActivePane());
-        UpdateSelectionDetails(item);
+        UpdateSelectionDetails(*item);
 
-        auto summary = item.kind_label;
-        if (item.size_available)
+        auto summary = item->kind_label;
+        if (item->size_available)
         {
-            summary += L"  |  " + FormatSize(item.size_bytes);
+            summary += L"  |  " + FormatSize(item->size_bytes);
         }
-        summary = AppendArchiveBrowseHint(std::move(summary), item);
+        summary = AppendArchiveBrowseHint(std::move(summary), *item);
 
-        StatusTextBlock().Text(ToHString(L"Selected " + item.display_name + L"  |  " + summary));
+        StatusTextBlock().Text(ToHString(L"Selected " + item->display_name + L"  |  " + summary));
     }
 
     void MainWindow::UpdateMultiSelectionDetails(std::vector<int32_t> const& indices)
     {
         auto const itemCount = indices.size();
+        auto const& displayedItems = DisplayedItems();
         auto const folderCount = static_cast<std::size_t>(std::count_if(
             indices.begin(),
             indices.end(),
-            [this](int32_t const index)
+            [&displayedItems](int32_t const index)
             {
-                return ActivePane().items[static_cast<std::size_t>(index)].is_folder;
+                return displayedItems[static_cast<std::size_t>(index)].is_folder;
             }));
         auto const fileCount = itemCount - folderCount;
 
@@ -2756,7 +2970,7 @@ namespace winrt::FileScoutNative::implementation
             }
             metadata += std::to_wstring(folderCount) + (folderCount == 1 ? L" folder" : L" folders");
         }
-        metadata += L"  |  F2 to batch rename";
+        metadata += L"  |  Rename works one item at a time in wave-1 beta";
         SelectionMetaTextBlock().Text(ToHString(metadata));
 
         SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
@@ -2902,6 +3116,34 @@ namespace winrt::FileScoutNative::implementation
         return std::nullopt;
     }
 
+    std::vector<::FileScoutNative::Domain::ShellItemRef> const& MainWindow::DisplayedItems(
+        PaneContext const& pane) const
+    {
+        if (pane.search_mode == SearchMode::Filter)
+        {
+            return pane.filtered_items;
+        }
+
+        return pane.items;
+    }
+
+    std::vector<::FileScoutNative::Domain::ShellItemRef> const& MainWindow::DisplayedItems() const
+    {
+        return DisplayedItems(m_panes[static_cast<std::size_t>(m_activePaneIndex)]);
+    }
+
+    ::FileScoutNative::Domain::ShellItemRef const* MainWindow::TryGetDisplayedItemByIndex(
+        int32_t const index) const
+    {
+        auto const& items = DisplayedItems();
+        if (index < 0 || index >= static_cast<int32_t>(items.size()))
+        {
+            return nullptr;
+        }
+
+        return &items[static_cast<std::size_t>(index)];
+    }
+
     bool MainWindow::ShouldSkipPaneContextMenu(
         winrt::Windows::Foundation::IInspectable const& source) const
     {
@@ -2921,9 +3163,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         auto flyout = winrt::Microsoft::UI::Xaml::Controls::MenuFlyout{};
-        AppendContextCommands(flyout, model.primary_commands, itemIndex);
-
-        bool hasAppendedItems = !model.primary_commands.empty();
+        bool hasAppendedItems = AppendContextCommands(flyout, model.primary_commands, itemIndex);
         for (auto const& group : model.groups)
         {
             if (group.commands.empty())
@@ -2936,8 +3176,20 @@ namespace winrt::FileScoutNative::implementation
                 flyout.Items().Append(winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator{});
             }
 
-            AppendContextCommands(flyout, group.commands, itemIndex);
-            hasAppendedItems = true;
+            auto const appendedGroupItems = AppendContextCommands(flyout, group.commands, itemIndex);
+            if (appendedGroupItems)
+            {
+                hasAppendedItems = true;
+            }
+            else if (hasAppendedItems)
+            {
+                flyout.Items().RemoveAtEnd();
+            }
+        }
+
+        if (!hasAppendedItems)
+        {
+            return;
         }
 
         m_contextMenu = flyout;
@@ -2951,13 +3203,24 @@ namespace winrt::FileScoutNative::implementation
         m_contextMenu.ShowAt(target, options);
     }
 
-    void MainWindow::AppendContextCommands(
+    bool MainWindow::AppendContextCommands(
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout const& flyout,
         std::vector<::FileScoutNative::Domain::ExplorerCommand> const& commands,
         std::optional<int32_t> const itemIndex)
     {
+        bool appendedAny = false;
+        auto const selectionCount = GetSelectedItems().size();
+
         for (auto const& command : commands)
         {
+            if (!::FileScoutNative::Domain::ShouldShowWave1ContextCommand(
+                    command.id,
+                    selectionCount,
+                    ActivePane().is_archive_view))
+            {
+                continue;
+            }
+
             auto flyoutItem = winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem{};
             flyoutItem.Text(ToHString(command.label));
             flyoutItem.IsEnabled(command.available);
@@ -2986,7 +3249,10 @@ namespace winrt::FileScoutNative::implementation
                 });
 
             flyout.Items().Append(flyoutItem);
+            appendedAny = true;
         }
+
+        return appendedAny;
     }
 
     void MainWindow::ExecuteContextCommand(
@@ -2995,10 +3261,12 @@ namespace winrt::FileScoutNative::implementation
     {
         auto const selectedItems = GetSelectedItems();
         std::optional<::FileScoutNative::Domain::ShellItemRef> item;
-        if (itemIndex.has_value() && *itemIndex >= 0 &&
-            *itemIndex < static_cast<int32_t>(ActivePane().items.size()))
+        if (itemIndex.has_value())
         {
-            item = ActivePane().items[static_cast<std::size_t>(*itemIndex)];
+            if (auto const* displayedItem = TryGetDisplayedItemByIndex(*itemIndex))
+            {
+                item = *displayedItem;
+            }
         }
         else if (selectedItems.size() == 1)
         {
@@ -3046,6 +3314,14 @@ namespace winrt::FileScoutNative::implementation
 
             if (ActivePane().is_archive_view)
             {
+                if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                        ::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing))
+                {
+                    StatusTextBlock().Text(ToHString(
+                        BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing)));
+                    return;
+                }
+
                 OpenArchiveItemAsync(*item);
                 return;
             }
@@ -3126,6 +3402,14 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"extractToArchiveFolder" || commandId == L"extractReveal")
         {
+            if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                    ::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing))
+            {
+                StatusTextBlock().Text(ToHString(
+                    BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing)));
+                return;
+            }
+
             if (!item.has_value())
             {
                 StatusTextBlock().Text(L"Extract needs a selected archive item.");
@@ -3167,6 +3451,15 @@ namespace winrt::FileScoutNative::implementation
             if (selectedItems.empty())
             {
                 StatusTextBlock().Text(L"Rename needs a selected item.");
+                return;
+            }
+
+            if (selectedItems.size() > 1 &&
+                !::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                    ::FileScoutNative::Domain::Wave1Feature::BatchRename))
+            {
+                StatusTextBlock().Text(ToHString(
+                    BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::BatchRename)));
                 return;
             }
 
@@ -3377,6 +3670,12 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"switchPane")
         {
+            if (!m_dualPaneVisible)
+            {
+                StatusTextBlock().Text(L"Turn on Dual pane before switching panes.");
+                return;
+            }
+
             SetActivePaneIndex(1 - m_activePaneIndex);
             return;
         }
@@ -4119,9 +4418,10 @@ namespace winrt::FileScoutNative::implementation
 
     std::optional<int32_t> MainWindow::FindItemIndexByPath(std::filesystem::path const& path) const
     {
-        for (std::size_t index = 0; index < ActivePane().items.size(); ++index)
+        auto const& displayedItems = DisplayedItems();
+        for (std::size_t index = 0; index < displayedItems.size(); ++index)
         {
-            if (ActivePane().items[index].path == path)
+            if (displayedItems[index].path == path)
             {
                 return static_cast<int32_t>(index);
             }
@@ -4218,7 +4518,8 @@ namespace winrt::FileScoutNative::implementation
             accelerators.Append(accel);
         }
 
-        // Ctrl+P — open command palette.
+        if (::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                ::FileScoutNative::Domain::Wave1Feature::CommandPalette))
         {
             auto accel = KA{};
             accel.Key(VK::P);
@@ -4294,6 +4595,14 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::ShowCommandPalette()
     {
+        if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                ::FileScoutNative::Domain::Wave1Feature::CommandPalette))
+        {
+            StatusTextBlock().Text(ToHString(
+                BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::CommandPalette)));
+            return;
+        }
+
         CommandPaletteTextBox().Text(L"");
         CommandPaletteOverlay().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
         RefreshCommandPalette(L"");
@@ -4429,6 +4738,13 @@ namespace winrt::FileScoutNative::implementation
             HideCommandPalette();
             ExecuteContextCommand(commandId.c_str(), std::nullopt);
         }
+    }
+
+    void MainWindow::DualPaneButton_Click(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
+    {
+        ToggleDualPane();
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -4639,15 +4955,7 @@ namespace winrt::FileScoutNative::implementation
         try
         {
             auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
-            auto const style = rootGrid.Resources()
-                .Lookup(winrt::box_value(RowItemStyleKeyForViewMode(m_panes[paneIndex].view_mode)))
-                .as<winrt::Microsoft::UI::Xaml::Style>();
-            listView.ItemContainerStyle(style);
-
-            auto const tmpl = rootGrid.Resources()
-                .Lookup(winrt::box_value(RowTemplateKeyForViewMode(m_panes[paneIndex].view_mode)))
-                .as<winrt::Microsoft::UI::Xaml::DataTemplate>();
-            listView.ItemTemplate(tmpl);
+            ApplyRowPresentation(listView, rootGrid, m_panes[paneIndex]);
         }
         catch (...) {}
 
@@ -5243,11 +5551,12 @@ namespace winrt::FileScoutNative::implementation
 
         auto headerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
         auto const& pane = m_panes[paneIndex];
+        auto const presentation = ResolveRowPresentation(pane);
 
         // In list mode, prepend a fixed-width column matching the row icon (20px + 8px spacing).
         // This keeps sort button labels approximately aligned with the list row data columns.
         int32_t colOffset = 0;
-        if (pane.view_mode == ViewMode::List)
+        if (presentation == RowPresentation::List)
         {
             auto iconSpacerCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
             iconSpacerCol.Width({ 28.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
@@ -5357,11 +5666,19 @@ namespace winrt::FileScoutNative::implementation
 
         auto addToggleBtn = [&](std::wstring_view label, ViewMode targetMode)
         {
-            bool const isActive = (pane.view_mode == targetMode);
+            bool const isActive = !pane.group_by_sort_column && pane.view_mode == targetMode;
             auto const capturedMode = targetMode;
             addHeaderButton(label, isActive, [this, paneIndex, capturedMode](auto const&, auto const&)
                 {
                     SetActivePaneIndex(paneIndex);
+                    auto& pane = m_panes[paneIndex];
+                    if (pane.group_by_sort_column)
+                    {
+                        pane.view_mode = capturedMode;
+                        SetGroupingEnabled(paneIndex, false);
+                        return;
+                    }
+
                     SetViewMode(paneIndex, capturedMode);
                 });
         };
@@ -5430,11 +5747,21 @@ namespace winrt::FileScoutNative::implementation
         BuildSortHeader(paneIndex);
         RebuildAllTabRowsForPane(paneIndex);
 
+        if (pane.active_list_view)
+        {
+            try
+            {
+                auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
+                ApplyRowPresentation(pane.active_list_view, rootGrid, pane);
+            }
+            catch (...) {}
+        }
+
         StatusTextBlock().Text(ToHString(
-            std::to_wstring(pane.items.size()) +
+            std::to_wstring(pane.items.size()) + L" items  |  " +
             (enabled
-                ? L" items  |  grouped by " + SortColumnLabel(pane.sort_column)
-                : L" items  |  grouping off")));
+                ? L"group view  |  grouped by " + SortColumnLabel(pane.sort_column)
+                : RowPresentationStatusLabel(pane))));
     }
 
     winrt::fire_and_forget MainWindow::LoadImagePreviewAsync(
@@ -5491,21 +5818,14 @@ namespace winrt::FileScoutNative::implementation
             try
             {
                 auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
-                auto const style = rootGrid.Resources()
-                    .Lookup(winrt::box_value(RowItemStyleKeyForViewMode(mode)))
-                    .as<winrt::Microsoft::UI::Xaml::Style>();
-                pane.active_list_view.ItemContainerStyle(style);
-                auto const tmpl = rootGrid.Resources()
-                    .Lookup(winrt::box_value(RowTemplateKeyForViewMode(mode)))
-                    .as<winrt::Microsoft::UI::Xaml::DataTemplate>();
-                pane.active_list_view.ItemTemplate(tmpl);
+                ApplyRowPresentation(pane.active_list_view, rootGrid, pane);
             }
             catch (...) {}
         }
 
         StatusTextBlock().Text(ToHString(
-            std::to_wstring(pane.items.size()) +
-            (mode == ViewMode::Cards ? L" items  |  cards view" : L" items  |  list view")));
+            std::to_wstring(pane.items.size()) + L" items  |  " +
+            RowPresentationStatusLabel(pane)));
     }
 
     void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
@@ -5989,6 +6309,42 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
+    void MainWindow::RefreshDualPaneButton()
+    {
+        auto const tooltip = m_dualPaneVisible
+            ? winrt::hstring{ L"Hide the secondary pane" }
+            : winrt::hstring{ L"Show the secondary pane" };
+        winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+            DualPaneButton(),
+            winrt::box_value(tooltip));
+        DualPaneButton().Opacity(m_dualPaneVisible ? 1.0 : 0.9);
+    }
+
+    void MainWindow::ApplyPaneLayoutVisibility()
+    {
+        using winrt::Microsoft::UI::Xaml::GridLength;
+        using winrt::Microsoft::UI::Xaml::GridUnitType;
+        using winrt::Microsoft::UI::Xaml::Visibility;
+
+        if (!m_dualPaneVisible && m_activePaneIndex == 1)
+        {
+            SetActivePaneIndex(0);
+        }
+
+        if (m_dualPaneVisible)
+        {
+            RightPaneColumn().Width(GridLength{ 1.0, GridUnitType::Star });
+            RightPaneBorder().Visibility(Visibility::Visible);
+        }
+        else
+        {
+            RightPaneColumn().Width(GridLength{ 0.0, GridUnitType::Pixel });
+            RightPaneBorder().Visibility(Visibility::Collapsed);
+        }
+
+        RefreshDualPaneButton();
+    }
+
     // R13e: toggle the sidebar / preview panel on or off.
     void MainWindow::TogglePreviewPanel()
     {
@@ -6012,22 +6368,10 @@ namespace winrt::FileScoutNative::implementation
     // R13e: toggle the right pane on or off; switches to left pane if right was active.
     void MainWindow::ToggleDualPane()
     {
-        using winrt::Microsoft::UI::Xaml::GridLength;
-        using winrt::Microsoft::UI::Xaml::GridUnitType;
-        using winrt::Microsoft::UI::Xaml::Visibility;
-
         m_dualPaneVisible = !m_dualPaneVisible;
-        if (m_dualPaneVisible)
-        {
-            RightPaneColumn().Width(GridLength{ 1.0, GridUnitType::Star });
-            RightPaneBorder().Visibility(Visibility::Visible);
-        }
-        else
-        {
-            if (m_activePaneIndex == 1)
-                SetActivePaneIndex(0);
-            RightPaneColumn().Width(GridLength{ 0.0, GridUnitType::Pixel });
-            RightPaneBorder().Visibility(Visibility::Collapsed);
-        }
+        ApplyPaneLayoutVisibility();
+        StatusTextBlock().Text(m_dualPaneVisible
+            ? L"Dual pane enabled."
+            : L"Single-pane beta layout restored.");
     }
 }

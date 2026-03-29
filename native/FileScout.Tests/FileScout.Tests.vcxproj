@@ -145,6 +145,7 @@
     <ClCompile Include="tests\ShellItemSortTests.cpp" />
     <ClCompile Include="tests\SidebarRecentsTests.cpp" />
     <ClCompile Include="tests\ThemeServiceTests.cpp" />
+    <ClCompile Include="tests\Wave1FeatureGateTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
