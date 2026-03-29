@@ -401,3 +401,47 @@
 - A hostile audit is worth doing before beta-prep branches stack on top of a dirty local batch.
 - The repo needed one checked-in handoff artifact for Initiative 2; local-only notes are too easy to lose.
 - Scratch brainstorming output should stay out of baseline commits unless it is intentionally promoted into durable docs.
+
+---
+
+## private-beta-ux-hardening — 2026-03-28
+
+### Metrics
+
+| Metric | Value |
+|---|---|
+| Slices planned | 4 (U1–U4) |
+| Slices completed | 4 |
+| Slices blocked | 0 |
+| Completion rate | 100% |
+| Total commits | 1 committed bootstrap doc set + current uncommitted implementation batch |
+| Decisions made | 0 formal |
+| Debugging escalations | 0 formal |
+| Post-acceptance fixes | 2 documented follow-up rounds in U2 |
+| Final manual acceptance | Clean on 2026-03-28 |
+| Follow-on scope | None added; archive requested |
+
+### Key Learnings
+
+- **Wave-1 beta prep benefited from explicit gating and calmer defaults.** Landing single-pane first-launch as the default while keeping dual-pane as an intentional toggle tightened the supported surface area without removing the branch's core explorer value.
+- **View modes only became legible once they diverged structurally, not cosmetically.** Dedicated grouped templates, visible header bands, icon-tile treatment, and larger pane-owned gutters mattered more than small spacing or color shifts.
+- **Displayed-row routing is the real interaction contract in filtered views.** The U4 fix only held after selection, details, double-click, right-click, and command execution all resolved against the currently displayed filtered rows instead of the full hidden backing list.
+- **Manual acceptance needs a fixed checklist for WinUI interaction work.** Blank-space ownership, empty-folder menus, disabled custom-chrome buttons, bookmark context affordances, and scrollbar discoverability all surfaced meaningful regressions that were not realistically covered by the automated suite.
+
+### What Went Well
+
+- The initiative stayed coherent end-to-end: wave-1 scope control, view semantics, chrome cleanup, and interaction hardening all served the same "beta-worthy explorer loop" goal.
+- The pure-domain helpers introduced during the work (`Wave1FeatureGate`, displayed-row/filter-state support) fit the repo's shell/domain boundary cleanly and made narrow regression coverage possible where logic existed outside WinUI.
+- The final status doc captured build, test, and host-validation evidence per slice well enough to support closure without reopening design work.
+
+### What Could Improve
+
+- The branch history still does not match the initiative story because the implementation remains in the working tree instead of in committed slice checkpoints. Future initiatives should commit closer to acceptance.
+- Several high-value regressions were only found during late host validation. For WinUI-heavy initiatives, the manual acceptance slice should be planned as a first-class milestone rather than as cleanup once visuals look "done."
+- Retro metrics for this initiative had to be reconstructed from docs instead of clean per-slice commits, which raises the bookkeeping cost and makes later archaeology weaker.
+
+### Recommendations for Next Initiative
+
+- No immediate follow-on scope is being opened from this initiative; treat any future work as a new initiative with its own scope instead of extending this one.
+- Reuse the displayed-row-source rule for future search, filter, or grouping work: interaction paths should always resolve against the visible collection, never the full backing item list.
+- Keep fixed manual-acceptance checklists as durable artifacts for any future WinUI chrome or pane-interaction initiative.
