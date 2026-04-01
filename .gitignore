@@ -1,5 +1,6 @@
 # Brainstorming visual companion
 .superpowers/
+.brainstorm/
 
 # Git worktrees
 .worktrees/
@@ -27,7 +28,9 @@ desktop.ini
 !.claude/skills/**
 
 # AI-assisted development notes (private session docs)
-docs/ai/
+docs/ai/*
+!docs/ai/search-master-integration-*.md
+!docs/ai/shell-navigation-and-density-hardening-*.md
 
 # Logs
 *.log
