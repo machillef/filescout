@@ -1,4 +1,4 @@
-name: CI and Sonar
+name: CI
 
 on:
   push:
@@ -10,10 +10,9 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
-  build-test-sonar:
+  build-test:
     runs-on: windows-latest
     env:
       BUILD_CONFIGURATION: Debug
@@ -54,13 +53,3 @@ jobs:
         shell: pwsh
         run: >
           & "$env:TEST_EXE" --gtest_color=no
-
-      - name: SonarQube Cloud scan
-        uses: SonarSource/sonarqube-scan-action@v6
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            "-Dsonar.organization=${{ vars.SONAR_ORG }}"
-            "-Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}"
-            "-Dsonar.qualitygate.wait=true"
