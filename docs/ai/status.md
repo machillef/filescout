@@ -9,6 +9,12 @@
 - Current blocker: none
 - Next slice to execute: S7 (icon backfill phase 2)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
+- Hosted Windows CI baseline established 2026-04-01: GitHub Actions restore/build/test passes on
+  `windows-latest`; `build-test` is the required PR gate
+- SonarCloud is connected and reporting for the repo, but scanner-driven Sonar CI should remain
+  disabled until SonarCloud Automatic Analysis is turned off in project settings
+- Workflow actions are SHA-pinned; GitHub may still show a non-blocking Node 20 deprecation
+  annotation until upstream actions publish Node-24-native releases
 - App launches and shows window as of 2026-03-20
 - R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
   modes with streaming ProgressBar and navigate-on-select (R17a–R17e); 71/71 tests

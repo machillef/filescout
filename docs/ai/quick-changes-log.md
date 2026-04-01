@@ -1,3 +1,9 @@
+## 2026-04-01 — Record hosted Windows CI and SonarCloud procedure baseline
+- Changed: `docs/ai/status.md`
+- Pattern followed: `docs/ai/quick-changes-log.md`
+- Tests: GitHub Actions `build-test` passing on `windows-latest`; SonarCloud Code Analysis passing
+- Reviewed: yes — self-review of doc wording and active PR check state
+
 ## 2026-03-28 — Retro and archive private-beta-ux-hardening docs
 - Changed: `docs/ai/retro-log.md`, `docs/ai/quick-changes-log.md`, `docs/ai/archive/private-beta-ux-hardening/*`
 - Pattern followed: `docs/ai/retro-log.md`, `docs/ai/archive/ui-polish/`
