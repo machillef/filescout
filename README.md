@@ -1,62 +1,90 @@
 # FileScout
 
-A Windows 11 file explorer built with C++/WinRT and WinUI 3.
+FileScout is a Windows 11 file explorer built with C++/WinRT and WinUI 3. It focuses on native shell integration, fast keyboard-driven workflows, and a modern two-pane interface that feels at home on Windows while still pushing toward power-user features.
 
-> **Status: active development** — Explorer parity foundation is in place; power features are in progress.
+## Highlights
 
-## What works today
+- Shell-backed browsing, metadata, icons, and file operations
+- Dual-pane and multi-tab workflow with active-pane routing
+- Command palette, keyboard shortcuts, and breadcrumb/address navigation
+- Archive browsing with extract affordances
+- Fuzzy search with live filtering, recursive search, and result activation
 
-- Shell-backed file pane with native icons, selection, and folder navigation
-- Windows 11–style context menu with shell overflow (`More Windows actions...`)
-- Shell-backed file operations: open, open with, properties, new folder, rename, delete (recycle bin), copy, cut, paste
-- Native drag-and-drop within the app and with Windows Explorer
-- Keyboard shortcuts: Ctrl+C/X/V, Delete, F2, F5, Ctrl+T, Ctrl+W, Ctrl+Tab
-- Multi-tab pane (Ctrl+T to open, Ctrl+W to close)
-- Dual-pane layout with independent tab sets and active-pane routing
-- Sidebar navigation: Home, Desktop, Documents, Downloads, Pictures, Music, Videos, This PC, Recycle Bin, drives; pin any folder from the context menu
-- Sort by name/size/date (column headers), group toggle, Cards and List view modes — all per-pane
-- Sidebar image preview with created date, file attributes; metadata inspect surface
-- Archive browsing: ZIP and shell-detected archives open as virtual views; extract-to affordances
-- Batch rename: sequential numbering, prefix/suffix presets, find-and-replace, live preview and validation
-- Explorer-style chrome: custom title bar, Fluent icon glyphs, 2-pane active indicator, shell-backed sidebar icons
-- Breadcrumb address bar with clickable path segments and drive root icons
-- Dedicated search box with fuzzy matching, streaming results, Filter and Recursive modes, keyboard type-ahead
+## What FileScout Can Do Today
 
-## What's next
+### Navigation and workspace
 
-- Command palette (R13) — write spec first, then implement
-- Git-aware and power-user workflows (R14)
-- AI features (R15)
+- Browse files and folders with shell-backed rows, native icons, selection, and folder navigation
+- Work across dual panes with independent tab sets and active-pane routing
+- Navigate with breadcrumb segments, drive-root icons, address entry, back/forward, and type-ahead
+- Use sidebar destinations including Home, Desktop, Documents, Downloads, Pictures, Music, Videos, This PC, Recycle Bin, and drives
+- Pin folders into the sidebar and switch between Cards and List views with per-pane sort and grouping controls
 
-## Prerequisites
+### File operations and shell integration
+
+- Open items, open with alternate apps, and show Properties through native shell pathways
+- Create folders, rename items, delete to the recycle bin, and use copy, cut, and paste workflows
+- Drag and drop within FileScout and between FileScout and Windows Explorer
+- Show Windows 11-style context menus with shell overflow actions
+- Surface archive-aware flows for supported shell-detected archive types, including extraction affordances
+
+### Search and discovery
+
+- Filter the current pane with fuzzy matching and ranked results
+- Run recursive search with streaming updates, capped result messaging, and navigate-on-select behavior
+- Show search result subtitles and highlight positions shaped for the current UI
+- Use dedicated search-box flows without losing the current pane snapshot
+
+### Power-user tools
+
+- Launch a command palette for navigation, file operations, and view/sort commands
+- Use keyboard shortcuts including `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Delete`, `F2`, `F5`, `Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, and palette/search-focused flows
+- Batch rename with sequential numbering, prefix and suffix transforms, find-and-replace, and validation
+- Browse with custom title bar chrome, active-pane indicators, and shell-backed sidebar visuals
+
+## Build and Test
+
+### Prerequisites
 
 - Windows 11 x64
-- [Microsoft Windows App Runtime 1.8](https://aka.ms/windowsappsdk) (framework package, installed separately)
-- Visual Studio 2022 or VS Build Tools with:
+- [Microsoft Windows App Runtime 1.8](https://aka.ms/windowsappsdk) installed separately
+- Visual Studio 2022 or Visual Studio Build Tools with:
   - Desktop development with C++
-  - Windows 11 SDK (10.0.22621 or later)
+  - Windows 11 SDK (`10.0.22621` or later)
   - C++ WinUI / Windows App SDK support
 
-## Build
+### Restore
 
-**Restore NuGet packages:**
-```
+```powershell
 cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /restore /p:RestorePackagesConfig=true"
 ```
 
-**Build (Debug):**
-```
+### Build
+
+```powershell
 cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /p:Configuration=Debug /p:Platform=x64"
 ```
 
-The binary lands at `native/x64/Debug/FileScout.Native/FileScout.Native.exe`.
+App binary output:
 
-## Stack
+`native/x64/Debug/FileScout.Native/FileScoutNative.exe`
 
-- Language: C++20
-- UI: WinUI 3 (Windows App SDK 1.8)
-- Shell integration: C++/WinRT, `IFileOperation`, `IContextMenu`, `IShellItem`
-- Packaging: unpackaged desktop app
+### Test
+
+```powershell
+native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no
+```
+
+## Project Layout
+
+- `native/FileScout.Native/` - WinUI 3 application, shell integration, view models, and UI workflows
+- `native/FileScout.Tests/` - GoogleTest-based native test suite
+- `docs/ai/` - internal planning notes, status logs, and initiative records
+- `assets/` - project assets used by the app and repository
+
+## Status
+
+FileScout is under active development. The core explorer, search, archive, command, and workflow foundations are in place, and the project is continuing to harden the experience and expand power-user capabilities.
 
 ## License
 
