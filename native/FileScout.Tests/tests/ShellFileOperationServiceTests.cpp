@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include "Domain/FileNameValidation.h"
 #include "Domain/BatchRenamePlan.h"
+#include "Shell/PropertiesLaunchSpec.h"
 #include "Shell/ShellFileOperationService.h"
 
 using namespace FileScoutNative::Domain;
@@ -211,7 +212,7 @@ TEST(BatchRenamePlanTests, TryAppendPlanEntryRejectsNamesEndingWithPeriod)
     std::unordered_set<std::wstring> existingNames;
     auto const item = MakeBatchRenameItem(LR"(C:\Temp\photos)", true);
 
-    EXPECT_FALSE(detail::TryAppendPlanEntry(
+    EXPECT_FALSE(FileScoutNative::Domain::detail::TryAppendPlanEntry(
         plan,
         item,
         L"photos.",
@@ -339,6 +340,16 @@ TEST(BatchRenamePlanTests, BuildCaseTransformPlanRejectsDuplicateNamesAgainstUnc
     EXPECT_TRUE(plan.entries.empty());
 }
 
+TEST(ShellFileOperationDetail, BuildPropertiesLaunchSpec_UsesShopFilePathAndNoPage)
+{
+    auto const spec = FileScoutNative::Shell::detail::BuildPropertiesLaunchSpec(
+        LR"(C:\Temp\sample.txt)");
+
+    EXPECT_EQ(spec.object_type, static_cast<DWORD>(SHOP_FILEPATH));
+    EXPECT_EQ(spec.object_name, LR"(C:\Temp\sample.txt)");
+    EXPECT_TRUE(spec.property_page.empty());
+}
+
 // ─── CreateFolder ────────────────────────────────────────────────────────────
 
 TEST_F(ShellFileOperationFixture, CreateFolderCreatesDirectory)
@@ -440,4 +451,10 @@ TEST_F(ShellFileOperationFixture, DeleteItemsRemovesFilesFromOriginalPaths)
 
     EXPECT_FALSE(std::filesystem::exists(first));
     EXPECT_FALSE(std::filesystem::exists(second));
+}
+
+TEST_F(ShellFileOperationFixture, ShowPropertiesThrowsForMissingPath)
+{
+    auto const missing = m_root / L"missing.txt";
+    EXPECT_THROW(m_svc.ShowProperties(nullptr, missing), std::runtime_error);
 }

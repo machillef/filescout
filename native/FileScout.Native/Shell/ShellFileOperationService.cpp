@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "ShellFileOperationService.h"
+#include "PropertiesLaunchSpec.h"
 
 namespace FileScoutNative::Shell
 {
@@ -44,7 +45,15 @@ namespace FileScoutNative::Shell
         HWND const ownerWindow,
         std::filesystem::path const& path) const
     {
-        ExecuteShellVerb(ownerWindow, path, L"properties");
+        auto const spec = detail::BuildPropertiesLaunchSpec(path);
+        if (!SHObjectProperties(
+            ownerWindow,
+            spec.object_type,
+            spec.object_name.c_str(),
+            spec.property_page.empty() ? nullptr : spec.property_page.c_str()))
+        {
+            ThrowShellExecuteFailure(path, L"properties");
+        }
     }
 
     void ShellFileOperationService::ExecuteShellVerb(
