@@ -100,6 +100,29 @@ namespace FileScoutNative::Shell
             return extension;
         }
 
+        std::filesystem::path NormalizeShellLookupPath(std::filesystem::path const& path)
+        {
+            if (path.empty())
+            {
+                return {};
+            }
+
+            auto const native = path.native();
+            if (native.rfind(L"\\\\", 0) == 0 || native.rfind(L"//", 0) == 0)
+            {
+                return path.lexically_normal();
+            }
+
+            std::error_code absoluteError;
+            auto const absolute = std::filesystem::absolute(path, absoluteError);
+            if (absoluteError)
+            {
+                return path.lexically_normal();
+            }
+
+            return absolute.lexically_normal();
+        }
+
         std::optional<FileScoutNative::Domain::IconBitmap> ExtractShellIconBitmap(
             std::wstring const& shellLookupName,
             DWORD const fileAttributes,
@@ -561,6 +584,10 @@ namespace FileScoutNative::Shell
         HANDLE const findHandle = FindFirstFileW(searchPattern.c_str(), &findData);
         if (findHandle == INVALID_HANDLE_VALUE)
         {
+            if (CanEnumerateShellNamespace(path))
+            {
+                return EnumerateShellDirectory(path);
+            }
             return {};
         }
 
@@ -578,6 +605,109 @@ namespace FileScoutNative::Shell
         FindClose(findHandle);
         // NOTE: Sorting is intentionally omitted here — callers apply the user-selected
         // sort column and direction after enumeration.
+        return items;
+    }
+
+    std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateShellDirectory(
+        std::filesystem::path const& path) const
+    {
+        auto const targetPath = NormalizeShellLookupPath(path);
+        if (targetPath.empty())
+        {
+            throw std::runtime_error("Unsupported shell namespace path.");
+        }
+
+        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        bool const shouldUninitialize = SUCCEEDED(initHr);
+
+        std::vector<FileScoutNative::Domain::ShellItemRef> items;
+        try
+        {
+            winrt::com_ptr<IShellItem> folderItem;
+            winrt::check_hresult(SHCreateItemFromParsingName(
+                targetPath.wstring().c_str(),
+                nullptr,
+                IID_PPV_ARGS(folderItem.put())));
+
+            winrt::com_ptr<IEnumShellItems> enumerator;
+            winrt::check_hresult(folderItem->BindToHandler(
+                nullptr,
+                BHID_EnumItems,
+                IID_PPV_ARGS(enumerator.put())));
+
+            while (true)
+            {
+                winrt::com_ptr<IShellItem> child;
+                ULONG fetched{};
+                auto const nextHr = enumerator->Next(1, child.put(), &fetched);
+                if (nextHr == S_FALSE || fetched == 0)
+                {
+                    break;
+                }
+                winrt::check_hresult(nextHr);
+
+                auto parsingName = TryGetShellString(child.get(), SIGDN_DESKTOPABSOLUTEPARSING);
+                if (!parsingName.has_value())
+                {
+                    continue;
+                }
+
+                auto displayName = TryGetShellString(child.get(), SIGDN_NORMALDISPLAY)
+                    .value_or(std::filesystem::path{ *parsingName }.filename().wstring());
+
+                SFGAOF attributes = SFGAO_FOLDER;
+                child->GetAttributes(SFGAO_FOLDER, &attributes);
+
+                FileScoutNative::Domain::ShellItemRef item;
+                item.path = std::filesystem::path{ *parsingName };
+                item.parsing_name = *parsingName;
+                item.display_name = std::move(displayName);
+                item.is_folder = (attributes & SFGAO_FOLDER) != 0;
+                item.kind_label = BuildKindLabel(item.path, item.is_folder);
+                item.icon = GetIconForItem(item.path, item.is_folder);
+
+                winrt::com_ptr<IShellItem2> child2;
+                if (SUCCEEDED(child->QueryInterface(IID_PPV_ARGS(child2.put()))))
+                {
+                    if (auto kindLabel = TryGetShellPropertyString(child2.get(), PKEY_ItemTypeText);
+                        kindLabel.has_value() && !kindLabel->empty())
+                    {
+                        item.kind_label = *kindLabel;
+                    }
+
+                    ULONGLONG sizeBytes{};
+                    if (SUCCEEDED(child2->GetUInt64(PKEY_Size, &sizeBytes)))
+                    {
+                        item.size_available = true;
+                        item.size_bytes = sizeBytes;
+                    }
+
+                    FILETIME modified{};
+                    if (SUCCEEDED(child2->GetFileTime(PKEY_DateModified, &modified)))
+                    {
+                        item.date_modified_available = true;
+                        item.date_modified = FileTimeToChrono(modified);
+                        item.date_modified_str = FormatShellDateTime(modified).value_or(L"");
+                    }
+                }
+
+                items.push_back(std::move(item));
+            }
+        }
+        catch (...)
+        {
+            if (shouldUninitialize)
+            {
+                CoUninitialize();
+            }
+            throw;
+        }
+
+        if (shouldUninitialize)
+        {
+            CoUninitialize();
+        }
+
         return items;
     }
 
@@ -653,14 +783,13 @@ namespace FileScoutNative::Shell
     bool ShellInteropService::CanEnumerateShellNamespace(
         std::filesystem::path const& path) const
     {
-        std::error_code absoluteError;
-        auto const absolute = std::filesystem::absolute(path, absoluteError).lexically_normal();
-        if (absoluteError)
+        auto const normalized = NormalizeShellLookupPath(path);
+        if (normalized.empty())
         {
             return false;
         }
 
-        auto const cacheKey = absolute.wstring();
+        auto const cacheKey = normalized.wstring();
         {
             std::scoped_lock lock(m_archiveCapabilityMutex);
             if (auto const cached = m_archiveCapabilityCache.find(cacheKey);
@@ -762,98 +891,6 @@ namespace FileScoutNative::Shell
         {
             throw std::runtime_error("Unsupported archive path.");
         }
-
-        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        bool const shouldUninitialize = SUCCEEDED(initHr);
-
-        std::vector<FileScoutNative::Domain::ShellItemRef> items;
-        try
-        {
-            winrt::com_ptr<IShellItem> folderItem;
-            winrt::check_hresult(SHCreateItemFromParsingName(
-                resolved->virtual_path.wstring().c_str(),
-                nullptr,
-                IID_PPV_ARGS(folderItem.put())));
-
-            winrt::com_ptr<IEnumShellItems> enumerator;
-            winrt::check_hresult(folderItem->BindToHandler(
-                nullptr,
-                BHID_EnumItems,
-                IID_PPV_ARGS(enumerator.put())));
-
-            while (true)
-            {
-                winrt::com_ptr<IShellItem> child;
-                ULONG fetched{};
-                auto const nextHr = enumerator->Next(1, child.put(), &fetched);
-                if (nextHr == S_FALSE || fetched == 0)
-                {
-                    break;
-                }
-                winrt::check_hresult(nextHr);
-
-                auto parsingName = TryGetShellString(child.get(), SIGDN_DESKTOPABSOLUTEPARSING);
-                if (!parsingName.has_value())
-                {
-                    continue;
-                }
-
-                auto displayName = TryGetShellString(child.get(), SIGDN_NORMALDISPLAY)
-                    .value_or(std::filesystem::path{ *parsingName }.filename().wstring());
-
-                SFGAOF attributes = SFGAO_FOLDER;
-                child->GetAttributes(SFGAO_FOLDER, &attributes);
-
-                FileScoutNative::Domain::ShellItemRef item;
-                item.path = std::filesystem::path{ *parsingName };
-                item.parsing_name = *parsingName;
-                item.display_name = std::move(displayName);
-                item.is_folder = (attributes & SFGAO_FOLDER) != 0;
-                item.kind_label = BuildKindLabel(item.path, item.is_folder);
-                item.icon = GetIconForItem(item.path, item.is_folder);
-
-                winrt::com_ptr<IShellItem2> child2;
-                if (SUCCEEDED(child->QueryInterface(IID_PPV_ARGS(child2.put()))))
-                {
-                    if (auto kindLabel = TryGetShellPropertyString(child2.get(), PKEY_ItemTypeText);
-                        kindLabel.has_value() && !kindLabel->empty())
-                    {
-                        item.kind_label = *kindLabel;
-                    }
-
-                    ULONGLONG sizeBytes{};
-                    if (SUCCEEDED(child2->GetUInt64(PKEY_Size, &sizeBytes)))
-                    {
-                        item.size_available = true;
-                        item.size_bytes = sizeBytes;
-                    }
-
-                    FILETIME modified{};
-                    if (SUCCEEDED(child2->GetFileTime(PKEY_DateModified, &modified)))
-                    {
-                        item.date_modified_available = true;
-                        item.date_modified = FileTimeToChrono(modified);
-                        item.date_modified_str = FormatShellDateTime(modified).value_or(L"");
-                    }
-                }
-
-                items.push_back(std::move(item));
-            }
-        }
-        catch (...)
-        {
-            if (shouldUninitialize)
-            {
-                CoUninitialize();
-            }
-            throw;
-        }
-
-        if (shouldUninitialize)
-        {
-            CoUninitialize();
-        }
-
-        return items;
+        return EnumerateShellDirectory(resolved->virtual_path);
     }
 }

@@ -1,9 +1,9 @@
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -21,7 +21,7 @@ namespace FileScoutNative::Search
     {
     public:
         using ResultCallback   = std::function<void(std::vector<SearchResult>)>;
-        using CompleteCallback = std::function<void(bool cap_reached)>;
+        using CompleteCallback = std::function<void(bool cap_reached, bool failed)>;
 
         // PostFn: schedules a void() callback on the UI thread.
         // Production: caller wraps DispatcherQueue::TryEnqueue.
@@ -40,28 +40,45 @@ namespace FileScoutNative::Search
                    ResultCallback on_results, CompleteCallback on_complete,
                    PostFn post_fn);
 
+        void Start(std::wstring root, std::wstring query,
+                   ResultCallback on_results, std::function<void(bool)> on_complete,
+                   PostFn post_fn)
+        {
+            Start(
+                std::move(root),
+                std::move(query),
+                std::move(on_results),
+                [on_complete = std::move(on_complete)](bool cap_reached, bool)
+                {
+                    on_complete(cap_reached);
+                },
+                std::move(post_fn));
+        }
+
         // Signals the walk to stop. Non-blocking. Safe to call from the UI thread.
         void Cancel();
 
     private:
-        static constexpr uint32_t    k_max_depth    = 12;
-        static constexpr std::size_t k_heap_cap     = 200;
+        static constexpr uint32_t    k_max_depth = 12;
+        static constexpr std::size_t k_heap_cap = 200;
         static constexpr int         k_batch_interval_ms = 50;
 
         std::shared_ptr<std::atomic<bool>> m_cancelled_flag;
-        std::atomic<uint64_t>              m_generation{ 0 };
-        bool                               m_cap_reached{ false };
-        std::thread                        m_thread;
+        std::shared_ptr<std::atomic<uint64_t>> m_generation;
+        std::thread m_thread;
 
-        // Internal walk called on the background thread.
-        void WalkDir(
+        static void WalkDir(
             std::filesystem::path const& dir,
             uint32_t current_depth,
             std::wstring const& query_lower,
-            std::vector<std::pair<int, std::wstring>>& heap,   // min-heap {score, path}
+            std::vector<std::pair<int, std::wstring>>& heap,
             std::shared_ptr<std::atomic<bool>> const& cancelled,
+            std::shared_ptr<std::atomic<uint64_t>> const& generation_ptr,
             uint64_t generation,
-            bool& cap_reached);
+            bool& cap_reached,
+            bool& results_dirty,
+            std::function<void()> const& flush_fn,
+            std::chrono::steady_clock::time_point& last_flush);
     };
 
 } // namespace FileScoutNative::Search

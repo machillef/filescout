@@ -1,42 +1,22 @@
 #include "pch.h"
+#include <future>
 #include <gtest/gtest.h>
 #include "Search/SearchService.h"
 
 using namespace FileScoutNative::Search;
 
-// Helper: build a flat synthetic "filesystem" as a list of absolute paths
-// the test WalkDir callback can enumerate instead of a real disk.
-// SearchService exposes an injectable EnumerateFn for testing (see SearchService.h).
-
-// ---------------------------------------------------------------------------
-// Helper to run a search synchronously in tests using direct-call PostFn.
-// ---------------------------------------------------------------------------
 struct TestHarness
 {
     std::vector<std::vector<SearchResult>> batches;
-    bool completed{ false };
-    bool cap_reached{ false };
-    std::mutex mu;
-    std::condition_variable cv;
 
     SearchService svc;
 
-    // Synchronous PostFn: call the callback immediately on the calling thread.
     SearchService::PostFn MakeSyncPost()
     {
         return [this](std::function<void()> fn) { fn(); };
     }
-
-    void WaitForComplete(std::chrono::milliseconds timeout = std::chrono::milliseconds(5000))
-    {
-        std::unique_lock lock(mu);
-        cv.wait_for(lock, timeout, [this] { return completed; });
-    }
 };
 
-// ---------------------------------------------------------------------------
-// Test 1: Cancel before first result — zero ResultCallback calls
-// ---------------------------------------------------------------------------
 TEST(SearchService, CancelBeforeFirstResult)
 {
     TestHarness h;
@@ -46,109 +26,109 @@ TEST(SearchService, CancelBeforeFirstResult)
         L"C:\\Windows\\System32",
         L"ntdll",
         [&callCount](std::vector<SearchResult>) { ++callCount; },
-        [](bool) {},
+        [](bool, bool) {},
         h.MakeSyncPost());
     h.svc.Cancel();
 
-    // Give a moment for thread to drain
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     EXPECT_EQ(0, callCount.load());
 }
 
-// ---------------------------------------------------------------------------
-// Test 2: Cancel mid-walk — no callbacks after Cancel (latch-based)
-// ---------------------------------------------------------------------------
 TEST(SearchService, CancelMidWalk)
 {
-    // Use a real directory large enough to produce results before we cancel.
-    // C:\Windows\System32 has ~4500 files — enough for at least one batch.
-    std::latch firstBatch(1);
+    std::promise<void> firstBatchPromise;
+    auto firstBatch = firstBatchPromise.get_future();
     std::atomic<int> callsAfterCancel{ 0 };
-    bool cancelFired{ false };
+    std::atomic<bool> cancelFired{ false };
 
     SearchService svc;
     svc.Start(
         L"C:\\Windows",
         L"dll",
-        [&firstBatch, &cancelFired, &callsAfterCancel](std::vector<SearchResult>) {
-            if (!cancelFired)
-                firstBatch.count_down(); // only decrement once
+        [&firstBatchPromise, &cancelFired, &callsAfterCancel](std::vector<SearchResult>) {
+            if (!cancelFired.exchange(true))
+            {
+                firstBatchPromise.set_value();
+            }
             else
+            {
                 ++callsAfterCancel;
+            }
         },
-        [](bool) {},
-        // Real async post via a background thread simulating the dispatcher
+        [](bool, bool) {},
         [](std::function<void()> fn) { fn(); });
 
-    firstBatch.wait(); // block until first batch arrives
-    cancelFired = true;
+    ASSERT_EQ(firstBatch.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     svc.Cancel();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     EXPECT_EQ(0, callsAfterCancel.load());
 }
 
-// ---------------------------------------------------------------------------
-// Test 3: Cap enforcement — 600 files in two score tiers, heap capped at 200
-// ---------------------------------------------------------------------------
 TEST(SearchService, CapEnforcement)
 {
-    // "ama_N.txt" scores 14 for query "ma" (non-prefix match).
-    // "match_N.txt" scores 34 for query "ma" (prefix match).
-    // NTFS iterates alphabetically: "ama_" before "match_", so the min-heap
-    // fills with 200 low-scored entries first, then high-scored "match_" files
-    // displace them and set cap_reached.
     auto tmpDir = std::filesystem::temp_directory_path() /
         (L"FileScoutSearchTest-" + std::to_wstring(::GetCurrentProcessId()));
     std::filesystem::create_directories(tmpDir);
 
-    struct Cleanup {
+    struct Cleanup
+    {
         std::filesystem::path p;
-        ~Cleanup() { std::error_code ec; std::filesystem::remove_all(p, ec); }
+        ~Cleanup()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(p, ec);
+        }
     } cleanup{ tmpDir };
 
-    for (int i = 0; i < 300; ++i)
+    for (int i = 0; i < 200; ++i)
     {
-        // Low score (14): 'ma' matched as subsequence but NOT at filename prefix.
-        std::ofstream f(tmpDir / (L"ama_" + std::to_wstring(i) + L".txt"));
+        std::ofstream f(tmpDir / (L"aab_" + std::to_wstring(i) + L".txt"));
     }
-    for (int i = 0; i < 300; ++i)
     {
-        // High score (34): 'ma' matched at filename prefix with consecutive bonus.
-        std::ofstream f(tmpDir / (L"match_" + std::to_wstring(i) + L".txt"));
+        std::ofstream f(tmpDir / L"ab_top.txt");
     }
 
     std::vector<SearchResult> allResults;
     bool cap{ false };
-    std::latch done(1);
+    bool failed{ false };
+    std::promise<void> donePromise;
+    auto done = donePromise.get_future();
 
     SearchService svc;
     svc.Start(
         tmpDir.wstring(),
-        L"ma",
+        L"ab",
         [&allResults](std::vector<SearchResult> r) { allResults = std::move(r); },
-        [&cap, &done](bool c) { cap = c; done.count_down(); },
+        [&cap, &failed, &donePromise](bool c, bool f) {
+            cap = c;
+            failed = f;
+            donePromise.set_value();
+        },
         [](std::function<void()> fn) { fn(); });
 
-    done.wait();
+    ASSERT_EQ(done.wait_for(std::chrono::seconds(10)), std::future_status::ready);
 
     EXPECT_LE(static_cast<int>(allResults.size()), 200);
     EXPECT_TRUE(cap);
+    EXPECT_FALSE(failed);
 }
 
-// ---------------------------------------------------------------------------
-// Test 4: Exact 200 matches, no cap
-// ---------------------------------------------------------------------------
 TEST(SearchService, Exact200NoCap)
 {
     auto tmpDir = std::filesystem::temp_directory_path() /
         (L"FileScoutSearchTest200-" + std::to_wstring(::GetCurrentProcessId()));
     std::filesystem::create_directories(tmpDir);
 
-    struct Cleanup {
+    struct Cleanup
+    {
         std::filesystem::path p;
-        ~Cleanup() { std::error_code ec; std::filesystem::remove_all(p, ec); }
+        ~Cleanup()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(p, ec);
+        }
     } cleanup{ tmpDir };
 
     for (int i = 0; i < 200; ++i)
@@ -156,118 +136,217 @@ TEST(SearchService, Exact200NoCap)
         std::ofstream f(tmpDir / (L"match_" + std::to_wstring(i) + L".txt"));
     }
 
-    bool cap{ true }; // initialise to true so a false result is conclusive
-    std::latch done(1);
+    bool cap{ true };
+    bool failed{ true };
+    std::promise<void> donePromise;
+    auto done = donePromise.get_future();
 
     SearchService svc;
     svc.Start(
         tmpDir.wstring(),
         L"ma",
         [](std::vector<SearchResult>) {},
-        [&cap, &done](bool c) { cap = c; done.count_down(); },
+        [&cap, &failed, &donePromise](bool c, bool f) {
+            cap = c;
+            failed = f;
+            donePromise.set_value();
+        },
         [](std::function<void()> fn) { fn(); });
 
-    done.wait();
+    ASSERT_EQ(done.wait_for(std::chrono::seconds(10)), std::future_status::ready);
     EXPECT_FALSE(cap);
+    EXPECT_FALSE(failed);
 }
 
-// ---------------------------------------------------------------------------
-// Test 5: Tie truncation — 201 equal-score entries, cap_reached stays false
-// ---------------------------------------------------------------------------
 TEST(SearchService, TieTruncationNoCap)
 {
     auto tmpDir = std::filesystem::temp_directory_path() /
         (L"FileScoutSearchTestTie-" + std::to_wstring(::GetCurrentProcessId()));
     std::filesystem::create_directories(tmpDir);
 
-    struct Cleanup {
+    struct Cleanup
+    {
         std::filesystem::path p;
-        ~Cleanup() { std::error_code ec; std::filesystem::remove_all(p, ec); }
+        ~Cleanup()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(p, ec);
+        }
     } cleanup{ tmpDir };
 
-    // All files named "ab_NNN.txt" — identical fuzzy score for query "ab"
     for (int i = 0; i < 201; ++i)
     {
         std::ofstream f(tmpDir / (L"ab_" + std::to_wstring(i) + L".txt"));
     }
 
     bool cap{ true };
-    std::latch done(1);
+    bool failed{ true };
+    std::promise<void> donePromise;
+    auto done = donePromise.get_future();
 
     SearchService svc;
     svc.Start(
         tmpDir.wstring(),
         L"ab",
         [](std::vector<SearchResult>) {},
-        [&cap, &done](bool c) { cap = c; done.count_down(); },
+        [&cap, &failed, &donePromise](bool c, bool f) {
+            cap = c;
+            failed = f;
+            donePromise.set_value();
+        },
         [](std::function<void()> fn) { fn(); });
 
-    done.wait();
-    EXPECT_FALSE(cap); // ties silently dropped, no displacement
+    ASSERT_EQ(done.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_FALSE(cap);
+    EXPECT_FALSE(failed);
 }
 
-// ---------------------------------------------------------------------------
-// Test 6: Depth limit — entries beyond depth 12 not returned
-// ---------------------------------------------------------------------------
 TEST(SearchService, DepthLimit)
 {
     auto root = std::filesystem::temp_directory_path() /
         (L"FileScoutDepthTest-" + std::to_wstring(::GetCurrentProcessId()));
     std::filesystem::create_directories(root);
 
-    struct Cleanup {
+    struct Cleanup
+    {
         std::filesystem::path p;
-        ~Cleanup() { std::error_code ec; std::filesystem::remove_all(p, ec); }
+        ~Cleanup()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(p, ec);
+        }
     } cleanup{ root };
 
-    // Build a 15-level deep chain; place a matchable file at depth 13 and depth 11
     std::filesystem::path deep = root;
     for (int d = 1; d <= 15; ++d)
     {
         deep /= (L"lvl" + std::to_wstring(d));
         std::filesystem::create_directories(deep);
-        if (d == 11 || d == 13)
+        if (d == 12 || d == 13)
         {
             std::ofstream f(deep / L"target_file.txt");
         }
     }
 
     std::vector<SearchResult> results;
-    std::latch done(1);
+    bool failed{ true };
+    std::promise<void> donePromise;
+    auto done = donePromise.get_future();
 
     SearchService svc;
     svc.Start(
         root.wstring(),
         L"ta",
         [&results](std::vector<SearchResult> r) { results = std::move(r); },
-        [&done](bool) { done.count_down(); },
+        [&failed, &donePromise](bool, bool f) {
+            failed = f;
+            donePromise.set_value();
+        },
         [](std::function<void()> fn) { fn(); });
 
-    done.wait();
+    ASSERT_EQ(done.wait_for(std::chrono::seconds(10)), std::future_status::ready);
 
-    // depth-11 file should be in results; depth-13 file should NOT
-    bool foundDepth11{ false }, foundDepth13{ false };
+    bool foundDepth12{ false };
+    bool foundDepth13{ false };
     for (auto const& r : results)
     {
         auto p = std::filesystem::path(r.full_path);
-        if (p.parent_path().filename() == L"lvl11") foundDepth11 = true;
-        if (p.parent_path().filename() == L"lvl13") foundDepth13 = true;
+        if (p.parent_path().filename() == L"lvl12")
+        {
+            foundDepth12 = true;
+        }
+        if (p.parent_path().filename() == L"lvl13")
+        {
+            foundDepth13 = true;
+        }
     }
-    EXPECT_TRUE(foundDepth11);
+
+    EXPECT_TRUE(foundDepth12);
     EXPECT_FALSE(foundDepth13);
+    EXPECT_FALSE(failed);
 }
 
-// ---------------------------------------------------------------------------
-// Test 7: Memory safety — Start/Cancel/Start without crash
-// ---------------------------------------------------------------------------
+TEST(SearchService, RejectsNonLocalRootsAsFailure)
+{
+    std::vector<SearchResult> results;
+    bool cap{ true };
+    bool failed{ false };
+    std::promise<void> donePromise;
+    auto done = donePromise.get_future();
+
+    SearchService svc;
+    svc.Start(
+        LR"(\\server\share)",
+        L"ab",
+        [&results](std::vector<SearchResult> r) { results = std::move(r); },
+        [&cap, &failed, &donePromise](bool c, bool f) {
+            cap = c;
+            failed = f;
+            donePromise.set_value();
+        },
+        [](std::function<void()> fn) { fn(); });
+
+    ASSERT_EQ(done.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_TRUE(results.empty());
+    EXPECT_FALSE(cap);
+    EXPECT_TRUE(failed);
+}
+
+TEST(SearchService, LongWalkWithoutNewMatchesDoesNotEmitRedundantEmptyBatches)
+{
+    auto root = std::filesystem::temp_directory_path() /
+        (L"FileScoutSearchNoMatch-" + std::to_wstring(::GetCurrentProcessId()));
+    std::filesystem::create_directories(root);
+
+    struct Cleanup
+    {
+        std::filesystem::path p;
+        ~Cleanup()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(p, ec);
+        }
+    } cleanup{ root };
+
+    for (int dirIndex = 0; dirIndex < 30; ++dirIndex)
+    {
+        auto const dir = root / (L"bucket_" + std::to_wstring(dirIndex));
+        std::filesystem::create_directories(dir);
+        for (int fileIndex = 0; fileIndex < 400; ++fileIndex)
+        {
+            std::ofstream f(dir / (L"alpha_" + std::to_wstring(dirIndex) + L"_" +
+                std::to_wstring(fileIndex) + L".txt"));
+        }
+    }
+
+    std::atomic<int> resultBatchCount{ 0 };
+    bool failed{ true };
+    std::promise<void> donePromise;
+    auto done = donePromise.get_future();
+
+    SearchService svc;
+    svc.Start(
+        root.wstring(),
+        L"qq",
+        [&resultBatchCount](std::vector<SearchResult>) { ++resultBatchCount; },
+        [&failed, &donePromise](bool, bool f) {
+            failed = f;
+            donePromise.set_value();
+        },
+        [](std::function<void()> fn) { fn(); });
+
+    ASSERT_EQ(done.wait_for(std::chrono::seconds(20)), std::future_status::ready);
+    EXPECT_EQ(0, resultBatchCount.load());
+    EXPECT_FALSE(failed);
+}
+
 TEST(SearchService, StartCancelStartNoCrash)
 {
     SearchService svc;
     auto post = [](std::function<void()> fn) { fn(); };
 
-    svc.Start(L"C:\\Windows", L"dll", [](std::vector<SearchResult>) {}, [](bool) {}, post);
+    svc.Start(L"C:\\Windows", L"dll", [](std::vector<SearchResult>) {}, [](bool, bool) {}, post);
     svc.Cancel();
-    svc.Start(L"C:\\Windows\\System32", L"nt", [](std::vector<SearchResult>) {}, [](bool) {}, post);
+    svc.Start(L"C:\\Windows\\System32", L"nt", [](std::vector<SearchResult>) {}, [](bool, bool) {}, post);
     svc.Cancel();
-    // destructor joins — test passes if no crash or hang within timeout
 }

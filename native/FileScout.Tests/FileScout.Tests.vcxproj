@@ -136,6 +136,10 @@
     <ClCompile Include="tests\ShellInteropServiceTests.cpp" />
     <ClCompile Include="tests\ShellFileOperationServiceTests.cpp" />
     <ClCompile Include="tests\FuzzyMatcherTests.cpp" />
+    <ClCompile Include="tests\AddressNavigationTests.cpp" />
+    <ClCompile Include="tests\DragDropPlanningTests.cpp" />
+    <ClCompile Include="tests\SearchFilterTests.cpp" />
+    <ClCompile Include="tests\SearchPresentationTests.cpp" />
     <ClCompile Include="tests\SearchServiceTests.cpp" />
     <ClCompile Include="tests\CommandRegistryTests.cpp" />
     <ClCompile Include="tests\FileRowViewModelTests.cpp" />

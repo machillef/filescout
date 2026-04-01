@@ -73,6 +73,11 @@ namespace FileScoutNative::Domain
             return std::vector<std::wstring>{ m_selected.begin(), m_selected.end() };
         }
 
+        [[nodiscard]] std::optional<std::wstring> FocusedId() const
+        {
+            return m_focus;
+        }
+
     private:
         std::unordered_set<std::wstring> m_selected;
         std::optional<std::wstring> m_focus;

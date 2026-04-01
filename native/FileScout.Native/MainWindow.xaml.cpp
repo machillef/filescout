@@ -8,6 +8,8 @@
 #include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
+#include "Domain/AddressNavigation.h"
+#include "Domain/DragDropPlanning.h"
 #include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
 #include "Domain/RowIconState.h"
@@ -16,7 +18,8 @@
 #include "Domain/SidebarRecents.h"
 #include "Domain/ThemeService.h"
 #include "Domain/Wave1FeatureGate.h"
-#include "Search/FuzzyMatcher.h"
+#include "Search/SearchFilter.h"
+#include "Search/SearchPresentation.h"
 #include "TraceHelper.h"
 
 #if __has_include("MainWindow.g.cpp")
@@ -95,6 +98,241 @@ namespace
         panel.Children().Append(icon);
         panel.Children().Append(label);
         return panel;
+    }
+
+    bool IsLocalDrivePath(std::filesystem::path const& path)
+    {
+        if (path.empty())
+        {
+            return false;
+        }
+
+        auto const native = path.native();
+        if (native.rfind(L"\\\\", 0) == 0 || native.rfind(L"//", 0) == 0)
+        {
+            return false;
+        }
+
+        auto const root = path.root_path();
+        if (root.empty())
+        {
+            return false;
+        }
+
+        switch (GetDriveTypeW(root.c_str()))
+        {
+        case DRIVE_FIXED:
+        case DRIVE_REMOVABLE:
+        case DRIVE_CDROM:
+        case DRIVE_RAMDISK:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool IsTextEditingCommand(std::wstring_view const commandId)
+    {
+        return commandId == L"copy" ||
+            commandId == L"cut" ||
+            commandId == L"paste" ||
+            commandId == L"delete";
+    }
+
+    winrt::hstring DragOriginalPathsFormat()
+    {
+        static const winrt::hstring format{ L"FileScoutOriginalPaths" };
+        return format;
+    }
+
+    constexpr wchar_t DragOriginalPathsSeparator = 0x1F;
+
+    std::wstring CreateDragStagingToken()
+    {
+        GUID guid{};
+        winrt::check_hresult(CoCreateGuid(&guid));
+
+        wchar_t buffer[64]{};
+        auto const length = StringFromGUID2(guid, buffer, static_cast<int>(std::size(buffer)));
+        if (length <= 1)
+        {
+            return L"drag-item";
+        }
+
+        std::wstring token{ buffer, buffer + length - 1 };
+        token.erase(std::remove(token.begin(), token.end(), L'{'), token.end());
+        token.erase(std::remove(token.begin(), token.end(), L'}'), token.end());
+        return token;
+    }
+
+    std::wstring EncodeDragOriginalPaths(
+        std::span<::FileScoutNative::Domain::ShellItemRef const> const items)
+    {
+        std::wstring payload;
+        bool first = true;
+        for (auto const& item : items)
+        {
+            if (!first)
+            {
+                payload.push_back(DragOriginalPathsSeparator);
+            }
+
+            payload += item.path.wstring();
+            first = false;
+        }
+
+        return payload;
+    }
+
+    std::vector<std::filesystem::path> DecodeDragOriginalPaths(std::wstring_view const payload)
+    {
+        std::vector<std::filesystem::path> paths;
+        std::size_t start = 0;
+        while (start <= payload.size())
+        {
+            auto const separator = payload.find(DragOriginalPathsSeparator, start);
+            auto const segmentEnd =
+                separator == std::wstring_view::npos ? payload.size() : separator;
+            if (segmentEnd > start)
+            {
+                paths.emplace_back(payload.substr(start, segmentEnd - start));
+            }
+
+            if (separator == std::wstring_view::npos)
+            {
+                break;
+            }
+
+            start = separator + 1;
+        }
+
+        return paths;
+    }
+
+    std::filesystem::path StageDragFileForExternalTargets(std::filesystem::path const& sourcePath)
+    {
+        auto stageRoot = std::filesystem::temp_directory_path() /
+            L"FileScout" /
+            L"DragStage" /
+            CreateDragStagingToken();
+        std::filesystem::create_directories(stageRoot);
+
+        auto stagedPath = stageRoot / sourcePath.filename();
+        if (std::filesystem::exists(stagedPath))
+        {
+            stagedPath = stageRoot /
+                (sourcePath.stem().wstring() + L"-" + CreateDragStagingToken() + sourcePath.extension().wstring());
+        }
+
+        std::filesystem::copy_file(
+            sourcePath,
+            stagedPath,
+            std::filesystem::copy_options::overwrite_existing);
+        return stagedPath;
+    }
+
+    winrt::Windows::Foundation::IAsyncOperation<winrt::Windows::Storage::IStorageItem> CreateDragStorageItemAsync(
+        ::FileScoutNative::Domain::ShellItemRef const& item)
+    {
+        if (::FileScoutNative::Domain::ShouldStageExternalDragFile(
+                item.path,
+                item.is_folder,
+                IsLocalDrivePath))
+        {
+            co_await winrt::resume_background();
+            auto const stagedPath = StageDragFileForExternalTargets(item.path);
+            co_return co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(
+                winrt::hstring{ stagedPath.wstring() });
+        }
+
+        auto const itemPath = winrt::hstring{ item.path.wstring() };
+        try
+        {
+            if (item.is_folder)
+            {
+                co_return co_await winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(itemPath);
+            }
+
+            co_return co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(itemPath);
+        }
+        catch (...)
+        {
+        }
+
+        if (item.is_folder)
+        {
+            throw;
+        }
+
+        co_await winrt::resume_background();
+        auto const stagedPath = StageDragFileForExternalTargets(item.path);
+        co_return co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(
+            winrt::hstring{ stagedPath.wstring() });
+    }
+
+    winrt::fire_and_forget ProvideDragStorageItemsAsync(
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items,
+        winrt::Windows::ApplicationModel::DataTransfer::DataProviderRequest request)
+    {
+        auto const uiThread = winrt::apartment_context();
+        auto const deferral = request.GetDeferral();
+        auto storageItems = winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
+        bool failed = false;
+
+        try
+        {
+            for (auto const& item : items)
+            {
+                storageItems.Append(co_await CreateDragStorageItemAsync(item));
+            }
+        }
+        catch (...)
+        {
+            failed = true;
+        }
+
+        co_await uiThread;
+        if (failed)
+        {
+            auto emptyItems = winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
+            request.SetData(emptyItems.GetView().as<winrt::Windows::Foundation::IInspectable>());
+        }
+        else
+        {
+            request.SetData(storageItems.GetView().as<winrt::Windows::Foundation::IInspectable>());
+        }
+
+        deferral.Complete();
+    }
+
+    bool FocusedElementLivesInsideEditableControl(
+        winrt::Windows::Foundation::IInspectable const& focusedElement)
+    {
+        if (!focusedElement)
+        {
+            return false;
+        }
+
+        if (focusedElement.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>() != nullptr ||
+            focusedElement.try_as<winrt::Microsoft::UI::Xaml::Controls::RichEditBox>() != nullptr)
+        {
+            return true;
+        }
+
+        auto dependencyObject = focusedElement.try_as<winrt::Microsoft::UI::Xaml::DependencyObject>();
+        while (dependencyObject)
+        {
+            if (dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>() != nullptr ||
+                dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::RichEditBox>() != nullptr)
+            {
+                return true;
+            }
+
+            dependencyObject =
+                winrt::Microsoft::UI::Xaml::Media::VisualTreeHelper::GetParent(dependencyObject);
+        }
+
+        return false;
     }
 
     winrt::FileScoutNative::implementation::App* CurrentAppImplementation()
@@ -1429,17 +1667,8 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        auto const pathText = TrimFileName(AddressTextBox().Text().c_str());
         args.Handled(true);
-        HideAddressTextBox();
-
-        if (_wcsicmp(pathText.c_str(), L"This PC") == 0)
-        {
-            LoadDrivesView();
-            return;
-        }
-
-        LoadDirectory(pathText);
+        (void)TryNavigateToAddressInput(AddressTextBox().Text().c_str());
     }
 
     void MainWindow::AddressTextBox_LostFocus(
@@ -1465,6 +1694,103 @@ namespace winrt::FileScoutNative::implementation
         SearchTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
     }
 
+    bool MainWindow::TryNavigateToAddressInput(std::wstring_view const rawInput)
+    {
+        auto const trimmed = ::FileScoutNative::Domain::TrimAddressNavigationInput(rawInput);
+        auto const target = ::FileScoutNative::Domain::ResolveAddressNavigationTarget(
+            trimmed,
+            [](std::filesystem::path const& path)
+            {
+                std::error_code existsError;
+                return std::filesystem::exists(path, existsError) && !existsError;
+            },
+            [](std::filesystem::path const& path)
+            {
+                std::error_code directoryError;
+                return std::filesystem::is_directory(path, directoryError) && !directoryError;
+            },
+            [this](std::filesystem::path const& path)
+            {
+                return m_shellInterop.CanEnumerateShellNamespace(path);
+            });
+
+        switch (target.kind)
+        {
+        case ::FileScoutNative::Domain::AddressNavigationTargetKind::DrivesView:
+            HideAddressTextBox();
+            LoadDrivesView();
+            return true;
+
+        case ::FileScoutNative::Domain::AddressNavigationTargetKind::Directory:
+        case ::FileScoutNative::Domain::AddressNavigationTargetKind::ShellNamespace:
+            HideAddressTextBox();
+            LoadDirectory(target.path);
+            return true;
+
+        case ::FileScoutNative::Domain::AddressNavigationTargetKind::File:
+        {
+            std::filesystem::path filePath = target.path;
+            std::error_code absoluteError;
+            auto const absolutePath = std::filesystem::absolute(filePath, absoluteError);
+            if (!absoluteError)
+            {
+                filePath = absolutePath.lexically_normal();
+            }
+
+            auto parentPath = filePath.parent_path();
+            if (parentPath.empty())
+            {
+                StatusTextBlock().Text(ToHString(
+                    L"Cannot navigate to file without a parent folder: " + trimmed));
+                AddressTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+                return false;
+            }
+
+            HideAddressTextBox();
+            LoadDirectory(parentPath, filePath);
+            return true;
+        }
+
+        case ::FileScoutNative::Domain::AddressNavigationTargetKind::Invalid:
+        default:
+            StatusTextBlock().Text(ToHString(L"Path not found or unavailable: " + trimmed));
+            AddressTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+            return false;
+        }
+    }
+
+    void MainWindow::ResetSearchState(int32_t const paneIndex, bool const restoreSnapshot)
+    {
+        auto& pane = m_panes[paneIndex];
+        pane.search_service.Cancel();
+        AdvanceSearchViewGeneration(pane);
+        SearchProgressForPane(paneIndex).Visibility(
+            winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+
+        if (restoreSnapshot)
+        {
+            auto& rows = pane.tab_rows[pane.active_tab_index];
+            rows.Clear();
+            for (auto const& item : pane.search_snapshot)
+            {
+                rows.Append(MakeFileRowViewModel(item));
+            }
+
+            ApplyPaneStateToRows(pane, pane.search_snapshot, rows, m_iconSourceCache);
+        }
+
+        pane.search_mode = SearchMode::None;
+        pane.search_query.clear();
+        pane.filtered_items.clear();
+        pane.search_snapshot.clear();
+
+        if (paneIndex == m_activePaneIndex)
+        {
+            SearchTextBox().IsReadOnly(false);
+            SearchTextBox().Text(L"");
+        }
+    }
+
     void MainWindow::SearchTextBox_KeyDown(
         winrt::Windows::Foundation::IInspectable const&,
         Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
@@ -1476,21 +1802,10 @@ namespace winrt::FileScoutNative::implementation
             if (pane.search_mode == SearchMode::Filter || pane.search_mode == SearchMode::Recursive)
             {
                 args.Handled(true);
-                pane.search_service.Cancel();
-                SearchProgressForPane(m_activePaneIndex).Visibility(
-                    winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
-                pane.search_mode = SearchMode::None;
-                pane.search_query.clear();
-                pane.filtered_items.clear();
-                SearchTextBox().IsReadOnly(false);
-                SearchTextBox().Text(L"");
-
-                // Restore ListView from snapshot.
-                auto& rows = pane.tab_rows[pane.active_tab_index];
-                rows.Clear();
-                for (auto const& item : pane.search_snapshot)
-                    rows.Append(MakeFileRowViewModel(item));
-                ApplyPaneStateToRows(pane, pane.search_snapshot, rows, m_iconSourceCache);
+                ResetSearchState(m_activePaneIndex, true);
+                StatusTextBlock().Text(ToHString(
+                    std::to_wstring(pane.items.size()) + L" items  |  " +
+                    RowPresentationStatusLabel(pane)));
             }
             return;
         }
@@ -1501,6 +1816,11 @@ namespace winrt::FileScoutNative::implementation
             args.Handled(true);
 
             if (pane.search_query.size() < 2) return;
+            if (!IsLocalDrivePath(pane.current_path))
+            {
+                StatusTextBlock().Text(L"Recursive search is limited to local drives.");
+                return;
+            }
 
             pane.search_mode = SearchMode::Recursive;
             pane.filtered_items.clear();
@@ -1511,7 +1831,8 @@ namespace winrt::FileScoutNative::implementation
                 winrt::Microsoft::UI::Xaml::Visibility::Visible);
 
             // Update status bar.
-            StatusTextBlock().Text(L"0 matches");
+            StatusTextBlock().Text(ToHString(
+                ::FileScoutNative::Search::BuildSearchProgressStatus(0)));
 
             auto const paneIndex = m_activePaneIndex;
             auto post = [dq = m_dispatcherQueue](std::function<void()> fn)
@@ -1521,7 +1842,7 @@ namespace winrt::FileScoutNative::implementation
                     std::move(fn));
             };
 
-            auto resultCount = std::make_shared<std::atomic<int>>(0);
+            auto resultCount = std::make_shared<std::atomic<std::size_t>>(0);
 
             pane.search_service.Start(
                 pane.current_path.wstring(),
@@ -1532,31 +1853,76 @@ namespace winrt::FileScoutNative::implementation
                     auto& p = m_panes[paneIndex];
                     if (p.search_mode != SearchMode::Recursive) return;
 
-                    *resultCount = static_cast<int>(results.size());
-                    StatusTextBlock().Text(std::to_wstring(*resultCount) + L" matches");
-
-                    p.search_results = results; // keep for navigate-on-select
+                    *resultCount = results.size();
+                    auto const preservedSelection = p.selection;
+                    p.filtered_items = ::FileScoutNative::Search::BuildSearchResultItems(
+                        results,
+                        p.current_path);
+                    auto const searchViewGeneration = AdvanceSearchViewGeneration(p);
+                    auto searchIconCancel = p.search_icon_backfill_cancel;
 
                     auto& rows = p.tab_rows[p.active_tab_index];
                     rows.Clear();
-                    for (auto const& r : results)
-                        rows.Append(CreateSearchRowView(r, p.current_path));
+                    for (auto const& item : p.filtered_items)
+                    {
+                        rows.Append(MakeFileRowViewModel(item));
+                    }
+
+                    ApplyPaneStateToRows(p, p.filtered_items, rows, m_iconSourceCache);
+                    RestoreSelectionFromState(p, preservedSelection, -1);
+                    BackfillSearchResultIconsAsync(
+                        paneIndex,
+                        p.active_tab_index,
+                        searchViewGeneration,
+                        std::move(searchIconCancel),
+                        p.filtered_items);
+                    if (m_activePaneIndex == paneIndex)
+                    {
+                        auto const selectedIndices = GetSelectedItemIndices();
+                        if (selectedIndices.size() == 1)
+                        {
+                            SelectItemByIndex(selectedIndices.front());
+                        }
+                        else if (selectedIndices.size() > 1)
+                        {
+                            UpdateMultiSelectionDetails(selectedIndices);
+                        }
+                        else
+                        {
+                            ResetSelectionDetails();
+                        }
+
+                        StatusTextBlock().Text(ToHString(
+                            ::FileScoutNative::Search::BuildSearchProgressStatus(
+                                resultCount->load())));
+                    }
                 },
-                [this, paneIndex, resultCount](bool cap_reached)
+                [this, paneIndex, resultCount](bool cap_reached, bool failed)
                 {
                     auto& p = m_panes[paneIndex];
                     if (p.search_mode != SearchMode::Recursive) return;
 
+                    if (failed)
+                    {
+                        ResetSearchState(paneIndex, true);
+                        if (m_activePaneIndex == paneIndex)
+                        {
+                            ResetSelectionDetails();
+                            StatusTextBlock().Text(L"Search failed.");
+                        }
+                        return;
+                    }
+
                     SearchProgressForPane(paneIndex).Visibility(
                         winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
-
-                    if (cap_reached)
-                        StatusTextBlock().Text(
-                            L"Showing top 200 matches \u2014 refine your query to narrow results");
-                    else
-                        StatusTextBlock().Text(
-                            std::to_wstring(resultCount->load()) + L" matches in " +
-                            p.current_path.wstring());
+                    if (m_activePaneIndex == paneIndex)
+                    {
+                        StatusTextBlock().Text(ToHString(
+                            ::FileScoutNative::Search::BuildSearchCompleteStatus(
+                                resultCount->load(),
+                                p.current_path,
+                                cap_reached)));
+                    }
                 },
                 post);
         }
@@ -1578,14 +1944,10 @@ namespace winrt::FileScoutNative::implementation
             // Leaving search — restore the list if we were filtering.
             if (pane.search_mode == SearchMode::Filter)
             {
-                pane.search_mode = SearchMode::None;
-                pane.search_query.clear();
-                pane.filtered_items.clear();
-                auto& rows = pane.tab_rows[pane.active_tab_index];
-                rows.Clear();
-                for (auto const& item : pane.search_snapshot)
-                    rows.Append(MakeFileRowViewModel(item));
-                ApplyPaneStateToRows(pane, pane.search_snapshot, rows, m_iconSourceCache);
+                ResetSearchState(m_activePaneIndex, true);
+                StatusTextBlock().Text(ToHString(
+                    std::to_wstring(pane.items.size()) + L" items  |  " +
+                    RowPresentationStatusLabel(pane)));
             }
             return;
         }
@@ -1604,32 +1966,12 @@ namespace winrt::FileScoutNative::implementation
         auto& rows = pane.tab_rows[pane.active_tab_index];
         rows.Clear();
 
-        if (query.size() < 2)
-        {
-            // Show all snapshot items unfiltered.
-            for (auto const& item : pane.search_snapshot)
-                rows.Append(MakeFileRowViewModel(item));
-            pane.filtered_items = pane.search_snapshot;
-            ApplyPaneStateToRows(pane, pane.search_snapshot, rows, m_iconSourceCache);
-            return;
-        }
-
-        // Score all snapshot items and collect top 200.
-        std::vector<std::pair<int, ::FileScoutNative::Domain::ShellItemRef const*>> scored;
-        scored.reserve(pane.search_snapshot.size());
-        for (auto const& item : pane.search_snapshot)
-        {
-            int s = ::FileScoutNative::Search::FuzzyScore(query, item.display_name);
-            if (s >= 0)
-                scored.emplace_back(s, &item);
-        }
-        std::sort(scored.begin(), scored.end(),
-            [](auto const& a, auto const& b) { return a.first > b.first; });
-        if (scored.size() > 200) scored.resize(200);
+        auto const filteredResults =
+            ::FileScoutNative::Search::BuildFilterResults(query, pane.search_snapshot);
 
         std::vector<::FileScoutNative::Domain::ShellItemRef> filteredItems;
-        filteredItems.reserve(scored.size());
-        for (auto const& [score, itemPtr] : scored)
+        filteredItems.reserve(filteredResults.size());
+        for (auto const* itemPtr : filteredResults)
         {
             rows.Append(MakeFileRowViewModel(*itemPtr));
             filteredItems.push_back(*itemPtr);
@@ -1679,76 +2021,7 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // In Recursive search mode, double-click navigates to the result's parent folder.
-        auto& pane = ActivePane();
-        if (pane.search_mode == SearchMode::Recursive)
-        {
-            auto const idx = ResolveItemIndexFromSource(args.OriginalSource());
-            if (!idx.has_value()) return;
-            if (*idx < 0 || static_cast<std::size_t>(*idx) >= pane.search_results.size()) return;
-
-            auto const& result = pane.search_results[static_cast<std::size_t>(*idx)];
-            auto const fullPath = std::filesystem::path(result.full_path);
-            LoadDirectory(fullPath.parent_path(), fullPath);
-            return;
-        }
-
-        auto const index = ResolveItemIndexFromSource(args.OriginalSource());
-        auto const* item = index.has_value() ? TryGetDisplayedItemByIndex(*index) : nullptr;
-        if (item == nullptr)
-        {
-            return;
-        }
-
-        if (!ActivePane().is_archive_view && m_shellInterop.IsArchivePath(item->path))
-        {
-            LoadDirectory(item->path);
-            return;
-        }
-
-        if (item->is_folder)
-        {
-            LoadDirectory(item->path);
-            return;
-        }
-
-        if (ActivePane().is_archive_view)
-        {
-            if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
-                    ::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing))
-            {
-                StatusTextBlock().Text(ToHString(
-                    BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing)));
-                return;
-            }
-
-            OpenArchiveItemAsync(*item);
-            return;
-        }
-
-        try
-        {
-            m_shellFileOperationService.OpenPath(GetWindowHandle(), item->path);
-            if (IsUnsupportedArchiveItem(*item))
-            {
-                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, true)));
-            }
-            else
-            {
-                StatusTextBlock().Text(ToHString(L"Opened " + item->display_name));
-            }
-        }
-        catch (std::exception const&)
-        {
-            if (IsUnsupportedArchiveItem(*item))
-            {
-                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, false)));
-            }
-            else
-            {
-                StatusTextBlock().Text(ToHString(L"Open failed: " + item->display_name));
-            }
-        }
+        (void)ActivateDisplayedItemByIndex(ResolveItemIndexFromSource(args.OriginalSource()));
     }
 
     void MainWindow::FileRowsListView_RightTapped(
@@ -2017,47 +2290,20 @@ namespace winrt::FileScoutNative::implementation
 
         try
         {
-            std::vector<std::pair<winrt::hstring, bool>> dragItems;
-            dragItems.reserve(selectedItems.size());
-            for (auto const& item : selectedItems)
-            {
-                dragItems.emplace_back(winrt::hstring{ item.path.wstring() }, item.is_folder);
-            }
+            e.Data().SetData(
+                DragOriginalPathsFormat(),
+                winrt::box_value(ToHString(EncodeDragOriginalPaths(selectedItems))));
 
-            // SetDataProvider defers the async StorageItem lookup to a background thread
-            // called by the drop target when it actually requests the data.
-            // This avoids a blocking .get() call on the STA (UI) thread.
-            e.Data().SetDataProvider(
-                winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems(),
-                [dragItems = std::move(dragItems)](
-                    winrt::Windows::ApplicationModel::DataTransfer::DataProviderRequest const& request)
-                {
-                    auto deferral = request.GetDeferral();
-                    [request, deferral, dragItems]() mutable -> winrt::fire_and_forget
+            if (::FileScoutNative::Domain::ResolveExternalDragStorageResolutionMode() ==
+                ::FileScoutNative::Domain::DragStorageResolutionMode::DeferredProvider)
+            {
+                e.Data().SetDataProvider(
+                    winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems(),
+                    [selectedItems](winrt::Windows::ApplicationModel::DataTransfer::DataProviderRequest const& request)
                     {
-                        co_await winrt::resume_background();
-                        try
-                        {
-                            auto items = winrt::single_threaded_vector<winrt::Windows::Storage::IStorageItem>();
-                            for (auto const& [pathStr, isFolder] : dragItems)
-                            {
-                                if (isFolder)
-                                {
-                                    auto folder = co_await winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(pathStr);
-                                    items.Append(folder);
-                                }
-                                else
-                                {
-                                    auto file = co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(pathStr);
-                                    items.Append(file);
-                                }
-                            }
-                            request.SetData(items.GetView());
-                        }
-                        catch (...) {}
-                        deferral.Complete();
-                    }();
-                });
+                        ProvideDragStorageItemsAsync(selectedItems, request);
+                    });
+            }
             e.Data().RequestedOperation(
                 winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy |
                 winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
@@ -2079,8 +2325,9 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        if (!args.DataView().Contains(
-            winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems()))
+        if (!args.DataView().Contains(DragOriginalPathsFormat()) &&
+            !args.DataView().Contains(
+                winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems()))
         {
             return;
         }
@@ -2125,13 +2372,24 @@ namespace winrt::FileScoutNative::implementation
 
         try
         {
-            auto const storageItems = co_await args.DataView().GetStorageItemsAsync();
-
             std::vector<std::filesystem::path> sourcePaths;
-            sourcePaths.reserve(storageItems.Size());
-            for (auto const& storageItem : storageItems)
+            if (args.DataView().Contains(DragOriginalPathsFormat()))
             {
-                sourcePaths.emplace_back(storageItem.Path().c_str());
+                auto const payload = co_await args.DataView().GetDataAsync(DragOriginalPathsFormat());
+                if (auto const pathText = payload.try_as<winrt::hstring>(); pathText.has_value())
+                {
+                    sourcePaths = DecodeDragOriginalPaths(pathText->c_str());
+                }
+            }
+
+            if (sourcePaths.empty())
+            {
+                auto const storageItems = co_await args.DataView().GetStorageItemsAsync();
+                sourcePaths.reserve(storageItems.Size());
+                for (auto const& storageItem : storageItems)
+                {
+                    sourcePaths.emplace_back(storageItem.Path().c_str());
+                }
             }
 
             if (sourcePaths.empty())
@@ -2192,11 +2450,7 @@ namespace winrt::FileScoutNative::implementation
 
         if (pane.search_mode != SearchMode::None)
         {
-            pane.search_service.Cancel();
-            SearchProgressForPane(paneIndex).Visibility(
-                winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
-            pane.search_mode = SearchMode::None;
-            pane.search_query.clear();
+            ResetSearchState(paneIndex, true);
         }
 
         if (pane.tab_switching || pane.tabs.empty())
@@ -2408,14 +2662,7 @@ namespace winrt::FileScoutNative::implementation
         UpdateNavButtons();
         if (pane.search_mode != SearchMode::None)
         {
-            pane.search_service.Cancel();
-            SearchProgressForPane(m_activePaneIndex).Visibility(
-                winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
-            pane.search_mode = SearchMode::None;
-            pane.search_query.clear();
-            pane.filtered_items.clear();
-            SearchTextBox().IsReadOnly(false);
-            SearchTextBox().Text(L"");
+            ResetSearchState(m_activePaneIndex, true);
         }
 
         // Capture pane/tab index synchronously so async work targets the right pane
@@ -2776,6 +3023,88 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
+    winrt::fire_and_forget MainWindow::BackfillSearchResultIconsAsync(
+        int32_t const paneIndex,
+        int32_t const tabIndex,
+        uint32_t const searchViewGeneration,
+        std::shared_ptr<std::atomic<bool>> cancelToken,
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items)
+    {
+        auto lifetime = get_strong();
+
+        co_await winrt::resume_background();
+
+        for (auto& item : items)
+        {
+            if (cancelToken && cancelToken->load(std::memory_order_relaxed))
+            {
+                co_return;
+            }
+
+            item.icon = m_shellInterop.GetItemIcon(item.path, item.is_folder);
+        }
+
+        // Keep the UI thread responsive during recursive-search row hydration too.
+        constexpr uint32_t k_iconChunkSize = 500;
+        auto const total = static_cast<uint32_t>(items.size());
+        auto shared_items =
+            std::make_shared<std::vector<::FileScoutNative::Domain::ShellItemRef>>(
+                std::move(items));
+
+        for (uint32_t chunkStart = 0; chunkStart < total; chunkStart += k_iconChunkSize)
+        {
+            if (cancelToken && cancelToken->load(std::memory_order_relaxed))
+            {
+                co_return;
+            }
+
+            uint32_t const chunkEnd = (std::min)(chunkStart + k_iconChunkSize, total);
+
+            m_dispatcherQueue.TryEnqueue(
+                [this, lifetime, paneIndex, tabIndex, searchViewGeneration,
+                 cancelToken, shared_items, chunkStart, chunkEnd, total]()
+                {
+                    if (cancelToken && cancelToken->load(std::memory_order_relaxed)) return;
+
+                    auto& pane = m_panes[paneIndex];
+                    if (pane.search_mode != SearchMode::Recursive) return;
+                    if (pane.search_view_generation != searchViewGeneration) return;
+                    if (pane.active_tab_index != tabIndex) return;
+
+                    auto& rows = pane.tab_rows[tabIndex];
+                    if (rows.Size() != total) return;
+
+                    auto const& items_ref = *shared_items;
+                    for (uint32_t i = chunkStart; i < chunkEnd; ++i)
+                    {
+                        auto const& item = items_ref[i];
+                        auto const key = ::FileScoutNative::Domain::RowIconCacheKey(item);
+                        auto it = m_iconSourceCache.find(key);
+                        if (it != m_iconSourceCache.end())
+                        {
+                            rows.GetAt(i).IconSource(it->second);
+                        }
+                        else if (auto source = BuildIconSource(item.icon))
+                        {
+                            m_iconSourceCache.emplace(key, source);
+                            rows.GetAt(i).IconSource(source);
+                        }
+                    }
+                });
+        }
+    }
+
+    uint32_t MainWindow::AdvanceSearchViewGeneration(PaneContext& pane)
+    {
+        if (pane.search_icon_backfill_cancel)
+        {
+            pane.search_icon_backfill_cancel->store(true, std::memory_order_relaxed);
+        }
+
+        pane.search_icon_backfill_cancel = std::make_shared<std::atomic<bool>>(false);
+        return ++pane.search_view_generation;
+    }
+
     void MainWindow::UpdateRows(int32_t const paneIndex,
         std::vector<::FileScoutNative::Domain::ShellItemRef> const& items)
     {
@@ -3119,7 +3448,8 @@ namespace winrt::FileScoutNative::implementation
     std::vector<::FileScoutNative::Domain::ShellItemRef> const& MainWindow::DisplayedItems(
         PaneContext const& pane) const
     {
-        if (pane.search_mode == SearchMode::Filter)
+        if (pane.search_mode == SearchMode::Filter ||
+            pane.search_mode == SearchMode::Recursive)
         {
             return pane.filtered_items;
         }
@@ -3298,56 +3628,11 @@ namespace winrt::FileScoutNative::implementation
                 return;
             }
 
-            if (item.has_value() &&
-                (item->is_folder ||
-                 (!ActivePane().is_archive_view && m_shellInterop.IsArchivePath(item->path))))
-            {
-                LoadDirectory(item->path);
-                return;
-            }
-
-            if (!item.has_value())
+            if (!(itemIndex.has_value()
+                    ? ActivateDisplayedItemByIndex(itemIndex)
+                    : ActivateCurrentSelection()))
             {
                 StatusTextBlock().Text(L"Open needs a selected item.");
-                return;
-            }
-
-            if (ActivePane().is_archive_view)
-            {
-                if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
-                        ::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing))
-                {
-                    StatusTextBlock().Text(ToHString(
-                        BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing)));
-                    return;
-                }
-
-                OpenArchiveItemAsync(*item);
-                return;
-            }
-
-            try
-            {
-                m_shellFileOperationService.OpenPath(GetWindowHandle(), item->path);
-                if (IsUnsupportedArchiveItem(*item))
-                {
-                    StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, true)));
-                }
-                else
-                {
-                    StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Opened", item)));
-                }
-            }
-            catch (std::exception const&)
-            {
-                if (IsUnsupportedArchiveItem(*item))
-                {
-                    StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, false)));
-                }
-                else
-                {
-                    StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Open failed for", item)));
-                }
             }
             return;
         }
@@ -4470,6 +4755,11 @@ namespace winrt::FileScoutNative::implementation
             accel.Modifiers(modifiers);
             accel.Invoked([this, commandId](winrt::Windows::Foundation::IInspectable const&, KAArgs const& e)
             {
+                if (ShouldTextInputOwnFileShortcut(commandId))
+                {
+                    return;
+                }
+
                 auto const index =
                     ActivePane().active_list_view ? ActivePane().active_list_view.SelectedIndex() : -1;
                 std::optional<int32_t> const itemIndex =
@@ -4531,6 +4821,38 @@ namespace winrt::FileScoutNative::implementation
             });
             accelerators.Append(accel);
         }
+    }
+
+    bool MainWindow::ShouldTextInputOwnFileShortcut(std::wstring_view const commandId)
+    {
+        if (!IsTextEditingCommand(commandId))
+        {
+            return false;
+        }
+
+        if (AddressTextBox().Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible)
+        {
+            return true;
+        }
+
+        auto const focused = winrt::Microsoft::UI::Xaml::Input::FocusManager::GetFocusedElement();
+        if (FocusedElementLivesInsideEditableControl(focused))
+        {
+            return true;
+        }
+
+        auto const textBoxHasFocus =
+            [](winrt::Microsoft::UI::Xaml::Controls::TextBox const& textBox)
+            {
+                return textBox &&
+                    textBox.Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible &&
+                    textBox.FocusState() != winrt::Microsoft::UI::Xaml::FocusState::Unfocused;
+            };
+
+        return textBoxHasFocus(AddressTextBox()) ||
+            textBoxHasFocus(SearchTextBox()) ||
+            (CommandPaletteOverlay().Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible &&
+             textBoxHasFocus(CommandPaletteTextBox()));
     }
 
     // Toolbar back/forward button click handlers.
@@ -4948,6 +5270,7 @@ namespace winrt::FileScoutNative::implementation
         listView.IsRightTapEnabled(true);
         listView.AllowDrop(true);
         listView.CanDrag(true);
+        listView.CanDragItems(true);
         listView.SelectionMode(winrt::Microsoft::UI::Xaml::Controls::ListViewSelectionMode::Extended);
         listView.ItemsSource(source);
 
@@ -5006,7 +5329,7 @@ namespace winrt::FileScoutNative::implementation
                 FileRowsListView_Drop(s, a);
             });
 
-        listView.KeyDown([this, paneIndex](auto const&, auto const& a)
+        listView.PreviewKeyDown([this, paneIndex](auto const&, auto const& a)
             {
                 SetActivePaneIndex(paneIndex);
                 FileRowsListView_KeyDown(a);
@@ -5050,6 +5373,15 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::FileRowsListView_KeyDown(
         winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
     {
+        if (args.Key() == winrt::Windows::System::VirtualKey::Enter)
+        {
+            if (ActivateCurrentSelection())
+            {
+                args.Handled(true);
+            }
+            return;
+        }
+
         auto const vk = static_cast<int32_t>(args.Key());
         // VK codes 65–90 are A–Z.
         if (vk < 65 || vk > 90) return;
@@ -5082,12 +5414,132 @@ namespace winrt::FileScoutNative::implementation
                     pane.active_list_view.SelectedIndex(idx);
                     pane.active_list_view.ScrollIntoView(
                         pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
+                    pane.active_list_view.UpdateLayout();
+
+                    if (auto const container =
+                            pane.active_list_view.ContainerFromIndex(idx)
+                                .try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>())
+                    {
+                        container.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+                    }
+                    else
+                    {
+                        pane.active_list_view.Focus(
+                            winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+                    }
                 }
                 StatusTextBlock().Text(ToHString(L"\u2192 " + pane.items[static_cast<std::size_t>(idx)].display_name));
                 args.Handled(true);
                 return;
             }
         }
+    }
+
+    bool MainWindow::ActivateDisplayedItemByIndex(std::optional<int32_t> const itemIndex)
+    {
+        if (!itemIndex.has_value())
+        {
+            return false;
+        }
+
+        auto const* item = TryGetDisplayedItemByIndex(*itemIndex);
+        if (item == nullptr)
+        {
+            return false;
+        }
+
+        auto& pane = ActivePane();
+        if (pane.search_mode == SearchMode::Recursive)
+        {
+            auto const target = ::FileScoutNative::Search::TryBuildSearchOpenTarget(item->path);
+            if (!target.has_value())
+            {
+                return false;
+            }
+
+            ResetSearchState(m_activePaneIndex, true);
+            ResetSelectionDetails();
+            LoadDirectory(target->folder_path, target->select_path);
+            return true;
+        }
+
+        if (!pane.is_archive_view && m_shellInterop.IsArchivePath(item->path))
+        {
+            LoadDirectory(item->path);
+            return true;
+        }
+
+        if (item->is_folder)
+        {
+            LoadDirectory(item->path);
+            return true;
+        }
+
+        if (pane.is_archive_view)
+        {
+            if (!::FileScoutNative::Domain::IsWave1FeatureEnabled(
+                    ::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing))
+            {
+                StatusTextBlock().Text(ToHString(
+                    BuildWave1FeatureStatus(::FileScoutNative::Domain::Wave1Feature::ArchiveBrowsing)));
+                return true;
+            }
+
+            OpenArchiveItemAsync(*item);
+            return true;
+        }
+
+        try
+        {
+            m_shellFileOperationService.OpenPath(GetWindowHandle(), item->path);
+            if (IsUnsupportedArchiveItem(*item))
+            {
+                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, true)));
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(L"Opened " + item->display_name));
+            }
+        }
+        catch (std::exception const&)
+        {
+            if (IsUnsupportedArchiveItem(*item))
+            {
+                StatusTextBlock().Text(ToHString(BuildUnsupportedArchiveOpenStatus(*item, false)));
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(L"Open failed: " + item->display_name));
+            }
+        }
+
+        return true;
+    }
+
+    bool MainWindow::ActivateCurrentSelection()
+    {
+        auto index = ActivePane().active_list_view
+            ? ActivePane().active_list_view.SelectedIndex()
+            : -1;
+        if (index < 0)
+        {
+            auto const& displayedItems = DisplayedItems();
+            for (std::size_t itemIndex = 0; itemIndex < displayedItems.size(); ++itemIndex)
+            {
+                if (ActivePane().selection.IsSelected(displayedItems[itemIndex].parsing_name))
+                {
+                    index = static_cast<int32_t>(itemIndex);
+                    break;
+                }
+            }
+        }
+
+        if (index < 0)
+        {
+            return false;
+        }
+
+        return ActivateDisplayedItemByIndex(index);
     }
 
     void MainWindow::AddTab(std::filesystem::path const& startPath)
@@ -5247,28 +5699,82 @@ namespace winrt::FileScoutNative::implementation
         pane.tab_switching = true;
         pane.active_list_view.SelectedIndex(-1);
 
-        auto const selectedIds = selection.SelectedIds();
-        if (!selectedIds.empty())
+        auto const& displayedItems = DisplayedItems(pane);
+        std::vector<int32_t> selectedIndices;
+        std::vector<std::wstring> survivingIds;
+        selectedIndices.reserve(displayedItems.size());
+        survivingIds.reserve(displayedItems.size());
+
+        auto const focusedId = selection.FocusedId();
+        std::optional<int32_t> focusedIndex;
+        for (std::size_t index = 0; index < displayedItems.size(); ++index)
         {
-            for (std::size_t index = 0; index < pane.items.size(); ++index)
+            auto const& item = displayedItems[index];
+            if (!selection.IsSelected(item.parsing_name))
             {
-                if (!selection.IsSelected(pane.items[index].parsing_name))
+                continue;
+            }
+
+            auto const selectedIndex = static_cast<int32_t>(index);
+            selectedIndices.push_back(selectedIndex);
+            survivingIds.push_back(item.parsing_name);
+
+            if (focusedId.has_value() && item.parsing_name == *focusedId)
+            {
+                focusedIndex = selectedIndex;
+            }
+        }
+
+        if (!selectedIndices.empty())
+        {
+            auto const primaryIndex = focusedIndex.value_or(selectedIndices.front());
+            pane.active_list_view.SelectedIndex(primaryIndex);
+
+            for (auto const selectedIndex : selectedIndices)
+            {
+                if (selectedIndex == primaryIndex)
                 {
                     continue;
                 }
 
                 pane.active_list_view.SelectRange(
-                    winrt::Microsoft::UI::Xaml::Data::ItemIndexRange(
-                        static_cast<int32_t>(index),
-                        1));
+                    winrt::Microsoft::UI::Xaml::Data::ItemIndexRange(selectedIndex, 1));
             }
         }
-        else
+        else if (fallbackSelectedIndex >= 0 &&
+            fallbackSelectedIndex < static_cast<int32_t>(displayedItems.size()))
         {
             pane.active_list_view.SelectedIndex(fallbackSelectedIndex);
         }
 
         pane.tab_switching = false;
+
+        if (!selectedIndices.empty())
+        {
+            auto const primaryIndex = focusedIndex.value_or(selectedIndices.front());
+            pane.selection.ReplaceWith(
+                survivingIds,
+                displayedItems[static_cast<std::size_t>(primaryIndex)].parsing_name);
+        }
+        else if (fallbackSelectedIndex >= 0 &&
+            fallbackSelectedIndex < static_cast<int32_t>(displayedItems.size()))
+        {
+            pane.selection.ReplaceWith(
+                displayedItems[static_cast<std::size_t>(fallbackSelectedIndex)].parsing_name);
+        }
+        else
+        {
+            pane.selection.Clear();
+        }
+
+        if (pane.active_tab_index >= 0 &&
+            pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
+        {
+            pane.tabs[static_cast<std::size_t>(pane.active_tab_index)].selection = pane.selection;
+            pane.tabs[static_cast<std::size_t>(pane.active_tab_index)].selected_item_index =
+                pane.active_list_view.SelectedIndex();
+        }
+
         UpdateRowSelectionVisuals(pane);
     }
 
@@ -5370,12 +5876,7 @@ namespace winrt::FileScoutNative::implementation
         auto& outgoing = m_panes[m_activePaneIndex];
         if (outgoing.search_mode != SearchMode::None)
         {
-            outgoing.search_service.Cancel();
-            SearchProgressForPane(m_activePaneIndex).Visibility(
-                winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
-            outgoing.search_mode = SearchMode::None;
-            outgoing.search_query.clear();
-            // (ListView restore happens implicitly when the pane regains focus later.)
+            ResetSearchState(m_activePaneIndex, true);
         }
 
         m_activePaneIndex = paneIndex;
@@ -5495,17 +5996,34 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::ShowAddressTextBox()
     {
-        BreadcrumbBarBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+        BreadcrumbScrollViewer().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         AddressTextBox().Text(ToHString(ActivePane().current_path.wstring()));
         AddressTextBox().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
-        AddressTextBox().SelectAll();
         AddressTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+        AddressTextBox().SelectAll();
+
+        auto const weakThis = get_weak();
+        m_dispatcherQueue.TryEnqueue([weakThis]()
+        {
+            if (auto self = weakThis.get())
+            {
+                if (self->AddressTextBox().Visibility() !=
+                    winrt::Microsoft::UI::Xaml::Visibility::Visible)
+                {
+                    return;
+                }
+
+                self->AddressTextBox().Focus(
+                    winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+                self->AddressTextBox().SelectAll();
+            }
+        });
     }
 
     void MainWindow::HideAddressTextBox()
     {
         AddressTextBox().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
-        BreadcrumbBarBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+        BreadcrumbScrollViewer().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
     }
 
     void MainWindow::UpdateSearchPlaceholder(std::filesystem::path const& path)
@@ -5516,35 +6034,14 @@ namespace winrt::FileScoutNative::implementation
         SearchTextBox().PlaceholderText(L"Search " + folderName + L"\u2026");
     }
 
-    winrt::FileScoutNative::FileRowViewModel MainWindow::CreateSearchRowView(
-        ::FileScoutNative::Search::SearchResult const& result,
-        std::filesystem::path const& searchRoot)
-    {
-        std::wstring subtitle;
-        std::error_code ec;
-        auto const rel = std::filesystem::relative(
-            std::filesystem::path(result.full_path).parent_path(), searchRoot, ec);
-        if (!ec && !rel.empty() && rel.wstring() != L".")
-            subtitle = rel.wstring() + L"\\";
-
-        auto vm = winrt::make_self<winrt::FileScoutNative::implementation::FileRowViewModel>();
-        vm->SetName(result.filename);
-        vm->SetTypeLabel(subtitle);
-        vm->SetSizeText(L"");
-        vm->SetDateText(L"");
-        vm->SetDetailText(subtitle);
-        vm->SetIsFolder(false);
-        return vm.as<winrt::FileScoutNative::FileRowViewModel>();
-    }
-
     void MainWindow::BuildSortHeader(int32_t const paneIndex)
     {
         struct ColumnDef { std::wstring_view label; SortColumn column; double widthStar; };
         static constexpr std::array<ColumnDef, 4> columns{{
-            { L"Name",          SortColumn::Name,         3.0 },
-            { L"Type",          SortColumn::Type,         1.8 },
-            { L"Size",          SortColumn::Size,         1.2 },
-            { L"Date Modified", SortColumn::DateModified, 2.0 },
+            { L"Name",          SortColumn::Name,         3.4 },
+            { L"Type",          SortColumn::Type,         1.4 },
+            { L"Size",          SortColumn::Size,         1.0 },
+            { L"Date Modified", SortColumn::DateModified, 2.4 },
         }};
 
         auto headerBorder = SortHeaderForPane(paneIndex);
@@ -5553,13 +6050,13 @@ namespace winrt::FileScoutNative::implementation
         auto const& pane = m_panes[paneIndex];
         auto const presentation = ResolveRowPresentation(pane);
 
-        // In list mode, prepend a fixed-width column matching the row icon (20px + 8px spacing).
+        // In list mode, prepend a fixed-width column matching the row icon gutter.
         // This keeps sort button labels approximately aligned with the list row data columns.
         int32_t colOffset = 0;
         if (presentation == RowPresentation::List)
         {
             auto iconSpacerCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-            iconSpacerCol.Width({ 28.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+            iconSpacerCol.Width({ 30.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
             headerGrid.ColumnDefinitions().Append(iconSpacerCol);
             colOffset = 1;
         }

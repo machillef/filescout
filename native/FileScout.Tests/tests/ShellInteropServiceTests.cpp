@@ -171,6 +171,21 @@ TEST_F(ShellInteropFixture, EnumerateDirectory_PathsArePopulated)
     }
 }
 
+TEST_F(ShellInteropFixture, CanEnumerateShellNamespace_ForExistingDirectory)
+{
+    ShellInteropService svc;
+    EXPECT_TRUE(svc.CanEnumerateShellNamespace(m_root));
+}
+
+TEST_F(ShellInteropFixture, EnumerateShellDirectory_ReturnsItemsForExistingDirectory)
+{
+    ShellInteropService svc;
+    auto items = svc.EnumerateShellDirectory(m_root);
+    EXPECT_GE(items.size(), 3u);
+    auto folder = FindItem(items, L"SubFolder");
+    EXPECT_TRUE(folder.is_folder);
+}
+
 // S6: archive heuristic tests (BuildFastShellItemRef replaces CanEnumerateShellNamespace).
 // The new heuristic sets is_supported_archive = true only for .zip and .tar by extension,
 // without any shell call. These tests would fail with the old CanEnumerateShellNamespace path

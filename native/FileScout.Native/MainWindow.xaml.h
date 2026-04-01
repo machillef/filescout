@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MainWindow.g.h"
+#include "Domain\AddressNavigation.h"
 #include "Domain\BatchRenamePlan.h"
 #include "Domain\ContextMenuModel.h"
 #include "Domain\PaneSelectionState.h"
@@ -15,6 +16,8 @@
 #include "Shell\ShellInteropService.h"
 #include "Search\SearchService.h"
 #include "Domain\FileRowViewModel.h"
+#include <atomic>
+#include <memory>
 
 namespace winrt::FileScoutNative::implementation
 {
@@ -58,7 +61,7 @@ namespace winrt::FileScoutNative::implementation
         // When true, rows render group headers derived from the active sort column.
         bool group_by_sort_column{ false };
         // View mode — cards (rich cards) or list (compact rows).
-        ViewMode view_mode{ ViewMode::Cards };
+        ViewMode view_mode{ ViewMode::List };
         // Per-pane navigation history (back/forward stacks).
         std::vector<std::filesystem::path> back_stack;
         std::vector<std::filesystem::path> forward_stack;
@@ -79,10 +82,15 @@ namespace winrt::FileScoutNative::implementation
         // Snapshot of current tab's items taken at Filter entry.
         // Used for both scoring and Escape-restore; avoids live pane.items divergence.
         std::vector<::FileScoutNative::Domain::ShellItemRef> search_snapshot;
-        // Visible filter-mode items, indexed in lockstep with the current ListView rows.
+        // Visible search-mode items, indexed in lockstep with the current ListView rows.
         std::vector<::FileScoutNative::Domain::ShellItemRef> filtered_items;
-        // Last Recursive-mode result batch — indexed parallel to ListView rows for navigate-on-select.
-        std::vector<::FileScoutNative::Search::SearchResult> search_results;
+        // Incremented whenever recursive search publishes or tears down visible rows so pending
+        // icon backfills for older search snapshots cannot mutate the current list.
+        uint32_t search_view_generation{ 0 };
+        // Replaced whenever recursive rows are rebuilt or search mode tears down so stale
+        // background icon extraction can abandon work before touching the shell repeatedly.
+        std::shared_ptr<std::atomic<bool>> search_icon_backfill_cancel{
+            std::make_shared<std::atomic<bool>>(false) };
         ::FileScoutNative::Search::SearchService search_service;
     };
 
@@ -227,13 +235,19 @@ namespace winrt::FileScoutNative::implementation
         void LoadDirectory(std::filesystem::path const& path,
             std::optional<std::filesystem::path> selectAfter = std::nullopt,
             bool skipHistoryRecord = false);
+        [[nodiscard]] bool TryNavigateToAddressInput(std::wstring_view rawInput);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
             std::optional<std::filesystem::path> selectAfter);
         // S7: backfill real per-extension icons asynchronously after fast rows appear.
         winrt::fire_and_forget BackfillIconsAsync(
             int32_t paneIndex, int32_t tabIndex, uint32_t generation,
             std::vector<::FileScoutNative::Domain::ShellItemRef> items);
+        winrt::fire_and_forget BackfillSearchResultIconsAsync(
+            int32_t paneIndex, int32_t tabIndex, uint32_t searchViewGeneration,
+            std::shared_ptr<std::atomic<bool>> cancelToken,
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
         void UpdateRows(int32_t paneIndex, std::vector<::FileScoutNative::Domain::ShellItemRef> const& items);
+        uint32_t AdvanceSearchViewGeneration(PaneContext& pane);
         [[nodiscard]] std::vector<int32_t> GetSelectedItemIndices() const;
         [[nodiscard]] std::vector<::FileScoutNative::Domain::ShellItemRef> GetSelectedItems() const;
         void SyncSelectionFromListView();
@@ -261,6 +275,9 @@ namespace winrt::FileScoutNative::implementation
             std::vector<::FileScoutNative::Domain::ExplorerCommand> const& commands,
             std::optional<int32_t> itemIndex);
         void ExecuteContextCommand(std::wstring const& commandId, std::optional<int32_t> itemIndex);
+        [[nodiscard]] bool ActivateDisplayedItemByIndex(std::optional<int32_t> itemIndex);
+        [[nodiscard]] bool ActivateCurrentSelection();
+        [[nodiscard]] bool ShouldTextInputOwnFileShortcut(std::wstring_view commandId);
         winrt::fire_and_forget ShowNewFolderDialogAsync();
         winrt::fire_and_forget ShowRenameDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
         winrt::fire_and_forget ShowBatchRenameDialogAsync(
@@ -306,13 +323,10 @@ namespace winrt::FileScoutNative::implementation
         // R13e: panel toggle commands.
         void TogglePreviewPanel();
         void ToggleDualPane();
+        void ResetSearchState(int32_t paneIndex, bool restoreSnapshot);
 
         // R17d: per-pane search ProgressBar accessor.
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);
-        // R17e: search result row with relative-path subtitle.
-        [[nodiscard]] winrt::FileScoutNative::FileRowViewModel CreateSearchRowView(
-            ::FileScoutNative::Search::SearchResult const& result,
-            std::filesystem::path const& searchRoot);
 
         // R10: async image preview with a generation counter to cancel stale loads.
         uint32_t m_previewGeneration{ 0 };

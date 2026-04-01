@@ -15,12 +15,15 @@ namespace FileScoutNative::Shell
     public:
         [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateDirectory(
             std::filesystem::path const& path);
+        [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateShellDirectory(
+            std::filesystem::path const& path) const;
 
         // Returns one ShellItemRef per attached drive root (e.g. C:\, D:\).
         [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateDrives();
         [[nodiscard]] FileScoutNative::Domain::IconBitmap GetItemIcon(
             std::filesystem::path const& path,
             bool isFolder) const;
+        [[nodiscard]] bool CanEnumerateShellNamespace(std::filesystem::path const& path) const;
         [[nodiscard]] bool IsArchivePath(std::filesystem::path const& path) const;
         [[nodiscard]] std::optional<ResolvedArchivePath> TryResolveArchivePath(
             std::filesystem::path const& path) const;
@@ -40,7 +43,6 @@ namespace FileScoutNative::Shell
             std::filesystem::path const& path,
             bool isFolder) const;
         [[nodiscard]] bool IsSupportedArchiveFile(std::filesystem::path const& path) const;
-        [[nodiscard]] bool CanEnumerateShellNamespace(std::filesystem::path const& path) const;
         [[nodiscard]] std::optional<ResolvedArchivePath> ResolveArchivePath(
             std::filesystem::path const& path) const;
 

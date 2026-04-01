@@ -14,19 +14,19 @@
             <Style x:Key="CardRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Margin" Value="0,0,72,12" />
+                <Setter Property="Margin" Value="0,0,28,6" />
                 <Setter Property="MinHeight" Value="0" />
             </Style>
             <Style x:Key="ListRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Margin" Value="0,0,128,4" />
+                <Setter Property="Margin" Value="0,0,18,0" />
                 <Setter Property="MinHeight" Value="0" />
             </Style>
             <Style x:Key="GroupRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Margin" Value="0,0,152,10" />
+                <Setter Property="Margin" Value="0,0,28,4" />
                 <Setter Property="MinHeight" Value="0" />
             </Style>
             <Style x:Key="ChromeToolbarButtonStyle" TargetType="Button">
@@ -50,6 +50,16 @@
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="Background" Value="{ThemeResource LayerFillColorAltBrush}" />
+            </Style>
+            <Style x:Key="ChromeInlineAddressTextBoxStyle" TargetType="TextBox">
+                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
             </Style>
             <Style x:Key="ChromeDropDownButtonStyle" TargetType="DropDownButton">
                 <Setter Property="MinHeight" Value="40" />
@@ -77,8 +87,8 @@
                         <StackPanel Spacing="4"
                                     VerticalAlignment="Bottom">
                             <Border HorizontalAlignment="Left"
-                                    Padding="10,4,10,4"
-                                    CornerRadius="6"
+                                    Padding="9,3,9,3"
+                                    CornerRadius="5"
                                     BorderThickness="1"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     Background="{ThemeResource LayerFillColorAltBrush}">
@@ -95,25 +105,24 @@
                         </StackPanel>
                     </Grid>
                     <Border Grid.Row="1"
-                            CornerRadius="12"
-                            BorderThickness="2"
+                            CornerRadius="10"
+                            BorderThickness="1"
                             BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
                             Opacity="{x:Bind SelectionOutlineOpacity, Mode=OneWay}" />
                     <Border Grid.Row="1"
-                            Padding="14,12,14,12"
-                            Margin="1"
-                            CornerRadius="11"
+                            Padding="10,6,10,6"
+                            CornerRadius="10"
                             BorderThickness="1"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                         <Grid>
-                            <Border CornerRadius="11"
+                            <Border CornerRadius="10"
                                     Background="{ThemeResource AccentFillColorSecondaryBrush}"
                                     Opacity="{x:Bind SelectionFillOpacity, Mode=OneWay}" />
-                            <Grid ColumnSpacing="12"
-                                  RowSpacing="8">
+                            <Grid ColumnSpacing="10"
+                                  RowSpacing="6">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="52" />
+                                    <ColumnDefinition Width="34" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
@@ -122,13 +131,14 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <Border Grid.RowSpan="2"
-                                        Width="42"
-                                        Height="42"
-                                        CornerRadius="10"
+                                        Width="30"
+                                        Height="30"
+                                        CornerRadius="7"
                                         Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        Opacity="0.82"
                                         VerticalAlignment="Center">
-                                    <Image Width="20"
-                                           Height="20"
+                                    <Image Width="16"
+                                           Height="16"
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Center"
                                             Stretch="Uniform"
@@ -136,24 +146,25 @@
                                 </Border>
                                 <TextBlock Grid.Column="1"
                                            Text="{x:Bind Name}"
-                                           FontSize="14"
+                                           FontSize="13"
                                            FontWeight="SemiBold"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="2"
                                            Text="{x:Bind DateText}"
-                                           Opacity="0.58"
-                                           FontSize="11"
+                                           FontSize="12"
+                                           FontWeight="Medium"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                           Opacity="0.8"
                                            VerticalAlignment="Center"
                                            HorizontalAlignment="Right" />
                                 <Border Grid.Row="1"
                                         Grid.Column="1"
                                         Grid.ColumnSpan="2"
                                         HorizontalAlignment="Left"
-                                        Padding="8,4,8,4"
+                                        Padding="6,2,6,2"
                                         CornerRadius="999"
-                                        BorderThickness="1"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="0"
                                         Background="{ThemeResource LayerFillColorAltBrush}">
                                     <TextBlock Text="{x:Bind DetailText}"
                                                FontSize="12"
@@ -179,10 +190,9 @@
                         <StackPanel Spacing="3"
                                     VerticalAlignment="Bottom">
                             <Border HorizontalAlignment="Left"
-                                    Padding="8,3,8,3"
-                                    CornerRadius="5"
-                                    BorderThickness="1"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Padding="7,2,7,2"
+                                    CornerRadius="4"
+                                    BorderThickness="0"
                                     Background="{ThemeResource LayerFillColorAltBrush}">
                                 <TextBlock Text="{x:Bind GroupHeaderText, Mode=OneWay}"
                                            FontSize="10"
@@ -193,70 +203,66 @@
                             </Border>
                             <Rectangle Height="1"
                                        Fill="{ThemeResource CardStrokeColorDefaultBrush}"
-                                       Opacity="0.7" />
+                                       Opacity="0.45" />
                         </StackPanel>
                     </Grid>
                     <Border Grid.Row="1"
+                            Padding="8,2,10,2"
                             CornerRadius="4"
-                            BorderThickness="1"
-                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                            Opacity="{x:Bind SelectionOutlineOpacity, Mode=OneWay}" />
-                    <Border Grid.Row="1"
-                            Margin="1"
-                            Padding="10,5,12,5"
-                            CornerRadius="3"
-                            BorderThickness="1"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            Background="{ThemeResource LayerFillColorAltBrush}">
+                            BorderThickness="0"
+                            Background="Transparent">
                         <Grid>
-                            <Border CornerRadius="3"
+                            <Border CornerRadius="4"
                                     Background="{ThemeResource AccentFillColorSecondaryBrush}"
                                     Opacity="{x:Bind SelectionFillOpacity, Mode=OneWay}" />
-                            <Grid ColumnSpacing="10">
+                            <Grid ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="24" />
-                                    <ColumnDefinition Width="3.2*" />
-                                    <ColumnDefinition Width="1.7*" />
-                                    <ColumnDefinition Width="1.2*" />
-                                    <ColumnDefinition Width="1.9*" />
+                                    <ColumnDefinition Width="20" />
+                                    <ColumnDefinition Width="4.2*" />
+                                    <ColumnDefinition Width="1.4*" />
+                                    <ColumnDefinition Width="1.0*" />
+                                    <ColumnDefinition Width="2.6*" />
                                 </Grid.ColumnDefinitions>
-                                <Border Width="20"
-                                        Height="20"
-                                        CornerRadius="5"
-                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                        VerticalAlignment="Center">
-                                    <Image Width="14"
-                                           Height="14"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Stretch="Uniform"
-                                            Source="{x:Bind IconSource, Mode=OneWay}" />
-                                </Border>
+                                <Image Width="16"
+                                       Height="16"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Center"
+                                       Stretch="Uniform"
+                                       Source="{x:Bind IconSource, Mode=OneWay}" />
                                 <TextBlock Grid.Column="1"
                                            Text="{x:Bind Name}"
-                                           FontSize="13"
+                                           FontSize="12.5"
                                            FontWeight="SemiBold"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="2"
                                            Text="{x:Bind TypeLabel}"
-                                           FontSize="12"
-                                           Opacity="0.78"
+                                           FontSize="11.5"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           Opacity="0.9"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="3"
                                            Text="{x:Bind SizeText}"
-                                           FontSize="12"
-                                           Opacity="0.72"
+                                           FontSize="11.5"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           Opacity="0.82"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="4"
                                            Text="{x:Bind DateText}"
-                                           FontSize="12"
-                                           Opacity="0.72"
+                                           FontSize="12.5"
+                                           FontWeight="SemiBold"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                           Opacity="0.82"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                             </Grid>
+                            <Rectangle Height="1"
+                                       Margin="28,0,0,0"
+                                       VerticalAlignment="Bottom"
+                                       Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                       Opacity="0.32" />
                         </Grid>
                     </Border>
                 </Grid>
@@ -271,9 +277,9 @@
                     </Grid.RowDefinitions>
                     <Border Grid.Row="0"
                             Height="{x:Bind GroupHeaderHeight, Mode=OneWay}"
-                            Margin="18,0,0,6"
-                            Padding="12,7,12,7"
-                            CornerRadius="10"
+                            Margin="12,0,0,4"
+                            Padding="10,6,10,6"
+                            CornerRadius="9"
                             BorderThickness="1"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             Background="{ThemeResource SubtleFillColorSecondaryBrush}"
@@ -308,14 +314,14 @@
                         </Grid>
                     </Border>
                     <Border Grid.Row="1"
-                            Margin="30,0,0,0"
-                            CornerRadius="11"
-                            BorderThickness="2"
+                            Margin="24,0,0,0"
+                            CornerRadius="10"
+                            BorderThickness="1"
                             BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
                             Opacity="{x:Bind SelectionOutlineOpacity, Mode=OneWay}" />
                     <Border Grid.Row="1"
-                            Margin="31,1,0,1"
-                            Padding="14,9,14,9"
+                            Margin="25,1,0,1"
+                            Padding="12,7,12,7"
                             CornerRadius="10"
                             BorderThickness="1"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -345,13 +351,13 @@
                                         VerticalAlignment="Stretch" />
                                 <Border Grid.Column="1"
                                         Grid.RowSpan="2"
-                                        Width="36"
-                                        Height="36"
-                                        CornerRadius="9"
+                                        Width="32"
+                                        Height="32"
+                                        CornerRadius="8"
                                         Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                                         VerticalAlignment="Center">
-                                    <Image Width="18"
-                                           Height="18"
+                                    <Image Width="16"
+                                           Height="16"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
                                            Stretch="Uniform"
@@ -365,8 +371,10 @@
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="3"
                                            Text="{x:Bind DateText}"
-                                           FontSize="11"
-                                           Opacity="0.58"
+                                           FontSize="12"
+                                           FontWeight="Medium"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                           Opacity="0.76"
                                            VerticalAlignment="Center"
                                            HorizontalAlignment="Right" />
                                 <TextBlock Grid.Row="1"
@@ -498,29 +506,32 @@
                         <Grid Grid.Column="1">
                             <!-- Breadcrumb bar — default view; tap to reveal address TextBox -->
                             <Border x:Name="BreadcrumbBarBorder"
-                                    MinHeight="48"
-                                    Padding="14,0,14,0"
+                                    MinHeight="40"
+                                    Padding="12,0,12,0"
                                     CornerRadius="12"
                                     BorderThickness="1"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     Background="{ThemeResource LayerFillColorAltBrush}"
                                     Tapped="BreadcrumbBarBorder_Tapped">
-                                <ScrollViewer HorizontalScrollBarVisibility="Hidden"
+                                <Grid>
+                                    <ScrollViewer x:Name="BreadcrumbScrollViewer"
+                                              HorizontalScrollBarVisibility="Hidden"
                                               VerticalScrollBarVisibility="Disabled"
                                               VerticalAlignment="Center">
-                                    <StackPanel x:Name="BreadcrumbPanel"
-                                                Orientation="Horizontal"
-                                                Spacing="0"
-                                                VerticalAlignment="Center" />
-                                </ScrollViewer>
+                                        <StackPanel x:Name="BreadcrumbPanel"
+                                                    Orientation="Horizontal"
+                                                    Spacing="0"
+                                                    VerticalAlignment="Center" />
+                                    </ScrollViewer>
+                                    <!-- Address TextBox — hidden; shown on tap or F4 -->
+                                    <TextBox x:Name="AddressTextBox"
+                                             Style="{StaticResource ChromeInlineAddressTextBoxStyle}"
+                                             PlaceholderText="Enter a filesystem path"
+                                             Visibility="Collapsed"
+                                             PreviewKeyDown="AddressTextBox_KeyDown"
+                                             LostFocus="AddressTextBox_LostFocus" />
+                                </Grid>
                             </Border>
-                            <!-- Address TextBox — hidden; shown on tap or F4 -->
-                            <TextBox x:Name="AddressTextBox"
-                                     Style="{StaticResource ChromeAddressTextBoxStyle}"
-                                     PlaceholderText="Enter a filesystem path"
-                                     Visibility="Collapsed"
-                                     PreviewKeyDown="AddressTextBox_KeyDown"
-                                     LostFocus="AddressTextBox_LostFocus" />
                         </Grid>
 
                         <!-- Dedicated search box (col 2) -->
