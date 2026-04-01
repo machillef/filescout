@@ -445,3 +445,46 @@
 - No immediate follow-on scope is being opened from this initiative; treat any future work as a new initiative with its own scope instead of extending this one.
 - Reuse the displayed-row-source rule for future search, filter, or grouping work: interaction paths should always resolve against the visible collection, never the full backing item list.
 - Keep fixed manual-acceptance checklists as durable artifacts for any future WinUI chrome or pane-interaction initiative.
+
+---
+
+## shell-navigation-and-density-hardening — 2026-04-01
+
+### Metrics
+
+| Metric | Value |
+|---|---|
+| Slices planned | 5 (SND1–SND5) |
+| Slices completed | 5 |
+| Slices blocked | 0 |
+| Completion rate | 100% |
+| Post-acceptance fixes | 3 focused bug rounds (address validation/activation, clipboard ownership, external drag/drop) |
+| Build gate | PASS |
+| Test gate | PASS (`161` tests) |
+| Eval gate | PASS |
+| Final host acceptance | PASS |
+
+### Key Learnings
+
+- **Shell-style drag/drop and browser drag/drop are different problems.** The long-running Excalidraw issue only closed once the implementation treated external browser targets as a separate path with deferred `StorageItems` export and local staging for WSL-backed files.
+- **WinRT async waits on the STA path are a real release blocker.** The visible failure looked like a generic drag/drop bug, but the root cause was synchronous `GetFileFromPathAsync(...).get()` / `GetFolderFromPathAsync(...).get()` work in `DragItemsStarting`, which triggered the WinRT `!is_sta_thread()` assertion.
+- **Dense-list polish needed structural simplification, not just smaller spacing.** The UX improved once the browse chrome stopped presenting rows like mini cards and the address control stopped swapping between visibly different shells.
+- **Manual QA added real value on this initiative.** WSL namespace browsing, clipboard ownership, type-to-select activation, browser drop targets, and the address-bar jump were all areas where host behavior mattered more than unit coverage alone.
+
+### What Went Well
+
+- The initiative stayed coherent from bug reports through UX closeout: address resolution, activation behavior, drag/drop hardening, and browse-density refinement all served the same everyday file-navigation loop.
+- Pure helpers such as address-resolution and drag/drop planning kept the risky behavior changes testable without pushing WinUI concerns into domain types.
+- The final verification posture was strong: build, full tests, eval, and live host validation all passed before closeout.
+
+### What Could Improve
+
+- The initiative needed multiple post-acceptance fix rounds because several important behaviors were only discoverable with real host interaction. Future WinUI-heavy initiatives should plan a manual acceptance slice earlier and more explicitly.
+- External drag/drop root-cause analysis took longer than ideal because the failure moved from “nothing happens” to a runtime assertion only after partial fixes. Future debugging should separate browser targets from shell targets immediately.
+- The original density pass fixed default list mode but left `Date Modified` readability and address-bar geometry for later. Future browse UX slices should treat metadata readability and control-state stability as part of the first acceptance bar.
+
+### Recommendations for Next Initiative
+
+- For any future drag/export work, classify targets up front as in-app, Windows shell, or browser/web-app targets and validate each path separately.
+- For WinUI browse-surface work, require manual checks for focus transitions, keyboard ownership, metadata legibility, and row-density scanning before marking the slice done.
+- Keep using small domain helpers for navigation and drag/drop policy so future fixes stay isolated and testable.
