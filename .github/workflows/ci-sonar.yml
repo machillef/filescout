@@ -1,0 +1,66 @@
+name: CI and Sonar
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  build-test-sonar:
+    runs-on: windows-latest
+    env:
+      BUILD_CONFIGURATION: Debug
+      BUILD_PLATFORM: x64
+      SOLUTION_PATH: native\FileScout.Native.sln
+      TEST_EXE: native\bin\x64\Debug\Tests\FileScout.Tests.exe
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore solution
+        shell: pwsh
+        run: >
+          msbuild $env:SOLUTION_PATH
+          /restore
+          /p:RestorePackagesConfig=true
+          /p:Configuration=$env:BUILD_CONFIGURATION
+          /p:Platform=$env:BUILD_PLATFORM
+          /nologo
+          /v:minimal
+
+      - name: Build solution
+        shell: pwsh
+        run: >
+          msbuild $env:SOLUTION_PATH
+          /p:Configuration=$env:BUILD_CONFIGURATION
+          /p:Platform=$env:BUILD_PLATFORM
+          /nologo
+          /v:minimal
+
+      - name: Run native test suite
+        shell: pwsh
+        run: >
+          & "$env:TEST_EXE" --gtest_color=no
+
+      - name: SonarQube Cloud scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            "-Dsonar.organization=${{ vars.SONAR_ORG }}"
+            "-Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}"
+            "-Dsonar.qualitygate.wait=true"
