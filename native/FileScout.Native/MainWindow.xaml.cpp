@@ -502,6 +502,45 @@ namespace
         return label;
     }
 
+    std::wstring BuildPasteSuccessStatus(::FileScoutNative::Shell::ClipboardPasteResult const& outcome)
+    {
+        std::wstring status = outcome.was_move ? L"Moved " : L"Pasted ";
+        status += std::to_wstring(outcome.item_count);
+        status += outcome.item_count == 1 ? L" item into " : L" items into ";
+        status += outcome.destination.wstring();
+        status += L".";
+        return status;
+    }
+
+    std::wstring BuildPasteFailureStatus(::FileScoutNative::Shell::ClipboardPasteResult const& outcome)
+    {
+        std::wstring status = outcome.was_move ? L"Couldn't move " : L"Couldn't paste ";
+        if (outcome.item_count == 0)
+        {
+            status += L"clipboard items";
+        }
+        else
+        {
+            status += std::to_wstring(outcome.item_count);
+            status += outcome.item_count == 1 ? L" item" : L" items";
+        }
+
+        if (!outcome.destination.empty())
+        {
+            status += L" into ";
+            status += outcome.destination.wstring();
+        }
+
+        status += L".";
+        if (!outcome.failure_detail.empty())
+        {
+            status += L" ";
+            status += outcome.failure_detail;
+        }
+
+        return status;
+    }
+
     std::wstring BuildWave1ArchiveStatus(
         std::filesystem::path const& path,
         bool const openSucceeded)
@@ -3926,28 +3965,25 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"paste")
         {
-            if (!m_shellClipboardService.CanPasteInto(ActivePane().current_path))
-            {
-                StatusTextBlock().Text(L"Paste needs shell items on the clipboard.");
-                return;
-            }
-
             try
             {
                 auto const outcome = m_shellClipboardService.PasteInto(
                     GetWindowHandle(), ActivePane().current_path);
-                LoadDirectory(ActivePane().current_path);
-
-                std::wstring action = outcome.was_move ? L"Moved " : L"Pasted ";
-                action += std::to_wstring(outcome.item_count);
-                action += outcome.item_count == 1 ? L" item into " : L" items into ";
-                action += ActivePane().current_path.wstring();
-                StatusTextBlock().Text(ToHString(action));
+                if (outcome.succeeded)
+                {
+                    LoadDirectory(ActivePane().current_path);
+                    StatusTextBlock().Text(ToHString(BuildPasteSuccessStatus(outcome)));
+                }
+                else
+                {
+                    StatusTextBlock().Text(ToHString(BuildPasteFailureStatus(outcome)));
+                }
             }
-            catch (std::exception const&)
+            catch (std::exception const& error)
             {
-                StatusTextBlock().Text(
-                    ToHString(L"Paste failed into " + ActivePane().current_path.wstring()));
+                StatusTextBlock().Text(ToHString(
+                    L"Couldn't paste into " + ActivePane().current_path.wstring() + L". " +
+                    winrt::to_hstring(error.what()).c_str()));
             }
             return;
         }
