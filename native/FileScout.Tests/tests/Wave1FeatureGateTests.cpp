@@ -20,7 +20,7 @@ TEST(Wave1FeatureGate, FirstLaunchDefaultsToSinglePane)
     EXPECT_TRUE(Wave1UsesSinglePaneFirstLaunch());
 }
 
-TEST(Wave1FeatureGate, SubBetaFeaturesStartDisabled)
+TEST(Wave1FeatureGate, ClosedBetaKeepsSubBetaFeaturesDisabled)
 {
     EXPECT_FALSE(IsWave1FeatureEnabled(Wave1Feature::CommandPalette));
     EXPECT_FALSE(IsWave1FeatureEnabled(Wave1Feature::ArchiveBrowsing));
@@ -44,12 +44,19 @@ TEST(Wave1FeatureGate, ArchiveOnlyCommandsAreHiddenWhileArchiveBrowsingIsDisable
 TEST(Wave1FeatureGate, StatusMessagesExplainWhyAFeatureIsUnavailable)
 {
     EXPECT_EQ(
-        std::wstring{ L"Command palette is not in the wave-1 beta yet." },
+        std::wstring{ L"Command palette is not part of the closed beta yet." },
         std::wstring{ Wave1FeatureUnavailableStatus(Wave1Feature::CommandPalette) });
     EXPECT_EQ(
-        std::wstring{ L"Archive browsing is not in the wave-1 beta yet." },
+        std::wstring{ L"Archive browsing is not part of the closed beta yet." },
         std::wstring{ Wave1FeatureUnavailableStatus(Wave1Feature::ArchiveBrowsing) });
     EXPECT_EQ(
-        std::wstring{ L"Batch rename is not in the wave-1 beta yet." },
+        std::wstring{ L"Batch rename is not part of the closed beta yet." },
         std::wstring{ Wave1FeatureUnavailableStatus(Wave1Feature::BatchRename) });
+}
+
+TEST(Wave1FeatureGate, UnknownFeaturesUseClosedBetaFallbackStatus)
+{
+    EXPECT_EQ(
+        std::wstring{ L"That feature is not part of the closed beta yet." },
+        std::wstring{ Wave1FeatureUnavailableStatus(static_cast<Wave1Feature>(999)) });
 }

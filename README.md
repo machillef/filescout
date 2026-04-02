@@ -6,8 +6,8 @@ FileScout is a Windows 11 file explorer built with C++/WinRT and WinUI 3. It foc
 
 - Shell-backed browsing, metadata, icons, and file operations
 - Dual-pane and multi-tab workflow with active-pane routing
-- Command palette, keyboard shortcuts, and breadcrumb/address navigation
-- Archive browsing with extract affordances
+- Keyboard shortcuts, breadcrumb/address navigation, and fuzzy search
+- Native shell hand-off for Properties, Open With, and non-beta archive flows
 - Fuzzy search with live filtering, recursive search, and result activation
 
 ## What FileScout Can Do Today
@@ -26,7 +26,6 @@ FileScout is a Windows 11 file explorer built with C++/WinRT and WinUI 3. It foc
 - Create folders, rename items, delete to the recycle bin, and use copy, cut, and paste workflows
 - Drag and drop within FileScout and between FileScout and Windows Explorer
 - Show Windows 11-style context menus with shell overflow actions
-- Surface archive-aware flows for supported shell-detected archive types, including extraction affordances
 
 ### Search and discovery
 
@@ -37,10 +36,16 @@ FileScout is a Windows 11 file explorer built with C++/WinRT and WinUI 3. It foc
 
 ### Power-user tools
 
-- Launch a command palette for navigation, file operations, and view/sort commands
-- Use keyboard shortcuts including `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Delete`, `F2`, `F5`, `Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, and palette/search-focused flows
-- Batch rename with sequential numbering, prefix and suffix transforms, find-and-replace, and validation
+- Use keyboard shortcuts including `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Delete`, `F2`, `F5`, `Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Alt+Enter`, `Alt+Left`, and `Alt+Right`
 - Browse with custom title bar chrome, active-pane indicators, and shell-backed sidebar visuals
+
+## Closed Beta Scope
+
+The current closed beta intentionally keeps a few previously prototyped features out of the shipped surface while the core explorer hardens:
+
+- Command palette is not part of the current closed beta
+- In-app archive browsing and extract flows are not part of the current closed beta
+- Batch rename is not part of the current closed beta; rename currently works one item at a time
 
 ## Build and Test
 
@@ -84,7 +89,7 @@ native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no
 
 ## Status
 
-FileScout is under active development. The core explorer, search, archive, command, and workflow foundations are in place, and the project is continuing to harden the experience and expand power-user capabilities.
+FileScout is under active development. The current closed-beta focus is on a trustworthy core explorer: shell-backed browsing, search, dual-pane workflows, and everyday file operations with accurate docs and runtime messaging.
 
 ## License
 

@@ -59,13 +59,13 @@ namespace FileScoutNative::Domain
         switch (feature)
         {
         case Wave1Feature::CommandPalette:
-            return L"Command palette is not in the wave-1 beta yet.";
+            return L"Command palette is not part of the closed beta yet.";
         case Wave1Feature::ArchiveBrowsing:
-            return L"Archive browsing is not in the wave-1 beta yet.";
+            return L"Archive browsing is not part of the closed beta yet.";
         case Wave1Feature::BatchRename:
-            return L"Batch rename is not in the wave-1 beta yet.";
+            return L"Batch rename is not part of the closed beta yet.";
         }
 
-        return L"That feature is not in the wave-1 beta yet.";
+        return L"That feature is not part of the closed beta yet.";
     }
 }

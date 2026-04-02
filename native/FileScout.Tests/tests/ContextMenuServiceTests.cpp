@@ -160,7 +160,7 @@ TEST(ContextMenuServiceTest, SelectionNoPaste_NoPasteCommand)
     EXPECT_FALSE(HasGroupCommand(model, L"paste"));
 }
 
-TEST(ContextMenuServiceTest, MultiSelection_UsesBatchRenameAndHidesSingleItemInspectCommands)
+TEST(ContextMenuServiceTest, MultiSelection_HidesRenameWhenBatchRenameIsOutsideClosedBeta)
 {
     ContextMenuService svc;
     ContextMenuScenario scenario{ MakeFile() };
@@ -170,7 +170,7 @@ TEST(ContextMenuServiceTest, MultiSelection_UsesBatchRenameAndHidesSingleItemIns
 
     EXPECT_FALSE(HasPrimaryCommand(model, L"open"));
     EXPECT_FALSE(HasPrimaryCommand(model, L"openWith"));
-    EXPECT_EQ(GetPrimaryCommandLabel(model, L"rename"), L"Batch rename...");
+    EXPECT_FALSE(HasPrimaryCommand(model, L"rename"));
     EXPECT_FALSE(HasGroupCommand(model, L"properties"));
     EXPECT_FALSE(HasGroupCommand(model, L"moreWindowsActions"));
     EXPECT_TRUE(HasGroupCommand(model, L"copy"));

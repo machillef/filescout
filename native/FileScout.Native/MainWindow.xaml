@@ -780,7 +780,7 @@
             </StackPanel>
         </Border>
 
-        <!-- R13a: Command Palette overlay. Ctrl+P to show, Escape to close. -->
+        <!-- Command palette overlay stays collapsed while the feature is outside the closed beta. -->
         <Grid x:Name="CommandPaletteOverlay"
               Grid.RowSpan="3"
               Background="#80000000"

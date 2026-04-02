@@ -7,7 +7,8 @@ namespace FileScoutNative::Shell
 {
     CommandRegistry::CommandRegistry()
     {
-        // Full command table: Navigation (R13a/R13b), File ops (R13a/R13c), View (R13d).
+        // Closed beta command table: keep gated-off features out of the registry so
+        // the searchable command surface only advertises live functionality.
         // shortcut_text is display-only — matches accelerators in SetupKeyboardAccelerators.
         m_commands =
         {
