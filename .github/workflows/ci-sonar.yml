@@ -70,6 +70,12 @@ jobs:
         if: steps.sonar-config.outputs.sonar_ready == 'true'
         uses: SonarSource/sonarqube-scan-action/install-build-wrapper@299e4b793aaa83bf2aba7c9c14bedbb485688ec4
 
+      - name: Prepare Sonar build wrapper output directory
+        if: steps.sonar-config.outputs.sonar_ready == 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:BUILD_WRAPPER_OUT_DIR | Out-Null
+
       - name: Build solution with Sonar build wrapper
         if: steps.sonar-config.outputs.sonar_ready == 'true'
         shell: pwsh
