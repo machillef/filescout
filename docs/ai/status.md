@@ -9,6 +9,9 @@
 - Current blocker: none
 - Next slice to execute: S7 (icon backfill phase 2)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
+- Closed-beta surface aligned 2026-04-02: README, runtime messaging, and command surfaces now agree
+  that command palette, in-app archive browsing/extract flows, and batch rename remain outside the
+  current closed beta
 - Hosted Windows CI baseline established 2026-04-02: GitHub Actions now restores, builds, and tests
   on `windows-latest`; hosted-runner project ordering and Windows SDK targeting are pinned to the
   repo so CI and local builds use the same graph
