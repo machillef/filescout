@@ -1,7 +1,33 @@
 #pragma once
 
+#include <filesystem>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
 namespace FileScoutNative::Shell
 {
+    struct FileOperationError
+    {
+        std::wstring action;
+        std::wstring path;
+        std::wstring detail;
+    };
+
+    class FileOperationException final : public std::runtime_error
+    {
+    public:
+        explicit FileOperationException(FileOperationError error);
+
+        [[nodiscard]] FileOperationError const& Error() const noexcept;
+
+    private:
+        static std::string BuildMessage(FileOperationError const& error);
+
+        FileOperationError m_error;
+    };
+
     struct RenameRequest
     {
         std::filesystem::path path;

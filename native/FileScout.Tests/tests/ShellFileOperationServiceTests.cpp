@@ -60,6 +60,27 @@ namespace
         item.is_folder = isFolder;
         return item;
     }
+
+    std::string CaptureRuntimeError(std::function<void()> const& action)
+    {
+        try
+        {
+            action();
+        }
+        catch (std::runtime_error const& error)
+        {
+            return error.what();
+        }
+
+        ADD_FAILURE() << "Expected std::runtime_error";
+        return {};
+    }
+
+    void ExpectContains(std::string const& text, std::string_view const needle)
+    {
+        EXPECT_NE(text.find(needle), std::string::npos)
+            << "Expected '" << text << "' to contain '" << needle << "'";
+    }
 }
 
 TEST(FileNameValidationTests, RejectsTrailingSpacesPeriodsAndDotSegments)
@@ -486,4 +507,30 @@ TEST_F(ShellFileOperationFixture, ShowPropertiesThrowsForMissingPath)
 {
     auto const missing = m_root / L"missing.txt";
     EXPECT_THROW(m_svc.ShowProperties(nullptr, missing), std::runtime_error);
+}
+
+TEST_F(ShellFileOperationFixture, ShowPropertiesFailureIncludesActionAndPath)
+{
+    auto const missing = m_root / L"missing.txt";
+
+    auto const message = CaptureRuntimeError([&]
+    {
+        m_svc.ShowProperties(nullptr, missing);
+    });
+
+    ExpectContains(message, "Show properties");
+    ExpectContains(message, winrt::to_string(winrt::hstring{ missing.wstring() }));
+}
+
+TEST_F(ShellFileOperationFixture, RenameFailureIncludesActionAndSourcePath)
+{
+    auto const original = m_root / L"alpha.txt";
+
+    auto const message = CaptureRuntimeError([&]
+    {
+        [[maybe_unused]] auto const renamedPath = m_svc.RenameItem(nullptr, original, L"beta.txt");
+    });
+
+    ExpectContains(message, "Rename");
+    ExpectContains(message, winrt::to_string(winrt::hstring{ original.wstring() }));
 }
