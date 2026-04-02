@@ -106,6 +106,13 @@
     <None Include="packages.config" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\FileScout.Native\FileScout.Native.vcxproj">
+      <Project>{E59B35B2-EAEB-4206-89AC-31C888CC1769}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+
   <!-- Precompiled header creation -->
   <ItemGroup>
     <ClCompile Include="pch.cpp">

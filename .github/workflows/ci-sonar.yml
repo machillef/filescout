@@ -1,0 +1,107 @@
+name: CI
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  BUILD_CONFIGURATION: Debug
+  BUILD_PLATFORM: x64
+  SOLUTION_PATH: native\FileScout.Native.sln
+  TEST_EXE: native\bin\x64\Debug\Tests\FileScout.Tests.exe
+  BUILD_WRAPPER_OUT_DIR: .sonar\build-wrapper
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-sonar:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
+
+      - name: Detect SonarQube Cloud configuration
+        id: sonar-config
+        shell: pwsh
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORG: ${{ vars.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          $ready = -not [string]::IsNullOrWhiteSpace($env:SONAR_TOKEN) `
+            -and -not [string]::IsNullOrWhiteSpace($env:SONAR_ORG) `
+            -and -not [string]::IsNullOrWhiteSpace($env:SONAR_PROJECT_KEY)
+          "sonar_ready=$($ready.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Restore solution
+        shell: pwsh
+        run: >
+          msbuild $env:SOLUTION_PATH
+          /restore
+          /p:RestorePackagesConfig=true
+          /p:Configuration=$env:BUILD_CONFIGURATION
+          /p:Platform=$env:BUILD_PLATFORM
+          /nologo
+          /v:minimal
+
+      - name: Build solution
+        if: steps.sonar-config.outputs.sonar_ready != 'true'
+        shell: pwsh
+        run: >
+          msbuild $env:SOLUTION_PATH
+          /p:Configuration=$env:BUILD_CONFIGURATION
+          /p:Platform=$env:BUILD_PLATFORM
+          /nologo
+          /v:minimal
+
+      - name: Install Sonar build wrapper
+        if: steps.sonar-config.outputs.sonar_ready == 'true'
+        uses: SonarSource/sonarqube-scan-action/install-build-wrapper@299e4b793aaa83bf2aba7c9c14bedbb485688ec4
+
+      - name: Build solution with Sonar build wrapper
+        if: steps.sonar-config.outputs.sonar_ready == 'true'
+        shell: pwsh
+        run: >
+          build-wrapper-win-x86-64.exe --out-dir $env:BUILD_WRAPPER_OUT_DIR
+          MSBuild.exe $env:SOLUTION_PATH
+          /t:Rebuild
+          /nodeReuse:False
+          /p:Configuration=$env:BUILD_CONFIGURATION
+          /p:Platform=$env:BUILD_PLATFORM
+          /nologo
+          /v:minimal
+
+      - name: Run native test suite
+        shell: pwsh
+        run: >
+          & "$env:TEST_EXE" --gtest_color=no
+
+      - name: SonarQube Cloud scan
+        if: steps.sonar-config.outputs.sonar_ready == 'true'
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            "-Dsonar.organization=${{ vars.SONAR_ORG }}"
+            "-Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}"
+            "-Dsonar.qualitygate.wait=true"
+
+      - name: Explain skipped SonarQube Cloud scan
+        if: steps.sonar-config.outputs.sonar_ready != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "::warning::SonarQube Cloud scan skipped because SONAR_TOKEN or SONAR_ORG / SONAR_PROJECT_KEY are not configured in GitHub Actions settings."
+          Write-Host "::warning::If Automatic Analysis is still enabled in SonarQube Cloud, turn it off before relying on CI-based C++ analysis."

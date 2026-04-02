@@ -1,3 +1,9 @@
+## 2026-04-02 — Restore hosted Windows CI and SonarQube Cloud workflow on master
+- Changed: `.github/workflows/ci-sonar.yml`, `sonar-project.properties`, `native/FileScout.Native.sln`, `native/FileScout.Native/FileScout.Native.vcxproj`, `native/FileScout.Tests/FileScout.Tests.vcxproj`, `docs/ai/status.md`
+- Pattern followed: `docs/ai/quick-changes-log.md`, `codex/cloud-code-quality`
+- Tests: local Debug x64 build + full native suite on current `master` branch after CI-port changes
+- Reviewed: yes — local verification complete after porting CI-only changes from `codex/cloud-code-quality`
+
 ## 2026-04-02 — Plan follow-up custom Properties window feature
 - Changed: `docs/ai/next-phase-design-inputs.md`, `docs/ai/quick-changes-log.md`
 - Pattern followed: `docs/ai/next-phase-design-inputs.md`

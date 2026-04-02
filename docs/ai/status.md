@@ -9,6 +9,14 @@
 - Current blocker: none
 - Next slice to execute: S7 (icon backfill phase 2)
 - Current known warning: MSB8027 + LNK4042 for WindowsAppRuntimeAutoInitializer.obj (duplicate obj, extras ignored — harmless, pre-existing WinAppSDK issue)
+- Hosted Windows CI baseline established 2026-04-02: GitHub Actions now restores, builds, and tests
+  on `windows-latest`; hosted-runner project ordering and Windows SDK targeting are pinned to the
+  repo so CI and local builds use the same graph
+- SonarQube Cloud CI wiring landed 2026-04-02: the workflow runs scanner-based analysis when
+  `SONAR_TOKEN`, `SONAR_ORG`, and `SONAR_PROJECT_KEY` are configured in GitHub Actions, and emits
+  an explicit warning instead of failing when those settings are absent
+- SonarQube Cloud C++ analysis should use Build Wrapper in CI and requires Automatic Analysis to be
+  turned off in the SonarQube Cloud project before the scanner-driven check becomes authoritative
 - App launches and shows window as of 2026-03-20
 - R17 (fuzzy search) complete 2026-03-22: FuzzyMatcher, SearchService, Filter + Recursive
   modes with streaming ProgressBar and navigate-on-select (R17a–R17e); 71/71 tests
