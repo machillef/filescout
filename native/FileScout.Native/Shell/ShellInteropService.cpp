@@ -1,13 +1,11 @@
 #include "pch.h"
 #include "ShellInteropService.h"
+#include "Domain/IconCacheKey.h"
 
 namespace FileScoutNative::Shell
 {
     namespace
     {
-        constexpr wchar_t const* folderIconCacheKey = L"__folder__";
-        constexpr wchar_t const* genericFileIconCacheKey = L"__file__";
-
         std::wstring BuildKindLabel(std::filesystem::path const& path, bool const isFolder)
         {
             if (isFolder)
@@ -78,26 +76,6 @@ namespace FileScoutNative::Shell
             }
 
             return std::nullopt;
-        }
-
-        std::wstring BuildIconCacheKey(std::filesystem::path const& path, bool const isFolder)
-        {
-            if (isFolder)
-            {
-                return folderIconCacheKey;
-            }
-
-            auto extension = path.extension().wstring();
-            if (extension.empty())
-            {
-                return genericFileIconCacheKey;
-            }
-
-            std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t const ch)
-                {
-                    return static_cast<wchar_t>(towlower(ch));
-                });
-            return extension;
         }
 
         std::filesystem::path NormalizeShellLookupPath(std::filesystem::path const& path)
@@ -340,7 +318,7 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& path,
         bool const isFolder) const
     {
-        const auto cacheKey = BuildIconCacheKey(path, isFolder);
+        auto const cacheKey = ::FileScoutNative::Domain::BuildFileIconCacheKey(path, isFolder);
         {
             std::lock_guard lock{ m_cacheMutex };
             if (auto const existing = m_iconCache.find(cacheKey); existing != m_iconCache.end())
@@ -356,7 +334,7 @@ namespace FileScoutNative::Shell
         {
             // Drive roots (e.g. C:\) need the actual path so the shell returns the
             // drive-specific icon instead of the generic folder icon.
-            if (path == path.root_path() && !path.root_name().empty())
+            if (::FileScoutNative::Domain::UsesLiteralIconLookup(path, true))
             {
                 lookupName = path.wstring();
                 useLiteralPath = true;
@@ -369,14 +347,22 @@ namespace FileScoutNative::Shell
         }
         else
         {
-            auto extension = path.extension().wstring();
-            if (extension.empty())
+            if (::FileScoutNative::Domain::UsesLiteralIconLookup(path, false))
             {
-                lookupName = L"file";
+                lookupName = NormalizeShellLookupPath(path).wstring();
+                useLiteralPath = true;
             }
             else
             {
-                lookupName = L"file" + extension;
+                auto extension = path.extension().wstring();
+                if (extension.empty())
+                {
+                    lookupName = L"file";
+                }
+                else
+                {
+                    lookupName = L"file" + extension;
+                }
             }
         }
 

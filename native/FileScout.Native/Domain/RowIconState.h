@@ -1,28 +1,13 @@
 #pragma once
 
+#include "IconCacheKey.h"
 #include "FileRowViewModel.h"
 
 namespace FileScoutNative::Domain
 {
     [[nodiscard]] inline std::wstring RowIconCacheKey(ShellItemRef const& item)
     {
-        if (item.is_folder)
-        {
-            return L"__folder__";
-        }
-
-        auto ext = item.path.extension().wstring();
-        if (ext.empty())
-        {
-            return L"__file__";
-        }
-
-        for (wchar_t& ch : ext)
-        {
-            ch = static_cast<wchar_t>(::towlower(ch));
-        }
-
-        return ext;
+        return BuildFileIconCacheKey(item.path, item.is_folder);
     }
 
     [[nodiscard]] inline std::vector<uint32_t> CachedRowIconIndices(

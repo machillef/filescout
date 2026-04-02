@@ -42,3 +42,13 @@ TEST(RowIconState, RowIconCacheKey_NormalizesExtensionsAndFolders)
     EXPECT_EQ(RowIconCacheKey(MakeRowIconItem(L"C:\\temp\\folder", true)), L"__folder__");
     EXPECT_EQ(RowIconCacheKey(MakeRowIconItem(L"C:\\temp\\README")), L"__file__");
 }
+
+TEST(RowIconState, RowIconCacheKey_UsesPerItemIdentityForExecutables)
+{
+    EXPECT_EQ(
+        RowIconCacheKey(MakeRowIconItem(LR"(C:\Apps\Alpha.EXE)")),
+        LR"(__item__:c:\apps\alpha.exe)");
+    EXPECT_EQ(
+        RowIconCacheKey(MakeRowIconItem(LR"(C:\Apps\Beta.exe)")),
+        LR"(__item__:c:\apps\beta.exe)");
+}

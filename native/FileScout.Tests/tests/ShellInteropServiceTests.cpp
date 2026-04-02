@@ -1,6 +1,7 @@
 #include "pch.h"
 #include <gtest/gtest.h>
 #include <fstream>
+#include "Domain/IconCacheKey.h"
 #include "Shell/ShellInteropService.h"
 
 using namespace FileScoutNative::Shell;
@@ -220,6 +221,34 @@ TEST_F(ShellInteropFixture, EnumerateDirectory_7zIsNotSupportedArchive)
     auto archive = FindItem(items, L"archive.7z");
     EXPECT_TRUE(archive.is_archive_candidate);
     EXPECT_FALSE(archive.is_supported_archive);
+}
+
+TEST(IconCachePolicy, ExecutablesUsePerItemKeysAndLiteralLookup)
+{
+    auto const first = std::filesystem::path{ LR"(C:\Apps\Alpha.EXE)" };
+    auto const second = std::filesystem::path{ LR"(C:\Apps\Beta.exe)" };
+
+    EXPECT_TRUE(FileScoutNative::Domain::UsesPerItemIconIdentity(first, false));
+    EXPECT_TRUE(FileScoutNative::Domain::UsesLiteralIconLookup(first, false));
+    EXPECT_EQ(
+        FileScoutNative::Domain::BuildFileIconCacheKey(first, false),
+        LR"(__item__:c:\apps\alpha.exe)");
+    EXPECT_EQ(
+        FileScoutNative::Domain::BuildFileIconCacheKey(second, false),
+        LR"(__item__:c:\apps\beta.exe)");
+}
+
+TEST(IconCachePolicy, DocumentsAndFoldersKeepSharedBuckets)
+{
+    EXPECT_EQ(
+        FileScoutNative::Domain::BuildFileIconCacheKey(LR"(C:\Temp\alpha.TXT)", false),
+        L".txt");
+    EXPECT_EQ(
+        FileScoutNative::Domain::BuildFileIconCacheKey(LR"(C:\Temp\folder)", true),
+        L"__folder__");
+    EXPECT_EQ(
+        FileScoutNative::Domain::BuildFileIconCacheKey(LR"(C:\Temp\README)", false),
+        L"__file__");
 }
 
 // ── EnumerateDrives ────────────────────────────────────────────────────────────
