@@ -79,6 +79,19 @@ Retest title-bar passthrough, history buttons, flyout anchoring, and focus edge 
 5. **Manual acceptance**
 Run a fixed checklist and only then mark the initiative complete or ready for archive.
 
+## Queued Follow-Up Feature
+
+After the current shortcut-parity slice lands, start a dedicated feature for an app-owned
+FileScout properties window.
+
+Intent:
+
+- Keep the native `SHObjectProperties(...)` flow as the parity path for now.
+- Design a dark-theme-compatible FileScout inspector for the metadata and actions we control
+  well: name, path, kind, size, dates, attributes, and common file actions.
+- Treat full Windows property-sheet parity, including tabs like Security, Details, and
+  Compatibility, as later follow-up scope rather than a first-version requirement.
+
 ## Open Questions To Answer Before Bootstrapping
 
 - Should `Group` remain a modifier on top of the active base view, or become a distinct mode

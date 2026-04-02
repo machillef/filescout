@@ -428,6 +428,35 @@ TEST_F(ShellFileOperationFixture, CopyItemFromPathCopiesFile)
     EXPECT_TRUE(std::filesystem::exists(destDir / L"copy.txt")); // copy created
 }
 
+TEST_F(ShellFileOperationFixture, CopyItemsFromPathsIntoSameFolderCreatesDuplicateInsteadOfFailing)
+{
+    auto const src = WriteFile(m_root / L"source.txt", "payload");
+
+    EXPECT_NO_THROW(m_svc.CopyItemsFromPaths(
+        nullptr,
+        std::span<std::filesystem::path const>{ &src, 1 },
+        m_root,
+        false));
+
+    std::vector<std::filesystem::path> payloadCopies;
+    for (auto const& entry : std::filesystem::directory_iterator(m_root))
+    {
+        if (!entry.is_regular_file())
+        {
+            continue;
+        }
+
+        std::ifstream stream(entry.path(), std::ios::binary);
+        std::string content((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        if (content == "payload")
+        {
+            payloadCopies.push_back(entry.path());
+        }
+    }
+
+    EXPECT_EQ(payloadCopies.size(), 2u);
+}
+
 // ─── DeleteItem ───────────────────────────────────────────────────────────────
 
 TEST_F(ShellFileOperationFixture, DeleteItemRemovesFileFromOriginalPath)

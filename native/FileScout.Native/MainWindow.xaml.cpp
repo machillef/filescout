@@ -12,6 +12,7 @@
 #include "Domain/DragDropPlanning.h"
 #include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
+#include "Domain/NavigationInput.h"
 #include "Domain/RowIconState.h"
 #include "Domain/ShellItemSort.h"
 #include "Domain/SidebarIconInfo.h"
@@ -133,10 +134,19 @@ namespace
 
     bool IsTextEditingCommand(std::wstring_view const commandId)
     {
-        return commandId == L"copy" ||
+        return commandId == L"selectAll" ||
+            commandId == L"copy" ||
             commandId == L"cut" ||
             commandId == L"paste" ||
             commandId == L"delete";
+    }
+
+    bool HasSystemModifierChord()
+    {
+        return GetKeyState(VK_CONTROL) < 0 ||
+            GetKeyState(VK_MENU) < 0 ||
+            GetKeyState(VK_LWIN) < 0 ||
+            GetKeyState(VK_RWIN) < 0;
     }
 
     winrt::hstring DragOriginalPathsFormat()
@@ -2585,6 +2595,48 @@ namespace winrt::FileScoutNative::implementation
         const int height = static_cast<int>(920 * scale);
 
         SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
+
+        static constexpr UINT_PTR navigationWindowSubclassId = 0x46534E56;
+        SetWindowSubclass(
+            hwnd,
+            &MainWindow::NavigationWindowSubclassProc,
+            navigationWindowSubclassId,
+            reinterpret_cast<DWORD_PTR>(this));
+    }
+
+    LRESULT CALLBACK MainWindow::NavigationWindowSubclassProc(
+        HWND const hwnd,
+        UINT const message,
+        WPARAM const wParam,
+        LPARAM const lParam,
+        UINT_PTR const,
+        DWORD_PTR const refData)
+    {
+        auto const command = ::FileScoutNative::Domain::ResolveNavigationInputCommand(
+            message,
+            wParam,
+            lParam);
+        if (command == ::FileScoutNative::Domain::NavigationInputCommand::None)
+        {
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
+        auto* const self = reinterpret_cast<MainWindow*>(refData);
+        if (self == nullptr)
+        {
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
+        if (command == ::FileScoutNative::Domain::NavigationInputCommand::Back)
+        {
+            self->NavigateBack();
+        }
+        else
+        {
+            self->NavigateForward();
+        }
+
+        return TRUE;
     }
 
     void MainWindow::SortItems(
@@ -3265,6 +3317,46 @@ namespace winrt::FileScoutNative::implementation
         StatusTextBlock().Text(ToHString(L"Selected " + item->display_name + L"  |  " + summary));
     }
 
+    void MainWindow::SelectAllDisplayedItems()
+    {
+        auto& pane = ActivePane();
+        auto const& displayedItems = DisplayedItems();
+        if (!pane.active_list_view)
+        {
+            StatusTextBlock().Text(L"Select All needs an active file list.");
+            return;
+        }
+
+        if (displayedItems.empty())
+        {
+            pane.selection.Clear();
+            UpdateRowSelectionVisuals(pane);
+            ResetSelectionDetails();
+            StatusTextBlock().Text(L"No items to select.");
+            return;
+        }
+
+        pane.tab_switching = true;
+        pane.active_list_view.SelectedIndex(-1);
+        pane.active_list_view.SelectRange(winrt::Microsoft::UI::Xaml::Data::ItemIndexRange(
+            0,
+            static_cast<uint32_t>(displayedItems.size())));
+        pane.tab_switching = false;
+
+        SyncSelectionFromListView();
+        auto const selectedIndices = GetSelectedItemIndices();
+        if (selectedIndices.size() == 1)
+        {
+            SelectItemByIndex(selectedIndices.front());
+        }
+        else
+        {
+            UpdateMultiSelectionDetails(selectedIndices);
+        }
+
+        pane.active_list_view.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+    }
+
     void MainWindow::UpdateMultiSelectionDetails(std::vector<int32_t> const& indices)
     {
         auto const itemCount = indices.size();
@@ -3682,6 +3774,12 @@ namespace winrt::FileScoutNative::implementation
         if (commandId == L"refresh")
         {
             LoadDirectory(ActivePane().current_path);
+            return;
+        }
+
+        if (commandId == L"selectAll")
+        {
+            SelectAllDisplayedItems();
             return;
         }
 
@@ -4747,6 +4845,11 @@ namespace winrt::FileScoutNative::implementation
         rootElement.KeyboardAcceleratorPlacementMode(
             winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorPlacementMode::Hidden);
         auto const& accelerators = rootElement.KeyboardAccelerators();
+        auto const CombineModifiers = [](VKM const left, VKM const right)
+        {
+            using U = std::underlying_type_t<VKM>;
+            return static_cast<VKM>(static_cast<U>(left) | static_cast<U>(right));
+        };
 
         auto const AddAccelerator = [&](VK const key, VKM const modifiers, std::wstring commandId)
         {
@@ -4770,12 +4873,17 @@ namespace winrt::FileScoutNative::implementation
             accelerators.Append(accel);
         };
 
+        AddAccelerator(VK::A, VKM::Control, L"selectAll");
         AddAccelerator(VK::C, VKM::Control, L"copy");
         AddAccelerator(VK::X, VKM::Control, L"cut");
         AddAccelerator(VK::V, VKM::Control, L"paste");
         AddAccelerator(VK::Delete, VKM::None, L"delete");
         AddAccelerator(VK::F2, VKM::None, L"rename");
         AddAccelerator(VK::F5, VKM::None, L"refresh");
+        AddAccelerator(VK::Enter, VKM::Menu, L"properties");
+        AddAccelerator(VK::Left, VKM::Menu, L"back");
+        AddAccelerator(VK::Right, VKM::Menu, L"forward");
+        AddAccelerator(VK::N, CombineModifiers(VKM::Control, VKM::Shift), L"newFolder");
         AddAccelerator(VK::T, VKM::Control, L"newTab");
         AddAccelerator(VK::W, VKM::Control, L"closeTab");
         // Ctrl+Tab / Ctrl+Shift+Tab cycle through panes.
@@ -5373,6 +5481,18 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::FileRowsListView_KeyDown(
         winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
     {
+        if (args.Key() == winrt::Windows::System::VirtualKey::A && GetKeyState(VK_CONTROL) < 0)
+        {
+            SelectAllDisplayedItems();
+            args.Handled(true);
+            return;
+        }
+
+        if (HasSystemModifierChord())
+        {
+            return;
+        }
+
         if (args.Key() == winrt::Windows::System::VirtualKey::Enter)
         {
             if (ActivateCurrentSelection())

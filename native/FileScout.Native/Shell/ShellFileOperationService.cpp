@@ -8,6 +8,8 @@ namespace FileScoutNative::Shell
     {
         constexpr DWORD baseMutationFlags =
             FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | FOFX_ADDUNDORECORD;
+        constexpr DWORD copyMutationFlags =
+            baseMutationFlags | FOF_RENAMEONCOLLISION | FOFX_PRESERVEFILEEXTENSIONS;
         constexpr DWORD deleteMutationFlags =
             baseMutationFlags | FOF_NOCONFIRMATION | FOFX_RECYCLEONDELETE;
 
@@ -175,7 +177,9 @@ namespace FileScoutNative::Shell
             return;
         }
 
-        auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
+        auto fileOperation = CreateFileOperation(
+            ownerWindow,
+            move ? baseMutationFlags : copyMutationFlags);
         auto destinationFolder = CreateShellItem(destinationDirectory);
 
         for (auto const& sourcePath : sourcePaths)
@@ -202,7 +206,7 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& destinationDirectory,
         std::wstring const& newName) const
     {
-        auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
+        auto fileOperation = CreateFileOperation(ownerWindow, copyMutationFlags);
         auto destinationFolder = CreateShellItem(destinationDirectory);
         auto sourceItem = CreateShellItem(sourcePath);
 
@@ -222,7 +226,9 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& destinationDirectory,
         bool const move) const
     {
-        auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
+        auto fileOperation = CreateFileOperation(
+            ownerWindow,
+            move ? baseMutationFlags : copyMutationFlags);
         auto destinationFolder = CreateShellItem(destinationDirectory);
 
         if (move)

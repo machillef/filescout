@@ -110,7 +110,7 @@ TEST(CommandRegistry, AllFileOperationCommandsPresent)
     CommandRegistry reg;
     std::vector<std::wstring> const required = {
         L"copy", L"cut", L"paste", L"delete", L"rename",
-        L"newFolder", L"open", L"openWith", L"properties"
+        L"newFolder", L"open", L"openWith", L"properties", L"selectAll"
     };
     for (auto const& id : required)
     {
@@ -118,6 +118,26 @@ TEST(CommandRegistry, AllFileOperationCommandsPresent)
         for (auto const& cmd : reg.All())
             if (cmd.id == id) { found = true; break; }
         EXPECT_TRUE(found) << "Missing file operation command id: " << id.c_str();
+    }
+}
+
+TEST(CommandRegistry, ExplorerStyleShortcutsAreExposed)
+{
+    CommandRegistry reg;
+    std::vector<std::pair<std::wstring, std::wstring>> const required = {
+        { L"selectAll", L"Ctrl+A" },
+        { L"newFolder", L"Ctrl+Shift+N" },
+        { L"properties", L"Alt+Enter" },
+        { L"back", L"Alt+Left" },
+        { L"forward", L"Alt+Right" }
+    };
+
+    for (auto const& [id, shortcut] : required)
+    {
+        auto const it = std::find_if(reg.All().begin(), reg.All().end(),
+            [&id](auto const& cmd) { return cmd.id == id; });
+        ASSERT_NE(it, reg.All().end()) << "Missing command id: " << id.c_str();
+        EXPECT_EQ(it->shortcut_text, shortcut) << "Unexpected shortcut text for " << id.c_str();
     }
 }
 

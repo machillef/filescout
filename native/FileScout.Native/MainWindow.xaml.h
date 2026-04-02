@@ -225,6 +225,13 @@ namespace winrt::FileScoutNative::implementation
 
         HWND GetWindowHandle();
         void ConfigureWindow();
+        static LRESULT CALLBACK NavigationWindowSubclassProc(
+            HWND hwnd,
+            UINT message,
+            WPARAM wParam,
+            LPARAM lParam,
+            UINT_PTR subclassId,
+            DWORD_PTR refData);
         void ConfigureTitleBar();
         void UpdateTitleBarInteractiveRegions();
         void InitializeThemeDropDown();
@@ -251,6 +258,7 @@ namespace winrt::FileScoutNative::implementation
         [[nodiscard]] std::vector<int32_t> GetSelectedItemIndices() const;
         [[nodiscard]] std::vector<::FileScoutNative::Domain::ShellItemRef> GetSelectedItems() const;
         void SyncSelectionFromListView();
+        void SelectAllDisplayedItems();
         void SelectItemByIndex(int32_t index);
         void UpdateRowSelectionVisuals(PaneContext& pane);
         void UpdateMultiSelectionDetails(std::vector<int32_t> const& indices);
