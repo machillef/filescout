@@ -5,6 +5,9 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FileScout.Native", "FileScout.Native\FileScout.Native.vcxproj", "{E59B35B2-EAEB-4206-89AC-31C888CC1769}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FileScout.Tests", "FileScout.Tests\FileScout.Tests.vcxproj", "{F47AC10B-58CC-4372-A567-0E02B2C3D479}"
+	ProjectSection(ProjectDependencies) = postProject
+		{E59B35B2-EAEB-4206-89AC-31C888CC1769} = {E59B35B2-EAEB-4206-89AC-31C888CC1769}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
