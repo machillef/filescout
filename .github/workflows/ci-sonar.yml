@@ -9,12 +9,7 @@ env:
   BUILD_WRAPPER_OUT_DIR: .sonar\build-wrapper
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+  workflow_dispatch:
 
 permissions:
   contents: read
