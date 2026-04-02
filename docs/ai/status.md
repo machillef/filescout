@@ -12,6 +12,10 @@
 - Closed-beta surface aligned 2026-04-02: README, runtime messaging, and command surfaces now agree
   that command palette, in-app archive browsing/extract flows, and batch rename remain outside the
   current closed beta
+- File-operation policy refreshed 2026-04-02: shell mutations stay non-interactive (`FOF_SILENT`,
+  `FOF_NOERRORUI`, app-owned delete confirmation) so FileScout owns the user-visible outcome text;
+  copy/move/paste/rename/delete now surface explicit success, cancel, and failure detail in the
+  status bar instead of relying on Explorer dialogs
 - Hosted Windows CI baseline established 2026-04-02: GitHub Actions now restores, builds, and tests
   on `windows-latest`; hosted-runner project ordering and Windows SDK targeting are pinned to the
   repo so CI and local builds use the same graph

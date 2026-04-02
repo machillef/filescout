@@ -35,10 +35,16 @@ namespace FileScoutNative::Shell
 
     namespace
     {
+        constexpr std::wstring_view canceledFileOperationDetail = L"Windows canceled the file operation.";
+
+        // Closed beta policy: keep the shell backend non-interactive and surface all outcomes
+        // in FileScout's own dark-themed UI instead of letting Explorer show separate dialogs.
         constexpr DWORD baseMutationFlags =
             FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | FOFX_ADDUNDORECORD;
+        // Copy keeps Windows' collision-safe duplication behavior rather than failing outright.
         constexpr DWORD copyMutationFlags =
             baseMutationFlags | FOF_RENAMEONCOLLISION | FOFX_PRESERVEFILEEXTENSIONS;
+        // Delete skips the extra Explorer confirmation because FileScout already confirms first.
         constexpr DWORD deleteMutationFlags =
             baseMutationFlags | FOF_NOCONFIRMATION | FOFX_RECYCLEONDELETE;
 
@@ -57,6 +63,11 @@ namespace FileScoutNative::Shell
             }
 
             return detail;
+        }
+
+        [[nodiscard]] bool IsCanceledFileOperation(std::wstring_view const detail)
+        {
+            return detail == canceledFileOperationDetail;
         }
     }
 
