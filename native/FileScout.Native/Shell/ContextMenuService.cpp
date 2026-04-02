@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "ContextMenuService.h"
+#include "Domain/Wave1FeatureGate.h"
 
 namespace FileScoutNative::Shell
 {
@@ -83,12 +84,17 @@ namespace FileScoutNative::Shell
                 }
             }
 
-            AppendCommand(
-                model.primary_commands,
-                L"rename",
-                selectionCount > 1 ? L"Batch rename..." : L"Rename",
-                L"rename",
-                L"F2");
+            if (selectionCount == 1 ||
+                FileScoutNative::Domain::IsWave1FeatureEnabled(
+                    FileScoutNative::Domain::Wave1Feature::BatchRename))
+            {
+                AppendCommand(
+                    model.primary_commands,
+                    L"rename",
+                    selectionCount > 1 ? L"Batch rename..." : L"Rename",
+                    L"rename",
+                    L"F2");
+            }
             AppendCommand(model.primary_commands, L"delete", L"Delete", L"delete", L"Del",
                 true, FileScoutNative::Domain::ExplorerCommandSource::App, /*isDestructive=*/true);
         }

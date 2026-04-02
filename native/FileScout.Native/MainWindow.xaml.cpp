@@ -3391,7 +3391,7 @@ namespace winrt::FileScoutNative::implementation
             }
             metadata += std::to_wstring(folderCount) + (folderCount == 1 ? L" folder" : L" folders");
         }
-        metadata += L"  |  Rename works one item at a time in wave-1 beta";
+        metadata += L"  |  Rename works one item at a time in the closed beta";
         SelectionMetaTextBlock().Text(ToHString(metadata));
 
         SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);

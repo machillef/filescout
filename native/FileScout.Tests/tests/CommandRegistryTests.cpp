@@ -5,6 +5,17 @@
 using namespace FileScoutNative::Shell;
 using namespace FileScoutNative::Domain;
 
+namespace
+{
+    bool HasCommandId(
+        std::vector<FileScoutNative::Domain::CommandEntry> const& commands,
+        std::wstring_view const id)
+    {
+        return std::any_of(commands.begin(), commands.end(),
+            [id](auto const& cmd) { return cmd.id == id; });
+    }
+}
+
 TEST(CommandRegistry, AllReturnsNonEmpty)
 {
     CommandRegistry reg;
@@ -139,6 +150,18 @@ TEST(CommandRegistry, ExplorerStyleShortcutsAreExposed)
         ASSERT_NE(it, reg.All().end()) << "Missing command id: " << id.c_str();
         EXPECT_EQ(it->shortcut_text, shortcut) << "Unexpected shortcut text for " << id.c_str();
     }
+}
+
+TEST(CommandRegistry, ClosedBetaDoesNotAdvertiseGatedFeatures)
+{
+    CommandRegistry reg;
+
+    EXPECT_FALSE(HasCommandId(reg.All(), L"commandPalette"));
+    EXPECT_FALSE(HasCommandId(reg.All(), L"batchRename"));
+    EXPECT_FALSE(HasCommandId(reg.All(), L"browseArchive"));
+    EXPECT_FALSE(HasCommandId(reg.Filter(L"palette"), L"commandPalette"));
+    EXPECT_FALSE(HasCommandId(reg.Filter(L"batch"), L"batchRename"));
+    EXPECT_FALSE(HasCommandId(reg.Filter(L"archive"), L"browseArchive"));
 }
 
 // R13e: panel toggle commands must exist in the registry.
