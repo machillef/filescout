@@ -7088,12 +7088,22 @@ namespace winrt::FileScoutNative::implementation
             stack.Children().Append(headerGrid);
             if (drive.has_usage)
             {
+                bool const isCritical = drive.used_ratio > 0.85;
+                if (isCritical)
+                {
+                    details.Opacity(1.0);
+                    details.Foreground(LookupBrush(L"SystemFillColorCriticalBrush"));
+                }
                 auto bar = winrt::Microsoft::UI::Xaml::Controls::ProgressBar{};
                 bar.Minimum(0);
                 bar.Maximum(100);
                 bar.Value(drive.used_ratio * 100.0);
                 bar.Height(4);
                 bar.Background(LookupBrush(L"SubtleFillColorSecondaryBrush"));
+                if (isCritical)
+                {
+                    bar.Foreground(LookupBrush(L"SystemFillColorCriticalBrush"));
+                }
                 stack.Children().Append(bar);
             }
             card.Child(stack);
