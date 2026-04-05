@@ -1293,7 +1293,7 @@ namespace
         namespace VA = winrt::Microsoft::UI::Xaml;
         auto const colors = DriveTypeColors(driveType);
 
-        auto canvas = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        auto canvas = VA::Controls::Grid{};
         canvas.Width(18);
         canvas.Height(18);
 
