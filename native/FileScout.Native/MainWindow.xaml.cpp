@@ -6722,6 +6722,7 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::BuildSidebarFavorites()
     {
+        ScopedTimer totalTimer{ L"BuildSidebarFavorites" };
         auto const panel = SidebarPlacesPanel();
         panel.Children().Clear();
         auto const& activePane = ActivePane();
@@ -6773,6 +6774,7 @@ namespace winrt::FileScoutNative::implementation
                 winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
                     btn,
                     winrt::box_value(ToHString(entry.path.wstring())));
+                ScopedTimer iconTimer{ L"GetItemIcon: " + entry.path.wstring() };
                 entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
             }
 
@@ -6877,6 +6879,7 @@ namespace winrt::FileScoutNative::implementation
                 rowGrid.ColumnDefinitions().Append(labelColumn);
                 rowGrid.ColumnSpacing(8);
 
+                ScopedTimer recentIconTimer{ L"GetItemIcon(recent): " + recentPath.wstring() };
                 auto const entryIcon = m_shellInterop.GetItemIcon(recentPath, true);
                 auto iconTile = BuildSidebarTile(
                     BuildSidebarGlyph(entryIcon, L"folder"),
@@ -6917,6 +6920,7 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::UpdateBookmarksSection()
     {
+        ScopedTimer totalTimer{ L"UpdateBookmarksSection" };
         auto const panel = BookmarksPanel();
         panel.Children().Clear();
 
@@ -6952,6 +6956,7 @@ namespace winrt::FileScoutNative::implementation
             rowGrid.ColumnDefinitions().Append(unpinColumn);
             rowGrid.ColumnSpacing(8);
 
+            ScopedTimer iconTimer{ L"GetItemIcon(bookmark): " + entry.path.wstring() };
             auto const entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
             auto iconTile = BuildSidebarTile(
                 BuildSidebarGlyph(entryIcon, L"folder"),
@@ -7027,6 +7032,7 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::UpdateThisPCSection()
     {
+        ScopedTimer totalTimer{ L"UpdateThisPCSection" };
         auto const panel = ThisPCPanel();
         panel.Children().Clear();
 

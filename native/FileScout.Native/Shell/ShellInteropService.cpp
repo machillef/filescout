@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "ShellInteropService.h"
 #include "Domain/IconCacheKey.h"
+#include "TraceHelper.h"
 
 namespace FileScoutNative::Shell
 {
@@ -786,14 +787,19 @@ namespace FileScoutNative::Shell
         // so each folder keeps its own icon independently of the shared __folder__ slot.
         auto const cacheKey = L"__sidebar_folder__:" +
             ::FileScoutNative::Domain::LowercaseCopy(path.lexically_normal().wstring());
+        std::optional<FileScoutNative::Domain::IconBitmap> cached;
         {
             std::lock_guard lock{ m_cacheMutex };
             if (auto const existing = m_iconCache.find(cacheKey); existing != m_iconCache.end())
-            {
-                return existing->second;
-            }
+                cached = existing->second;
+        }
+        if (cached.has_value())
+        {
+            TraceLog(L"[icon-cache] HIT: " + path.wstring());
+            return *cached;
         }
 
+        TraceLog(L"[icon-cache] MISS: " + path.wstring());
         auto icon = ExtractShellIconBitmap(path.wstring(), FILE_ATTRIBUTE_NORMAL, /*useLiteralPath=*/true)
             .value_or(FileScoutNative::Domain::IconBitmap{});
         if (icon.rgba.empty())
