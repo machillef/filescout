@@ -367,7 +367,18 @@ namespace FileScoutNative::Shell
         }
 
         // Extract icon outside the lock — GDI/SHGetFileInfoW can be slow.
+        // For literal-path lookups (e.g. per-item .exe), SHGetFileInfoW without SHGFI_USEFILEATTRIBUTES
+        // may fail on MTA background threads when shell extensions require an STA context. If the
+        // literal-path extraction yields an empty bitmap, fall back to the extension-based lookup
+        // (SHGFI_USEFILEATTRIBUTES) so the item still shows at least the generic type icon.
         auto icon = ExtractShellIconBitmap(lookupName, fileAttributes, useLiteralPath).value_or(FileScoutNative::Domain::IconBitmap{});
+        if (icon.rgba.empty() && useLiteralPath && !isFolder)
+        {
+            auto const ext = path.extension().wstring();
+            auto const fallbackName = ext.empty() ? std::wstring{ L"file" } : L"file" + ext;
+            icon = ExtractShellIconBitmap(fallbackName, FILE_ATTRIBUTE_NORMAL, false)
+                .value_or(FileScoutNative::Domain::IconBitmap{});
+        }
         {
             std::lock_guard lock{ m_cacheMutex };
             m_iconCache.emplace(cacheKey, icon);
