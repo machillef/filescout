@@ -7,7 +7,7 @@
 - Objective: instrument startup and sidebar icon-loading paths with structured timing so we can measure
   real-world latency after a week of daily use
 - Current blocker: none
-- Implementation status: not started
+- Implementation status: complete
 - Build status: n/a
 - Test status: n/a
 
@@ -18,7 +18,7 @@
 | SP1 | Complete | 2026-04-05 |
 | SP2 | Complete | 2026-04-06 |
 | SP3 | Complete | 2026-04-06 |
-| SP4 | Not Started | 2026-04-05 |
+| SP4 | Complete | 2026-04-06 |
 
 ## Slice SP1: ScopedTimer helper + session markers
 Status: Complete
@@ -109,6 +109,30 @@ Last updated: 2026-04-06
   `[TIMER] InitializeComponent`, `[TIMER] InitPane(0)`, `[TIMER] InitPane(1)`,
   `[TIMER] LoadDirectory: C:\...`, `[TIMER] BuildSidebarFavorites`,
   `[TIMER] UpdateBookmarksSection`, `[TIMER] UpdateThisPCSection`.
+
+### Blockers
+None
+
+## Slice SP4: PowerShell analysis script
+Status: Complete
+Last updated: 2026-04-06
+
+### What was implemented
+- `tools/Get-StartupProfile.ps1` (new): PowerShell 7 script that reads
+  `%TEMP%\FileScout.Native.trace.log`, splits it into sessions by SESSION START markers, extracts
+  four timing columns (`BuildSidebarFavorites`, `InitPane(0)`, first `LoadDirectory`,
+  `TotalStartup` wall-clock), renders a fixed-width table, and appends a 7-day rolling average row.
+  Handles missing log, empty log, and sessions with incomplete metrics (`--` for missing values).
+
+### What was validated
+- Missing-log path: exits cleanly with guidance message.
+- Two-session synthetic log: correct table output, accurate wall-clock totals (200ms and 150ms),
+  correct averages (`BuildSidebarFavorites` 156ms, `InitPane(0)` 38ms, `LoadDirectory` 68ms,
+  `TotalStartup` 175ms). Verified end-to-end with `pwsh -NonInteractive -File`.
+
+### What remains unverified
+- Real 7-day log: confirmed on first run with 1 live session (172ms BuildSidebarFavorites);
+  multi-week accumulation not yet observed.
 
 ### Blockers
 None
