@@ -31,6 +31,7 @@ desktop.ini
 docs/ai/*
 !docs/ai/search-master-integration-*.md
 !docs/ai/shell-navigation-and-density-hardening-*.md
+!docs/ai/startup-profiling-*.md
 
 # Logs
 *.log
