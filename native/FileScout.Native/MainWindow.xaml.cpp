@@ -6923,6 +6923,9 @@ namespace winrt::FileScoutNative::implementation
         auto const& activePane = ActivePane();
         auto const bookmarks = m_favoritesService.GetPinnedFavorites();
 
+        if (!bookmarks.empty())
+            BookmarksExpander().IsExpanded(true);
+
         for (auto const& entry : bookmarks)
         {
             auto const isSelected =
