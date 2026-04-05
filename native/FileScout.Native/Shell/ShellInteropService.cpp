@@ -774,7 +774,38 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& path,
         bool const isFolder) const
     {
-        return GetIconForItem(path, isFolder);
+        if (!isFolder || path.empty())
+        {
+            return GetIconForItem(path, isFolder);
+        }
+
+        // Use the real path so SHGetFileInfoW returns the per-folder system icon
+        // (e.g. the Desktop monitor icon, the Downloads arrow) rather than the
+        // generic yellow folder that GetIconForItem returns for all non-drive-root
+        // folders via SHGFI_USEFILEATTRIBUTES.  A path-keyed cache entry is used
+        // so each folder keeps its own icon independently of the shared __folder__ slot.
+        auto const cacheKey = L"__sidebar_folder__:" +
+            ::FileScoutNative::Domain::LowercaseCopy(path.lexically_normal().wstring());
+        {
+            std::lock_guard lock{ m_cacheMutex };
+            if (auto const existing = m_iconCache.find(cacheKey); existing != m_iconCache.end())
+            {
+                return existing->second;
+            }
+        }
+
+        auto icon = ExtractShellIconBitmap(path.wstring(), FILE_ATTRIBUTE_NORMAL, /*useLiteralPath=*/true)
+            .value_or(FileScoutNative::Domain::IconBitmap{});
+        if (icon.rgba.empty())
+        {
+            icon = GetIconForItem(path, /*isFolder=*/true);
+        }
+
+        {
+            std::lock_guard lock{ m_cacheMutex };
+            m_iconCache.emplace(cacheKey, icon);
+        }
+        return icon;
     }
 
     bool ShellInteropService::CanEnumerateShellNamespace(
