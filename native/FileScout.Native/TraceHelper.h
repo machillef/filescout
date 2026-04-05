@@ -38,7 +38,7 @@ public:
         , m_start(std::chrono::steady_clock::now())
     {}
 
-    ~ScopedTimer()
+    ~ScopedTimer() noexcept
     {
         auto const ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - m_start).count();

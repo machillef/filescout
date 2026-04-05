@@ -1673,18 +1673,25 @@ namespace winrt::FileScoutNative::implementation
 {
     MainWindow::MainWindow()
     {
-        TraceLog(L"MainWindow ctor: InitializeComponent...");
-        InitializeComponent();
-        m_dispatcherQueue = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
-        TraceLog(L"MainWindow ctor: InitializeComponent done. ConfigureWindow...");
-        ConfigureWindow();
-        TraceLog(L"MainWindow ctor: ConfigureWindow done. SetupKeyboardAccelerators...");
-        SetupKeyboardAccelerators();
-        TraceLog(L"MainWindow ctor: SetupKeyboardAccelerators done. InitializeThemeDropDown...");
-        m_currentThemeId = ::FileScoutNative::Domain::ThemeService::LoadSavedThemeId();
-        m_dualPaneVisible = !::FileScoutNative::Domain::Wave1UsesSinglePaneFirstLaunch();
-        InitializeThemeDropDown();
-        TraceLog(L"MainWindow ctor: InitializeThemeDropDown done.");
+        {
+            ScopedTimer timer{ L"InitializeComponent" };
+            InitializeComponent();
+            m_dispatcherQueue = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
+        }
+        {
+            ScopedTimer timer{ L"ConfigureWindow" };
+            ConfigureWindow();
+        }
+        {
+            ScopedTimer timer{ L"SetupKeyboardAccelerators" };
+            SetupKeyboardAccelerators();
+        }
+        {
+            ScopedTimer timer{ L"InitializeThemeDropDown" };
+            m_currentThemeId = ::FileScoutNative::Domain::ThemeService::LoadSavedThemeId();
+            m_dualPaneVisible = !::FileScoutNative::Domain::Wave1UsesSinglePaneFirstLaunch();
+            InitializeThemeDropDown();
+        }
 
         LeftPaneBorder().ContextRequested([this](auto const& sender, auto const& args)
             {
@@ -1703,23 +1710,25 @@ namespace winrt::FileScoutNative::implementation
 
         // Initialize both panes. Right pane starts at the same path but is loaded
         // lazily — it gets LoadDirectory called when InitPane runs for index 1.
-        TraceLog(L"MainWindow ctor: InitPane(0)...");
-        InitPane(0, startPath);
-        TraceLog(L"MainWindow ctor: InitPane(0) done. InitPane(1)...");
-        InitPane(1, startPath);
-        TraceLog(L"MainWindow ctor: InitPane(1) done.");
+        {
+            ScopedTimer timer{ L"InitPane(0)" };
+            InitPane(0, startPath);
+        }
+        {
+            ScopedTimer timer{ L"InitPane(1)" };
+            InitPane(1, startPath);
+        }
 
         // Build the sidebar navigation buttons after panes are initialized.
-        TraceLog(L"MainWindow ctor: BuildSidebarFavorites...");
+        // BuildSidebarFavorites has its own internal ScopedTimer (SP2).
         BuildSidebarFavorites();
-        TraceLog(L"MainWindow ctor: BuildSidebarFavorites done.");
 
         // Build sort column headers for both panes.
-        TraceLog(L"MainWindow ctor: BuildSortHeader(0)...");
-        BuildSortHeader(0);
-        TraceLog(L"MainWindow ctor: BuildSortHeader(0) done. BuildSortHeader(1)...");
-        BuildSortHeader(1);
-        TraceLog(L"MainWindow ctor: BuildSortHeader(1) done.");
+        {
+            ScopedTimer timer{ L"BuildSortHeaders" };
+            BuildSortHeader(0);
+            BuildSortHeader(1);
+        }
 
         // Pane 0 (left) starts as active with its indicator already lit.
         // m_initComplete stays false until TitleBarDragHost_Loaded fires (after first render),
@@ -2883,6 +2892,7 @@ namespace winrt::FileScoutNative::implementation
         std::optional<std::filesystem::path> selectAfter,
         bool skipHistoryRecord)
     {
+        ScopedTimer loadTimer{ L"LoadDirectory: " + path.wstring() };
         std::filesystem::path absolutePath;
         try
         {
