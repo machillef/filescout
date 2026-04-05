@@ -16,7 +16,7 @@
 | Slice | Status | Last Updated |
 |---|---|---|
 | SP1 | Complete | 2026-04-05 |
-| SP2 | Not Started | 2026-04-05 |
+| SP2 | Complete | 2026-04-06 |
 | SP3 | Not Started | 2026-04-05 |
 | SP4 | Not Started | 2026-04-05 |
 
@@ -42,6 +42,39 @@ Last updated: 2026-04-05
 
 ### What remains unverified
 - Live log inspection: session-start marker format in real log file (requires launching the app).
+
+### Blockers
+None
+
+## Slice SP2: Instrument the icon-loading hot path
+Status: Complete
+Last updated: 2026-04-06
+
+### What was implemented
+- `ShellInteropService.cpp`: added `#include "TraceHelper.h"` and cache hit/miss logging in
+  `GetItemIcon`. Hit path: copies value under lock, releases lock, then logs
+  `[icon-cache] HIT: <path>` (no I/O under mutex — HIGH issue from review, fixed). Miss path:
+  logs `[icon-cache] MISS: <path>` before shell fetch.
+- `MainWindow.xaml.cpp`:
+  - `BuildSidebarFavorites`: `ScopedTimer{ L"BuildSidebarFavorites" }` at entry; per-icon
+    `ScopedTimer{ L"GetItemIcon: " + path }` for Quick Access entries and
+    `ScopedTimer{ L"GetItemIcon(recent): " + path }` for recent paths.
+  - `UpdateBookmarksSection`: `ScopedTimer{ L"UpdateBookmarksSection" }` at entry; per-bookmark
+    `ScopedTimer{ L"GetItemIcon(bookmark): " + path }`.
+  - `UpdateThisPCSection`: `ScopedTimer{ L"UpdateThisPCSection" }` at entry only (no
+    `GetItemIcon` calls — drives use custom XAML shapes).
+
+### What was validated
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` — 184/184 PASSED
+- Review finding fixed: `TraceLog` no longer called while `m_cacheMutex` is held.
+
+### What remains unverified
+- Live log inspection: launch app and confirm per-icon `[TIMER]` lines appear and
+  `[icon-cache] MISS:` entries show on cold start, `HIT:` on warm restart.
+- MEDIUM (tracked): `ScopedTimer` label construction allocates 2 `wstring`s per call; destructor
+  allocs 4 more. Acceptable for diagnostic use but inflates measurement slightly. No `#ifdef`
+  guard on trace calls — will emit in release builds. Both deferred to a follow-up cleanup
+  outside this initiative.
 
 ### Blockers
 None
