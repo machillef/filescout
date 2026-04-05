@@ -47,12 +47,41 @@ namespace
         ::MessageBoxW(nullptr, message.c_str(), L"FileScout Native startup failed", MB_OK | MB_ICONERROR);
         return EXIT_FAILURE;
     }
-}
+
+    std::wstring WindowsVersionString()
+    {
+        // RtlGetVersion is the correct non-deprecated API for OS version detection.
+        using RtlGetVersionFn = NTSTATUS(WINAPI*)(PRTL_OSVERSIONINFOW);
+        auto* const ntdll = ::GetModuleHandleW(L"ntdll.dll");
+        if (!ntdll) { return L"unknown"; }
+        auto const rtlGetVersion = reinterpret_cast<RtlGetVersionFn>(
+            ::GetProcAddress(ntdll, "RtlGetVersion"));
+        if (!rtlGetVersion) { return L"unknown"; }
+        RTL_OSVERSIONINFOW osvi{};
+        osvi.dwOSVersionInfoSize = sizeof(osvi);
+        rtlGetVersion(&osvi);
+        return L"Windows " + std::to_wstring(osvi.dwMajorVersion) +
+               L"." + std::to_wstring(osvi.dwMinorVersion) +
+               L" Build " + std::to_wstring(osvi.dwBuildNumber);
+    }
+
+    void LogSessionStart()
+    {
+        SYSTEMTIME st{};
+        ::GetLocalTime(&st);
+        wchar_t date[32]{};
+        swprintf_s(date, L"%04u-%02u-%02u", st.wYear, st.wMonth, st.wDay);
+        TraceLog(L"=== SESSION START | " + std::wstring{ date } +
+                 L" | PID:" + std::to_wstring(::GetCurrentProcessId()) +
+                 L" | " + WindowsVersionString() + L" ===");
+    }
+} // anonymous namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
     TraceLog(L"--- wWinMain start ---");
     std::filesystem::remove(StartupLogPath());
+    LogSessionStart();
 
     PACKAGE_VERSION minVersion{};
     minVersion.Version = WINDOWSAPPSDK_RUNTIME_VERSION_UINT64;

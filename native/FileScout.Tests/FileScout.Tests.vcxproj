@@ -158,6 +158,7 @@
     <ClCompile Include="tests\SidebarRecentsTests.cpp" />
     <ClCompile Include="tests\ThemeServiceTests.cpp" />
     <ClCompile Include="tests\Wave1FeatureGateTests.cpp" />
+    <ClCompile Include="tests\ScopedTimerTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
