@@ -15,7 +15,6 @@
 #include "Domain/NavigationInput.h"
 #include "Domain/RowIconState.h"
 #include "Domain/ShellItemSort.h"
-#include "Domain/SidebarIconInfo.h"
 #include "Domain/SidebarRecents.h"
 #include "Domain/ThemeService.h"
 #include "Domain/Wave1FeatureGate.h"
@@ -1008,15 +1007,9 @@ namespace
     }
 
     winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarGlyph(
-        std::wstring const& displayName,
         std::optional<::FileScoutNative::Domain::IconBitmap> const& icon,
         std::wstring const& fallbackText)
     {
-        if (auto const glyph = ::FileScoutNative::Domain::KnownFolderGlyph(displayName); !glyph.empty())
-        {
-            return BuildSidebarFontIcon(glyph);
-        }
-
         if (icon.has_value())
         {
             auto image = winrt::Microsoft::UI::Xaml::Controls::Image{};
@@ -1250,12 +1243,20 @@ namespace
         return text;
     }
 
+    std::wstring_view DriveTypeGlyph(std::uint32_t const driveType)
+    {
+        switch (driveType)
+        {
+        case DRIVE_REMOVABLE: return L"\uE88E";
+        case DRIVE_REMOTE:    return L"\uEDA3";
+        default:              return L"\uEDA2";
+        }
+    }
+
     winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarDriveGlyph(
         SidebarDriveUsage const& drive)
     {
-        return BuildSidebarFontIcon(
-            ::FileScoutNative::Domain::DriveTypeGlyph(drive.drive_type),
-            16.0);
+        return BuildSidebarFontIcon(DriveTypeGlyph(drive.drive_type), 16.0);
     }
 
     std::wstring BuildDriveUsageText(SidebarDriveUsage const& drive)
@@ -6702,7 +6703,6 @@ namespace winrt::FileScoutNative::implementation
             StyleSidebarButtonBase(btn);
             btn.Margin({ 0, 0, 0, 2 });
 
-            auto const knownFolderDisplayName = entry.is_pinned ? std::wstring{} : entry.display_name;
             std::optional<::FileScoutNative::Domain::IconBitmap> entryIcon;
             if (!entry.path.empty())
             {
@@ -6725,7 +6725,7 @@ namespace winrt::FileScoutNative::implementation
             rowGrid.ColumnSpacing(8);
 
             auto iconTile = BuildSidebarTile(
-                BuildSidebarGlyph(knownFolderDisplayName, entryIcon, SidebarFavoriteFallbackLabel(entry)),
+                BuildSidebarGlyph(entryIcon, SidebarFavoriteFallbackLabel(entry)),
                 20.0);
 
             auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
@@ -6815,7 +6815,7 @@ namespace winrt::FileScoutNative::implementation
 
                 auto const entryIcon = m_shellInterop.GetItemIcon(recentPath, true);
                 auto iconTile = BuildSidebarTile(
-                    BuildSidebarGlyph(displayName, entryIcon, L"folder"),
+                    BuildSidebarGlyph(entryIcon, L"folder"),
                     20.0);
 
                 auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
@@ -6887,7 +6887,7 @@ namespace winrt::FileScoutNative::implementation
 
             auto const entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
             auto iconTile = BuildSidebarTile(
-                BuildSidebarGlyph(std::wstring{}, entryIcon, L"folder"),
+                BuildSidebarGlyph(entryIcon, L"folder"),
                 20.0);
 
             auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
