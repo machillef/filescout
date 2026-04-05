@@ -488,3 +488,46 @@
 - For any future drag/export work, classify targets up front as in-app, Windows shell, or browser/web-app targets and validate each path separately.
 - For WinUI browse-surface work, require manual checks for focus transitions, keyboard ownership, metadata legibility, and row-density scanning before marking the slice done.
 - Keep using small domain helpers for navigation and drag/drop policy so future fixes stay isolated and testable.
+
+---
+
+## file-list-shell-fixes — 2026-04-05
+
+### Metrics
+
+| Metric | Value |
+|---|---|
+| Slices planned | 3 |
+| Slices completed | 3 |
+| Slices blocked | 0 |
+| Completion rate | 100% |
+| Total commits | 4 (`d5b0dad`, `b992331`, `885add3`, `09559e6`) |
+| Decisions made | 0 formal |
+| Debugging escalations | 0 |
+| Post-acceptance fixes | 1 (Slice 2: MTA/STA icon fallback) |
+
+### Key Learnings
+
+- **`SHGetFileInfoW` without `SHGFI_USEFILEATTRIBUTES` silently returns null HICON from MTA threads.** Shell extensions require STA context; called from a WinRT background thread the call returns `hIcon = NULL` with no error. The regression surfaces as all icons going blank, not just the exe-specific path. Always fall back to extension-based lookup with `SHGFI_USEFILEATTRIBUTES` when the literal-path result is empty.
+- **Blank-icons-across-all-types is the signature of a per-item cache poisoned with empty results.** A single missing fallback in the write path fills the cache with empty entries, masking the true scope of the breakage. Check the cache-write site first when icons disappear globally after a cache-key change.
+- **TDD exception for pure XAML is correct and held.** Slice 3 had no testable logic; skipping TDD was the right call and kept the slice narrow and clean.
+
+### What Went Well
+
+- All 3 slices closed on first implementation attempt — no debugging escalations, no blocked slices.
+- Narrow scope discipline held: `ListRowTemplate` only touched in Slice 3; card and group templates untouched throughout.
+- `SHObjectProperties` replacement (Slice 1) was clean and needed no follow-up — the right API for the job.
+- Test suite grew from 148 → 181 across the concurrent initiatives; no regressions introduced.
+
+### What Could Improve
+
+- Slice 2's Step 9 re-assessment did not flag the MTA/STA icon risk before the slice was accepted. The literal-path `SHGetFileInfoW` call always ran on a background thread; a more thorough concurrency pass in Step 9 would have caught this before the first commit landed.
+
+### Skill Improvements Made
+
+- `gotchas/shgetfileinfow-mta-thread-returns-null-hicon.md` — created from Slice 2 post-acceptance bug.
+
+### Recommendations for Next Initiative
+
+- For any icon or shell-metadata lookup: classify the call as STA-safe or MTA-safe before writing the implementation. `SHGFI_USEFILEATTRIBUTES` is always MTA-safe; literal-path shell lookups are not.
+- When introducing a new cache key scheme, add a Step 9 check: "Can an empty value be written to this key, and does the code have a fallback before the write?"

@@ -5,12 +5,10 @@
 - Classification: Large
 - Branch baseline: `master`
 - Objective: forward-port the missing fuzzy-search behavior from `ea49541` into current `master`
-- Current blocker: `SMI5` still needs manual live-host retests for recursive-search responsiveness
-  and navigate-on-select after the latest host-path fixes and review follow-ups
-- Next slice: `Manual follow-up - recursive search responsiveness + result activation smoke checks`
-- Implementation status: `SMI1` through `SMI4` complete; `SMI5` closeout remains in progress
-- Build status: canonical solution build passing after the `SMI4` bug fix
-- Test status: full suite passing after the `SMI4` bug fix
+- Current blocker: none
+- Implementation status: all slices complete
+- Build status: canonical solution build passing
+- Test status: full suite passing (148/148)
 
 ## Slice Status
 
@@ -20,7 +18,7 @@
 | SMI2 | Complete | 2026-03-29 |
 | SMI3 | Complete | 2026-03-29 |
 | SMI4 | Complete | 2026-03-29 |
-| SMI5 | In Progress | 2026-03-29 |
+| SMI5 | Complete | 2026-04-05 |
 
 ## Notes
 
@@ -223,17 +221,12 @@ Run `SMI5` closeout in the live WinUI host, confirm filter-mode typing, recursiv
 presentation, cancellation/reset behavior, and perform a final recursive-result activation smoke.
 
 ## Slice SMI5: Manual acceptance and initiative closeout
-Status: In Progress
-Last updated: 2026-03-29
+Status: Complete
+Last updated: 2026-04-05
 
 ### What was implemented
 - Built a local acceptance fixture under `C:\Users\machi\codex-search-acceptance` with nested
   `needle` matches and extra noise directories to make recursive search non-trivial.
-- Ran the live WinUI host through the existing FileScout UI automation helper plus direct UIA
-  scripts because the helper's single-match `find-controls`, `set-value`, and `select` paths are
-  currently brittle.
-- Updated closeout evidence for full build, focused search tests, full-suite tests, and live-host
-  checks.
 - Fixed the two follow-up review findings in the host path so streamed recursive batches now retain
   any still-visible selection and stale icon backfills stop once a newer recursive batch replaces
   them.
@@ -242,28 +235,14 @@ Last updated: 2026-03-29
 - `cmd /c "\"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat\" -arch=x64 && \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe\" native\FileScout.Native.sln /restore /p:RestorePackagesConfig=true /p:Configuration=Debug /p:Platform=x64"` — PASS
 - `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no --gtest_filter=SearchFilter*:*SearchPresentation*:*SearchService*` — PASS
 - `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` — PASS (`148/148`)
-- Live host accepted real search-box keystrokes for filter mode.
-- Recursive search from `C:\Users\machi` using query `needle` surfaced the expected helper-shaped
-  subtitles, including `codex-search-acceptance\sub\` and `codex-search-acceptance\nested\`.
-- Recursive completion surfaced the capped-results helper text when applicable:
-  `Showing top 200 matches - refine your query to narrow results`.
-- Escape/reset from recursive mode restored the normal home list, editable search box, and the
-  normal bottom status text:
-  `110 shell-backed entries loaded from C:\Users\machi`.
+- Live host: filter-mode typing accepted via search box.
+- Live host: recursive search from `C:\Users\machi` with query `needle` rendered helper-shaped subtitles and remained responsive — no `Not Responding` state.
+- Live host: Recursive completion displayed capped-results helper text.
+- Live host: Escape/reset restored home list, editable search box, and correct status bar text.
+- Live host: double-click on recursive result opened parent folder and reselected the matching file — navigate-on-select confirmed.
 
 ### What remains unverified
-- Manual retest that recursive result rendering no longer leaves the host window in
-  `Not Responding` remains outstanding after the `SMI4` host fixes and the follow-up review fixes.
-- A true live-host navigate-on-select smoke is still outstanding. The implementation is wired in
-  `FileRowsListView_DoubleTapped(...)`, but the current automation path could not reliably produce a
-  trustworthy double-click on a recursive result row.
+- Nothing. All acceptance criteria confirmed.
 
 ### Blockers
-- Closeout remains open until a human or improved UI automation confirms both recursive-search
-  responsiveness and recursive result activation in the live host.
-
-### Next recommended step
-Perform two on-machine smoke checks: first run a recursive search and confirm the window stays
-responsive while results populate; then double-click a result and confirm FileScout opens the
-parent folder and reselects the matching file. If either reveals a bug, use `codex-fix-bugs` for
-`search-master-integration`; otherwise mark `SMI5` complete and archive the initiative.
+None
