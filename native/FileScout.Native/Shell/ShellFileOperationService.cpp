@@ -4,32 +4,70 @@
 
 namespace FileScoutNative::Shell
 {
+    FileOperationException::FileOperationException(FileOperationError error)
+        : std::runtime_error(BuildMessage(error)),
+          m_error(std::move(error))
+    {
+    }
+
+    FileOperationError const& FileOperationException::Error() const noexcept
+    {
+        return m_error;
+    }
+
+    std::string FileOperationException::BuildMessage(FileOperationError const& error)
+    {
+        std::wstring message = error.action.empty() ? L"File operation failed" : error.action;
+        if (!error.path.empty())
+        {
+            message += L" failed for ";
+            message += error.path;
+        }
+
+        if (!error.detail.empty())
+        {
+            message += L": ";
+            message += error.detail;
+        }
+
+        return winrt::to_string(winrt::hstring{ message });
+    }
+
     namespace
     {
+        constexpr std::wstring_view canceledFileOperationDetail = L"Windows canceled the file operation.";
+
+        // Closed beta policy: keep the shell backend non-interactive and surface all outcomes
+        // in FileScout's own dark-themed UI instead of letting Explorer show separate dialogs.
         constexpr DWORD baseMutationFlags =
             FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | FOFX_ADDUNDORECORD;
+        // Copy keeps Windows' collision-safe duplication behavior rather than failing outright.
         constexpr DWORD copyMutationFlags =
             baseMutationFlags | FOF_RENAMEONCOLLISION | FOFX_PRESERVEFILEEXTENSIONS;
+        // Delete skips the extra Explorer confirmation because FileScout already confirms first.
         constexpr DWORD deleteMutationFlags =
             baseMutationFlags | FOF_NOCONFIRMATION | FOFX_RECYCLEONDELETE;
 
-        void ThrowShellExecuteFailure(std::filesystem::path const& path, wchar_t const* verb)
+        [[noreturn]] void ThrowFileOperationFailure(FileOperationError error)
         {
-            std::wstring message = L"ShellExecuteW failed for ";
-            message += path.wstring();
-            if (verb != nullptr)
-            {
-                message += L" (";
-                message += verb;
-                message += L")";
-            }
-
-            throw std::runtime_error(winrt::to_string(winrt::hstring{ message }));
+            throw FileOperationException(std::move(error));
         }
 
-        void ThrowFileOperationFailure(std::wstring const& message)
+        [[nodiscard]] std::wstring BuildHResultDetail(winrt::hresult_error const& error)
         {
-            throw std::runtime_error(winrt::to_string(winrt::hstring{ message }));
+            auto const detailMessage = error.message();
+            auto detail = std::wstring{ detailMessage.c_str() };
+            if (detail.empty())
+            {
+                detail = L"Windows returned an unexpected error.";
+            }
+
+            return detail;
+        }
+
+        [[nodiscard]] bool IsCanceledFileOperation(std::wstring_view const detail)
+        {
+            return detail == canceledFileOperationDetail;
         }
     }
 
@@ -54,7 +92,11 @@ namespace FileScoutNative::Shell
             spec.object_name.c_str(),
             spec.property_page.empty() ? nullptr : spec.property_page.c_str()))
         {
-            ThrowShellExecuteFailure(path, L"properties");
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Show properties",
+                .path = path.wstring(),
+                .detail = L"Windows could not open the Properties dialog.",
+            });
         }
     }
 
@@ -74,7 +116,18 @@ namespace FileScoutNative::Shell
 
         if (reinterpret_cast<INT_PTR>(result) <= 32)
         {
-            ThrowShellExecuteFailure(path, verb);
+            std::wstring detail = L"ShellExecuteW returned an error";
+            if (verb != nullptr)
+            {
+                detail += L" for verb ";
+                detail += verb;
+            }
+
+            ThrowFileOperationFailure(FileOperationError{
+                .action = verb == nullptr ? L"Open" : L"Open with shell verb",
+                .path = path.wstring(),
+                .detail = std::move(detail),
+            });
         }
     }
 
@@ -83,17 +136,33 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& parentDirectory,
         std::wstring const& name) const
     {
-        auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
-        auto destinationFolder = CreateShellItem(parentDirectory);
+        auto const targetPath = parentDirectory / name;
+        try
+        {
+            auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
+            auto destinationFolder = CreateShellItem(parentDirectory);
 
-        winrt::check_hresult(fileOperation->NewItem(
-            destinationFolder.get(),
-            FILE_ATTRIBUTE_DIRECTORY,
-            name.c_str(),
-            nullptr,
-            nullptr));
-        PerformFileOperation(fileOperation.get());
-        return parentDirectory / name;
+            winrt::check_hresult(fileOperation->NewItem(
+                destinationFolder.get(),
+                FILE_ATTRIBUTE_DIRECTORY,
+                name.c_str(),
+                nullptr,
+                nullptr));
+            PerformFileOperation(fileOperation.get());
+            return targetPath;
+        }
+        catch (FileOperationException const&)
+        {
+            throw;
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Create folder",
+                .path = targetPath.wstring(),
+                .detail = BuildHResultDetail(error),
+            });
+        }
     }
 
     std::filesystem::path ShellFileOperationService::RenameItem(
@@ -101,12 +170,27 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& path,
         std::wstring const& newName) const
     {
-        auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
-        auto item = CreateShellItem(path);
+        try
+        {
+            auto fileOperation = CreateFileOperation(ownerWindow, baseMutationFlags);
+            auto item = CreateShellItem(path);
 
-        winrt::check_hresult(fileOperation->RenameItem(item.get(), newName.c_str(), nullptr));
-        PerformFileOperation(fileOperation.get());
-        return path.parent_path() / newName;
+            winrt::check_hresult(fileOperation->RenameItem(item.get(), newName.c_str(), nullptr));
+            PerformFileOperation(fileOperation.get());
+            return path.parent_path() / newName;
+        }
+        catch (FileOperationException const&)
+        {
+            throw;
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Rename",
+                .path = path.wstring(),
+                .detail = BuildHResultDetail(error),
+            });
+        }
     }
 
     std::vector<std::filesystem::path> ShellFileOperationService::RenameItems(
@@ -126,25 +210,66 @@ namespace FileScoutNative::Shell
         {
             if (request.new_name.empty())
             {
-                ThrowFileOperationFailure(L"Batch rename requests need a target name");
+                ThrowFileOperationFailure(FileOperationError{
+                    .action = L"Batch rename",
+                    .path = request.path.wstring(),
+                    .detail = L"Batch rename requests need a target name.",
+                });
             }
 
-            auto item = CreateShellItem(request.path);
-            winrt::check_hresult(fileOperation->RenameItem(item.get(), request.new_name.c_str(), nullptr));
-            renamedPaths.push_back(request.path.parent_path() / request.new_name);
+            try
+            {
+                auto item = CreateShellItem(request.path);
+                winrt::check_hresult(fileOperation->RenameItem(item.get(), request.new_name.c_str(), nullptr));
+                renamedPaths.push_back(request.path.parent_path() / request.new_name);
+            }
+            catch (FileOperationException const&)
+            {
+                throw;
+            }
+            catch (winrt::hresult_error const& error)
+            {
+                ThrowFileOperationFailure(FileOperationError{
+                    .action = L"Batch rename",
+                    .path = request.path.wstring(),
+                    .detail = BuildHResultDetail(error),
+                });
+            }
         }
 
-        PerformFileOperation(fileOperation.get());
+        try
+        {
+            PerformFileOperation(fileOperation.get());
+        }
+        catch (FileOperationException const&)
+        {
+            throw;
+        }
         return renamedPaths;
     }
 
     void ShellFileOperationService::DeleteItem(HWND const ownerWindow, std::filesystem::path const& path) const
     {
-        auto fileOperation = CreateFileOperation(ownerWindow, deleteMutationFlags);
-        auto item = CreateShellItem(path);
+        try
+        {
+            auto fileOperation = CreateFileOperation(ownerWindow, deleteMutationFlags);
+            auto item = CreateShellItem(path);
 
-        winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
-        PerformFileOperation(fileOperation.get());
+            winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
+            PerformFileOperation(fileOperation.get());
+        }
+        catch (FileOperationException const&)
+        {
+            throw;
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Delete",
+                .path = path.wstring(),
+                .detail = BuildHResultDetail(error),
+            });
+        }
     }
 
     void ShellFileOperationService::DeleteItems(
@@ -156,14 +281,29 @@ namespace FileScoutNative::Shell
             return;
         }
 
-        auto fileOperation = CreateFileOperation(ownerWindow, deleteMutationFlags);
-        for (auto const& path : paths)
+        try
         {
-            auto item = CreateShellItem(path);
-            winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
-        }
+            auto fileOperation = CreateFileOperation(ownerWindow, deleteMutationFlags);
+            for (auto const& path : paths)
+            {
+                auto item = CreateShellItem(path);
+                winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
+            }
 
-        PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get());
+        }
+        catch (FileOperationException const&)
+        {
+            throw;
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Delete",
+                .path = paths.front().wstring(),
+                .detail = BuildHResultDetail(error),
+            });
+        }
     }
 
     void ShellFileOperationService::CopyItemsFromPaths(
@@ -177,27 +317,42 @@ namespace FileScoutNative::Shell
             return;
         }
 
-        auto fileOperation = CreateFileOperation(
-            ownerWindow,
-            move ? baseMutationFlags : copyMutationFlags);
-        auto destinationFolder = CreateShellItem(destinationDirectory);
-
-        for (auto const& sourcePath : sourcePaths)
+        try
         {
-            auto sourceItem = CreateShellItem(sourcePath);
-            if (move)
-            {
-                winrt::check_hresult(
-                    fileOperation->MoveItem(sourceItem.get(), destinationFolder.get(), nullptr, nullptr));
-            }
-            else
-            {
-                winrt::check_hresult(
-                    fileOperation->CopyItem(sourceItem.get(), destinationFolder.get(), nullptr, nullptr));
-            }
-        }
+            auto fileOperation = CreateFileOperation(
+                ownerWindow,
+                move ? baseMutationFlags : copyMutationFlags);
+            auto destinationFolder = CreateShellItem(destinationDirectory);
 
-        PerformFileOperation(fileOperation.get());
+            for (auto const& sourcePath : sourcePaths)
+            {
+                auto sourceItem = CreateShellItem(sourcePath);
+                if (move)
+                {
+                    winrt::check_hresult(
+                        fileOperation->MoveItem(sourceItem.get(), destinationFolder.get(), nullptr, nullptr));
+                }
+                else
+                {
+                    winrt::check_hresult(
+                        fileOperation->CopyItem(sourceItem.get(), destinationFolder.get(), nullptr, nullptr));
+                }
+            }
+
+            PerformFileOperation(fileOperation.get());
+        }
+        catch (FileOperationException const&)
+        {
+            throw;
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = move ? L"Move" : L"Copy",
+                .path = sourcePaths.front().wstring(),
+                .detail = BuildHResultDetail(error),
+            });
+        }
     }
 
     void ShellFileOperationService::CopyItemFromPath(
@@ -206,18 +361,33 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& destinationDirectory,
         std::wstring const& newName) const
     {
-        auto fileOperation = CreateFileOperation(ownerWindow, copyMutationFlags);
-        auto destinationFolder = CreateShellItem(destinationDirectory);
-        auto sourceItem = CreateShellItem(sourcePath);
+        try
+        {
+            auto fileOperation = CreateFileOperation(ownerWindow, copyMutationFlags);
+            auto destinationFolder = CreateShellItem(destinationDirectory);
+            auto sourceItem = CreateShellItem(sourcePath);
 
-        auto const* targetName = newName.empty() ? nullptr : newName.c_str();
-        winrt::check_hresult(fileOperation->CopyItem(
-            sourceItem.get(),
-            destinationFolder.get(),
-            targetName,
-            nullptr));
+            auto const* targetName = newName.empty() ? nullptr : newName.c_str();
+            winrt::check_hresult(fileOperation->CopyItem(
+                sourceItem.get(),
+                destinationFolder.get(),
+                targetName,
+                nullptr));
 
-        PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get());
+        }
+        catch (FileOperationException const&)
+        {
+            throw;
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Copy",
+                .path = sourcePath.wstring(),
+                .detail = BuildHResultDetail(error),
+            });
+        }
     }
 
     void ShellFileOperationService::PasteItems(
@@ -226,21 +396,36 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& destinationDirectory,
         bool const move) const
     {
-        auto fileOperation = CreateFileOperation(
-            ownerWindow,
-            move ? baseMutationFlags : copyMutationFlags);
-        auto destinationFolder = CreateShellItem(destinationDirectory);
-
-        if (move)
+        try
         {
-            winrt::check_hresult(fileOperation->MoveItems(clipboardDataObject, destinationFolder.get()));
-        }
-        else
-        {
-            winrt::check_hresult(fileOperation->CopyItems(clipboardDataObject, destinationFolder.get()));
-        }
+            auto fileOperation = CreateFileOperation(
+                ownerWindow,
+                move ? baseMutationFlags : copyMutationFlags);
+            auto destinationFolder = CreateShellItem(destinationDirectory);
 
-        PerformFileOperation(fileOperation.get());
+            if (move)
+            {
+                winrt::check_hresult(fileOperation->MoveItems(clipboardDataObject, destinationFolder.get()));
+            }
+            else
+            {
+                winrt::check_hresult(fileOperation->CopyItems(clipboardDataObject, destinationFolder.get()));
+            }
+
+            PerformFileOperation(fileOperation.get());
+        }
+        catch (FileOperationException const&)
+        {
+            throw;
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = move ? L"Paste move" : L"Paste copy",
+                .path = destinationDirectory.wstring(),
+                .detail = BuildHResultDetail(error),
+            });
+        }
     }
 
     winrt::com_ptr<IShellItem> ShellFileOperationService::CreateShellItem(
@@ -274,7 +459,10 @@ namespace FileScoutNative::Shell
         winrt::check_hresult(fileOperation->GetAnyOperationsAborted(&operationsAborted));
         if (operationsAborted)
         {
-            ThrowFileOperationFailure(L"Windows file operation was aborted");
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"File operation",
+                .detail = L"Windows canceled the file operation.",
+            });
         }
     }
 }

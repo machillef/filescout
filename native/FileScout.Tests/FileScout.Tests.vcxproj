@@ -124,6 +124,7 @@
   <ItemGroup>
     <ClCompile Include="..\FileScout.Native\Shell\ContextMenuService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\FavoritesService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\ShellClipboardService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellInteropService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellFileOperationService.cpp" />
     <ClCompile Include="..\FileScout.Native\Search\SearchService.cpp" />
@@ -141,6 +142,7 @@
     <ClCompile Include="tests\ContextMenuServiceTests.cpp" />
     <ClCompile Include="tests\FavoritesServiceTests.cpp" />
     <ClCompile Include="tests\ShellInteropServiceTests.cpp" />
+    <ClCompile Include="tests\ShellClipboardServiceTests.cpp" />
     <ClCompile Include="tests\ShellFileOperationServiceTests.cpp" />
     <ClCompile Include="tests\FuzzyMatcherTests.cpp" />
     <ClCompile Include="tests\AddressNavigationTests.cpp" />

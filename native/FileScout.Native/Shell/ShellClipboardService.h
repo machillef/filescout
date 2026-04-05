@@ -7,8 +7,12 @@ namespace FileScoutNative::Shell
 {
     struct ClipboardPasteResult
     {
+        bool succeeded{ false };
         bool was_move{ false };
         uint32_t item_count{ 0 };
+        std::filesystem::path destination;
+        std::wstring attempted_action{ L"Paste copy" };
+        std::wstring failure_detail;
     };
 
     class ShellClipboardService final : public FileScoutNative::Domain::ClipboardService

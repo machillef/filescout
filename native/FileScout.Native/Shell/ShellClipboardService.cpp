@@ -5,6 +5,11 @@ namespace FileScoutNative::Shell
 {
     namespace
     {
+        std::wstring ClipboardEmptyDetail()
+        {
+            return L"Clipboard does not contain shell items.";
+        }
+
         CLIPFORMAT PreferredDropEffectFormat()
         {
             static const CLIPFORMAT format = static_cast<CLIPFORMAT>(RegisterClipboardFormat(CFSTR_PREFERREDDROPEFFECT));
@@ -30,6 +35,38 @@ namespace FileScoutNative::Shell
         void ThrowClipboardFailure(std::wstring const& message)
         {
             throw std::runtime_error(winrt::to_string(winrt::hstring{ message }));
+        }
+
+        std::wstring BuildClipboardRuntimeDetail(std::runtime_error const& error)
+        {
+            auto const detail = winrt::to_hstring(error.what());
+            if (detail.empty())
+            {
+                return L"Clipboard operation failed.";
+            }
+
+            return detail.c_str();
+        }
+
+        ClipboardPasteResult BuildPasteFailureResult(
+            std::filesystem::path const& destination,
+            bool const wasMove,
+            uint32_t const itemCount,
+            std::wstring detail)
+        {
+            if (detail.empty())
+            {
+                detail = L"Paste failed.";
+            }
+
+            return ClipboardPasteResult{
+                .succeeded = false,
+                .was_move = wasMove,
+                .item_count = itemCount,
+                .destination = destination,
+                .attempted_action = wasMove ? L"Paste move" : L"Paste copy",
+                .failure_detail = std::move(detail),
+            };
         }
     }
 
@@ -65,27 +102,86 @@ namespace FileScoutNative::Shell
         HWND const ownerWindow,
         std::filesystem::path const& directory) const
     {
-        auto clipboardDataObject = GetClipboardDataObject();
-        auto const itemCount = CountClipboardItems(clipboardDataObject.get());
-        if (itemCount == 0)
+        auto result = ClipboardPasteResult{
+            .destination = directory,
+        };
+
+        winrt::com_ptr<IDataObject> clipboardDataObject;
+        try
         {
-            ThrowClipboardFailure(L"Clipboard does not contain shell items");
+            clipboardDataObject = GetClipboardDataObject();
+        }
+        catch (winrt::hresult_error const&)
+        {
+            return BuildPasteFailureResult(directory, false, 0, ClipboardEmptyDetail());
+        }
+        catch (std::runtime_error const& error)
+        {
+            return BuildPasteFailureResult(directory, false, 0, BuildClipboardRuntimeDetail(error));
         }
 
         auto const preferredDropEffect = GetPreferredDropEffect(clipboardDataObject.get());
         auto const isMove = (preferredDropEffect & DROPEFFECT_MOVE) == DROPEFFECT_MOVE;
+        result.was_move = isMove;
+        result.attempted_action = isMove ? L"Paste move" : L"Paste copy";
 
-        m_fileOperationService.PasteItems(ownerWindow, clipboardDataObject.get(), directory, isMove);
+        try
+        {
+            result.item_count = CountClipboardItems(clipboardDataObject.get());
+        }
+        catch (winrt::hresult_error const&)
+        {
+            return BuildPasteFailureResult(directory, isMove, 0, ClipboardEmptyDetail());
+        }
+        catch (std::runtime_error const& error)
+        {
+            return BuildPasteFailureResult(directory, isMove, 0, BuildClipboardRuntimeDetail(error));
+        }
+
+        if (result.item_count == 0)
+        {
+            return BuildPasteFailureResult(directory, isMove, 0, ClipboardEmptyDetail());
+        }
+
+        try
+        {
+            m_fileOperationService.PasteItems(ownerWindow, clipboardDataObject.get(), directory, isMove);
+        }
+        catch (FileOperationException const& error)
+        {
+            return BuildPasteFailureResult(
+                directory,
+                isMove,
+                result.item_count,
+                error.Error().detail.empty()
+                    ? winrt::to_hstring(error.what()).c_str()
+                    : error.Error().detail);
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            auto const detail = error.message();
+            return BuildPasteFailureResult(
+                directory,
+                isMove,
+                result.item_count,
+                detail.empty() ? std::wstring{ L"Paste failed." } : std::wstring{ detail.c_str() });
+        }
+        catch (std::runtime_error const& error)
+        {
+            return BuildPasteFailureResult(
+                directory,
+                isMove,
+                result.item_count,
+                BuildClipboardRuntimeDetail(error));
+        }
 
         if (isMove)
         {
             ClearClipboard();
         }
 
-        return ClipboardPasteResult{
-            .was_move = isMove,
-            .item_count = itemCount,
-        };
+        result.succeeded = true;
+        return result;
     }
 
     void ShellClipboardService::SetClipboardItems(
@@ -94,7 +190,7 @@ namespace FileScoutNative::Shell
     {
         if (items.empty())
         {
-            ThrowClipboardFailure(L"Clipboard update requires at least one shell item");
+            ThrowClipboardFailure(L"Clipboard update requires at least one shell item.");
         }
 
         auto itemArray = CreateShellItemArray(items);
@@ -122,7 +218,7 @@ namespace FileScoutNative::Shell
             auto const pidl = ILCreateFromPathW(widePath.c_str());
             if (!pidl)
             {
-                ThrowClipboardFailure(L"Failed to create shell identifier list for " + widePath);
+                ThrowClipboardFailure(L"Failed to create shell identifier list for " + widePath + L".");
             }
 
             rawPidls.push_back(pidl);
@@ -198,14 +294,14 @@ namespace FileScoutNative::Shell
         storage.hGlobal = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
         if (storage.hGlobal == nullptr)
         {
-            ThrowClipboardFailure(L"Failed to allocate preferred drop effect clipboard payload");
+            ThrowClipboardFailure(L"Failed to allocate preferred drop effect clipboard payload.");
         }
 
         auto* value = static_cast<DWORD*>(GlobalLock(storage.hGlobal));
         if (value == nullptr)
         {
             GlobalFree(storage.hGlobal);
-            ThrowClipboardFailure(L"Failed to lock preferred drop effect clipboard payload");
+            ThrowClipboardFailure(L"Failed to lock preferred drop effect clipboard payload.");
         }
 
         *value = effect;

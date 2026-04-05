@@ -502,6 +502,139 @@ namespace
         return label;
     }
 
+    std::wstring BuildPasteSuccessStatus(::FileScoutNative::Shell::ClipboardPasteResult const& outcome)
+    {
+        std::wstring status = outcome.was_move ? L"Moved " : L"Pasted ";
+        status += std::to_wstring(outcome.item_count);
+        status += outcome.item_count == 1 ? L" item into " : L" items into ";
+        status += outcome.destination.wstring();
+        status += L".";
+        return status;
+    }
+
+    std::wstring BuildPasteFailureStatus(::FileScoutNative::Shell::ClipboardPasteResult const& outcome)
+    {
+        std::wstring status = outcome.was_move ? L"Couldn't move " : L"Couldn't paste ";
+        if (outcome.item_count == 0)
+        {
+            status += L"clipboard items";
+        }
+        else
+        {
+            status += std::to_wstring(outcome.item_count);
+            status += outcome.item_count == 1 ? L" item" : L" items";
+        }
+
+        if (!outcome.destination.empty())
+        {
+            status += L" into ";
+            status += outcome.destination.wstring();
+        }
+
+        status += L".";
+        if (!outcome.failure_detail.empty())
+        {
+            status += L" ";
+            status += outcome.failure_detail;
+        }
+
+        return status;
+    }
+
+    bool IsCanceledFileOperation(::FileScoutNative::Shell::FileOperationException const& error)
+    {
+        return error.Error().detail == L"Windows canceled the file operation.";
+    }
+
+    std::wstring BuildRenameFailureStatus(
+        ::FileScoutNative::Domain::ShellItemRef const& item,
+        ::FileScoutNative::Shell::FileOperationException const& error)
+    {
+        if (IsCanceledFileOperation(error))
+        {
+            return L"Rename canceled for " + item.display_name + L".";
+        }
+
+        std::wstring status = L"Couldn't rename " + item.display_name + L".";
+        if (!error.Error().detail.empty())
+        {
+            status += L" ";
+            status += error.Error().detail;
+        }
+
+        return status;
+    }
+
+    std::wstring BuildBatchRenameFailureStatus(
+        std::size_t const itemCount,
+        ::FileScoutNative::Shell::FileOperationException const& error)
+    {
+        std::wstring status = IsCanceledFileOperation(error)
+            ? L"Batch rename canceled for "
+            : L"Couldn't batch rename ";
+        status += std::to_wstring(itemCount);
+        status += itemCount == 1 ? L" item." : L" items.";
+
+        if (!IsCanceledFileOperation(error) && !error.Error().detail.empty())
+        {
+            status += L" ";
+            status += error.Error().detail;
+        }
+
+        return status;
+    }
+
+    std::wstring BuildDeleteCanceledStatus(
+        std::wstring const& displayName,
+        std::size_t const itemCount)
+    {
+        return itemCount == 1
+            ? L"Delete canceled for " + displayName + L"."
+            : L"Delete canceled for " + std::to_wstring(itemCount) + L" items.";
+    }
+
+    std::wstring BuildDeleteFailureStatus(
+        std::wstring const& displayName,
+        std::size_t const itemCount,
+        std::wstring_view const detail)
+    {
+        std::wstring status = itemCount == 1
+            ? L"Couldn't delete " + displayName + L"."
+            : L"Couldn't delete " + std::to_wstring(itemCount) + L" items.";
+
+        if (!detail.empty())
+        {
+            status += L" ";
+            status += detail;
+        }
+
+        return status;
+    }
+
+    std::wstring BuildDropFailureStatus(
+        bool const isMove,
+        std::size_t const itemCount,
+        std::filesystem::path const& destinationPath,
+        std::wstring_view const detail,
+        bool const canceled)
+    {
+        std::wstring status = canceled
+            ? (isMove ? L"Move canceled for " : L"Copy canceled for ")
+            : (isMove ? L"Couldn't move " : L"Couldn't copy ");
+        status += std::to_wstring(itemCount);
+        status += itemCount == 1 ? L" item into " : L" items into ";
+        status += destinationPath.wstring();
+        status += L".";
+
+        if (!canceled && !detail.empty())
+        {
+            status += L" ";
+            status += detail;
+        }
+
+        return status;
+    }
+
     std::wstring BuildWave1ArchiveStatus(
         std::filesystem::path const& path,
         bool const openSucceeded)
@@ -2379,10 +2512,10 @@ namespace winrt::FileScoutNative::implementation
             (args.Modifiers() &
              winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::Shift) !=
             winrt::Windows::ApplicationModel::DataTransfer::DragDrop::DragDropModifiers::None;
+        std::vector<std::filesystem::path> sourcePaths;
 
         try
         {
-            std::vector<std::filesystem::path> sourcePaths;
             if (args.DataView().Contains(DragOriginalPathsFormat()))
             {
                 auto const payload = co_await args.DataView().GetDataAsync(DragOriginalPathsFormat());
@@ -2418,9 +2551,20 @@ namespace winrt::FileScoutNative::implementation
                 (sourcePaths.size() == 1 ? L" item into " : L" items into ") +
                 destinationPath.wstring()));
         }
-        catch (...)
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
         {
-            StatusTextBlock().Text(L"Drop failed.");
+            StatusTextBlock().Text(ToHString(BuildDropFailureStatus(
+                isMove,
+                sourcePaths.size(),
+                destinationPath,
+                error.Error().detail,
+                IsCanceledFileOperation(error))));
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't complete the drop into " + destinationPath.wstring() + L". " +
+                winrt::to_hstring(error.what()).c_str()));
         }
 
         deferral.Complete();
@@ -3926,28 +4070,25 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"paste")
         {
-            if (!m_shellClipboardService.CanPasteInto(ActivePane().current_path))
-            {
-                StatusTextBlock().Text(L"Paste needs shell items on the clipboard.");
-                return;
-            }
-
             try
             {
                 auto const outcome = m_shellClipboardService.PasteInto(
                     GetWindowHandle(), ActivePane().current_path);
-                LoadDirectory(ActivePane().current_path);
-
-                std::wstring action = outcome.was_move ? L"Moved " : L"Pasted ";
-                action += std::to_wstring(outcome.item_count);
-                action += outcome.item_count == 1 ? L" item into " : L" items into ";
-                action += ActivePane().current_path.wstring();
-                StatusTextBlock().Text(ToHString(action));
+                if (outcome.succeeded)
+                {
+                    LoadDirectory(ActivePane().current_path);
+                    StatusTextBlock().Text(ToHString(BuildPasteSuccessStatus(outcome)));
+                }
+                else
+                {
+                    StatusTextBlock().Text(ToHString(BuildPasteFailureStatus(outcome)));
+                }
             }
-            catch (std::exception const&)
+            catch (std::exception const& error)
             {
-                StatusTextBlock().Text(
-                    ToHString(L"Paste failed into " + ActivePane().current_path.wstring()));
+                StatusTextBlock().Text(ToHString(
+                    L"Couldn't paste into " + ActivePane().current_path.wstring() + L". " +
+                    winrt::to_hstring(error.what()).c_str()));
             }
             return;
         }
@@ -4196,9 +4337,15 @@ namespace winrt::FileScoutNative::implementation
             LoadDirectory(ActivePane().current_path, renamedPath);
             StatusTextBlock().Text(ToHString(L"Renamed to " + renamedPath.filename().wstring()));
         }
-        catch (std::exception const&)
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
         {
-            StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Rename failed for", item)));
+            StatusTextBlock().Text(ToHString(BuildRenameFailureStatus(item, error)));
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't rename " + item.display_name + L". " +
+                winrt::to_hstring(error.what()).c_str()));
         }
     }
 
@@ -4672,11 +4819,17 @@ namespace winrt::FileScoutNative::implementation
                 L"Batch renamed " + std::to_wstring(requests.size()) +
                 (requests.size() == 1 ? L" item." : L" items.")));
         }
-        catch (std::exception const&)
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
         {
             StatusTextBlock().Text(ToHString(
-                L"Batch rename failed for " + std::to_wstring(requests.size()) +
-                (requests.size() == 1 ? L" item." : L" items.")));
+                BuildBatchRenameFailureStatus(requests.size(), error)));
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't batch rename " + std::to_wstring(requests.size()) +
+                (requests.size() == 1 ? L" item." : L" items.") + L" " +
+                winrt::to_hstring(error.what()).c_str()));
         }
     }
 
@@ -4704,6 +4857,9 @@ namespace winrt::FileScoutNative::implementation
 
         if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
         {
+            StatusTextBlock().Text(ToHString(BuildDeleteCanceledStatus(
+                items.size() == 1 ? items.front().display_name : std::wstring{},
+                items.size())));
             co_return;
         }
 
@@ -4739,6 +4895,8 @@ namespace winrt::FileScoutNative::implementation
         co_await winrt::resume_background();
 
         bool success = true;
+        bool canceled = false;
+        std::wstring failureDetail;
         try
         {
             auto const t0 = std::chrono::steady_clock::now();
@@ -4757,13 +4915,20 @@ namespace winrt::FileScoutNative::implementation
             TraceLog(L"Delete: " + std::to_wstring(itemCount) + L" item(s) in "
                 + std::to_wstring(deleteMs) + L"ms");
         }
-        catch (...)
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
         {
             success = false;
+            canceled = IsCanceledFileOperation(error);
+            failureDetail = error.Error().detail;
+        }
+        catch (std::exception const& error)
+        {
+            success = false;
+            failureDetail = winrt::to_hstring(error.what()).c_str();
         }
 
         m_dispatcherQueue.TryEnqueue(
-            [this, lifetime, success, currentPath, displayName, itemCount, activePaneIndex]()
+            [this, lifetime, success, canceled, currentPath, displayName, itemCount, activePaneIndex, failureDetail]()
             {
                 // S5: hide ProgressBar unconditionally — failure path has no LoadDirectory
                 // call that would otherwise hide it.
@@ -4780,9 +4945,9 @@ namespace winrt::FileScoutNative::implementation
                 else
                 {
                     StatusTextBlock().Text(ToHString(
-                        itemCount == 1
-                            ? L"Delete failed for " + displayName
-                            : L"Delete failed for " + std::to_wstring(itemCount) + L" items."));
+                        canceled
+                            ? BuildDeleteCanceledStatus(displayName, itemCount)
+                            : BuildDeleteFailureStatus(displayName, itemCount, failureDetail)));
                 }
             });
     }
