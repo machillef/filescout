@@ -1045,6 +1045,11 @@ namespace
             winrt::Windows::UI::Color{ alpha, red, green, blue });
     }
 
+    winrt::Microsoft::UI::Xaml::Media::Brush SolidBrush(winrt::Windows::UI::Color const& color)
+    {
+        return winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(color);
+    }
+
     template<typename T>
     T FindDescendantByType(winrt::Microsoft::UI::Xaml::DependencyObject const& root)
     {
@@ -1243,20 +1248,79 @@ namespace
         return text;
     }
 
-    std::wstring_view DriveTypeGlyph(std::uint32_t const driveType)
+    struct DriveColors
+    {
+        winrt::Windows::UI::Color body;
+        winrt::Windows::UI::Color cap;
+        winrt::Windows::UI::Color led;
+    };
+
+    DriveColors DriveTypeColors(uint32_t const driveType)
     {
         switch (driveType)
         {
-        case DRIVE_REMOVABLE: return L"\uE88E";
-        case DRIVE_REMOTE:    return L"\uEDA3";
-        default:              return L"\uEDA2";
+        case DRIVE_REMOVABLE:
+            return { {0xff,0x14,0x53,0x2d}, {0xff,0x16,0xa3,0x4a}, {0xff,0x86,0xef,0xac} };
+        case DRIVE_REMOTE:
+            return { {0xff,0x31,0x2e,0x81}, {0xff,0x7c,0x3a,0xed}, {0xff,0xc4,0xb5,0xfd} };
+        default: // DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_CDROM, DRIVE_UNKNOWN
+            return { {0xff,0x1e,0x3a,0x5f}, {0xff,0x25,0x63,0xeb}, {0xff,0x93,0xc5,0xfd} };
         }
     }
 
-    winrt::Microsoft::UI::Xaml::FrameworkElement BuildSidebarDriveGlyph(
-        SidebarDriveUsage const& drive)
+    winrt::Microsoft::UI::Xaml::Controls::Border MakeDriveBorder(
+        double const width,
+        double const height,
+        winrt::Microsoft::UI::Xaml::CornerRadius const& cornerRadius,
+        winrt::Windows::UI::Color const& color,
+        winrt::Microsoft::UI::Xaml::VerticalAlignment const vAlign,
+        winrt::Microsoft::UI::Xaml::HorizontalAlignment const hAlign,
+        winrt::Microsoft::UI::Xaml::Thickness const& margin)
     {
-        return BuildSidebarFontIcon(DriveTypeGlyph(drive.drive_type), 16.0);
+        auto border = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        border.Width(width);
+        border.Height(height);
+        border.CornerRadius(cornerRadius);
+        border.Background(SolidBrush(color));
+        border.VerticalAlignment(vAlign);
+        border.HorizontalAlignment(hAlign);
+        border.Margin(margin);
+        return border;
+    }
+
+    winrt::Microsoft::UI::Xaml::FrameworkElement BuildDriveTypeIcon(uint32_t const driveType)
+    {
+        namespace VA = winrt::Microsoft::UI::Xaml;
+        auto const colors = DriveTypeColors(driveType);
+
+        auto canvas = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        canvas.Width(18);
+        canvas.Height(18);
+
+        // Body — darker lower portion
+        canvas.Children().Append(MakeDriveBorder(
+            15, 10, { 2.5f, 2.5f, 2.5f, 2.5f }, colors.body,
+            VA::VerticalAlignment::Bottom, VA::HorizontalAlignment::Center, { 0, 0, 0, 1 }));
+
+        // Cap — brighter upper portion
+        canvas.Children().Append(MakeDriveBorder(
+            15, 6, { 2.5f, 2.5f, 0, 0 }, colors.cap,
+            VA::VerticalAlignment::Top, VA::HorizontalAlignment::Center, { 0, 2, 0, 0 }));
+
+        // LED dot — top-right accent circle
+        canvas.Children().Append(MakeDriveBorder(
+            3, 3, { 1.5f, 1.5f, 1.5f, 1.5f }, colors.led,
+            VA::VerticalAlignment::Top, VA::HorizontalAlignment::Right, { 0, 3, 2, 0 }));
+
+        // USB plug nub — removable only: small block above the cap
+        if (driveType == DRIVE_REMOVABLE)
+        {
+            canvas.Children().Append(MakeDriveBorder(
+                4, 3, { 0.8f, 0.8f, 0, 0 }, colors.cap,
+                VA::VerticalAlignment::Top, VA::HorizontalAlignment::Center, { 0, 0, 0, 0 }));
+        }
+
+        return canvas;
     }
 
     std::wstring BuildDriveUsageText(SidebarDriveUsage const& drive)
@@ -6997,7 +7061,7 @@ namespace winrt::FileScoutNative::implementation
             headerGrid.ColumnDefinitions().Append(driveLabelColumn);
             headerGrid.ColumnSpacing(8);
 
-            auto iconTile = BuildSidebarTile(BuildSidebarDriveGlyph(drive), 18.0);
+            auto iconTile = BuildSidebarTile(BuildDriveTypeIcon(drive.drive_type), 18.0);
 
             auto labelStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
             labelStack.Spacing(2);
