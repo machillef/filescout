@@ -17,7 +17,7 @@
 |---|---|---|
 | SP1 | Complete | 2026-04-05 |
 | SP2 | Complete | 2026-04-06 |
-| SP3 | Not Started | 2026-04-05 |
+| SP3 | Complete | 2026-04-06 |
 | SP4 | Not Started | 2026-04-05 |
 
 ## Slice SP1: ScopedTimer helper + session markers
@@ -75,6 +75,40 @@ Last updated: 2026-04-06
   allocs 4 more. Acceptable for diagnostic use but inflates measurement slightly. No `#ifdef`
   guard on trace calls — will emit in release builds. Both deferred to a follow-up cleanup
   outside this initiative.
+
+### Blockers
+None
+
+## Slice SP3: Instrument the startup sequence end-to-end
+Status: Complete
+Last updated: 2026-04-06
+
+### What was implemented
+- `TraceHelper.h`: `~ScopedTimer()` marked `noexcept` explicitly (review fix).
+- `main.cpp`: replaced manual TraceLog pairs with block-scoped `ScopedTimer` for
+  `MddBootstrapInitialize2`, `init_apartment`, and `Application::Start`. HRESULT log retained.
+  Inner `App ctor lambda` TraceLog calls removed (replaced by outer `Application::Start` timer).
+  `HRESULT bootstrapHr = E_FAIL` defensive init (review fix).
+- `MainWindow.xaml.cpp`:
+  - Ctor: all 4 manual TraceLog phase pairs (`InitializeComponent`, `ConfigureWindow`,
+    `SetupKeyboardAccelerators`, `InitializeThemeDropDown`) replaced with block-scoped
+    `ScopedTimer`. Outer `BuildSidebarFavorites` TraceLog pair removed — function has its own
+    internal ScopedTimer from SP2. Both `InitPane` pairs replaced; `BuildSortHeaders` pair
+    merged into one timer.
+  - `LoadDirectory`: `ScopedTimer loadTimer{ L"LoadDirectory: " + path.wstring() }` added at
+    function entry. Note: fires on archive early-return path too (sub-1ms, no PerfLoad emitted
+    for those). SP4 script should filter accordingly.
+
+### What was validated
+- `native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no` — 184/184 PASSED
+- Review: APPROVED — MEDIUM (`noexcept`) and 2 MINORs fixed/noted before commit.
+
+### What remains unverified
+- Live log inspection: launch app and confirm all expected `[TIMER]` lines appear:
+  `[TIMER] MddBootstrapInitialize2`, `[TIMER] init_apartment`, `[TIMER] Application::Start`,
+  `[TIMER] InitializeComponent`, `[TIMER] InitPane(0)`, `[TIMER] InitPane(1)`,
+  `[TIMER] LoadDirectory: C:\...`, `[TIMER] BuildSidebarFavorites`,
+  `[TIMER] UpdateBookmarksSection`, `[TIMER] UpdateThisPCSection`.
 
 ### Blockers
 None
