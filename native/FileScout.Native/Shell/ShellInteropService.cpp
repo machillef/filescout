@@ -571,7 +571,8 @@ namespace FileScoutNative::Shell
     }
 
     std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateDirectory(
-        std::filesystem::path const& path)
+        std::filesystem::path const& path,
+        bool const includeHidden)
     {
         // S6: Use FindFirstFileW/FindNextFileW instead of std::filesystem::directory_iterator.
         // WIN32_FIND_DATA already contains name, size, attributes, write time, and creation time —
@@ -596,6 +597,12 @@ namespace FileScoutNative::Shell
             {
                 continue;
             }
+
+            if (!includeHidden && (findData.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN))
+            {
+                continue;
+            }
+
             items.push_back(BuildFastShellItemRef(findData, path));
         }
         while (FindNextFileW(findHandle, &findData));

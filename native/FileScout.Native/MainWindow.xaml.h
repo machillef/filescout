@@ -55,6 +55,9 @@ namespace winrt::FileScoutNative::implementation
         bool tab_switching{ false };
         bool is_drives_view{ false };   // True when the pane shows the "This PC" drives list.
         bool is_archive_view{ false };  // True when the pane shows a virtual archive folder.
+        // View toggles — per-pane to match Explorer behavior.
+        bool show_hidden_files{ false };
+        bool show_file_extensions{ false };
         // Sort state — shared across all tabs in this pane (same as Explorer behaviour).
         SortColumn sort_column{ SortColumn::Name };
         SortDirection sort_direction{ SortDirection::Ascending };
@@ -351,6 +354,10 @@ namespace winrt::FileScoutNative::implementation
         static void SortItems(std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
                               SortColumn column, SortDirection direction);
         void SetGroupingEnabled(int32_t paneIndex, bool enabled);
+
+        // View toggles
+        void ToggleHiddenFiles(int32_t paneIndex);
+        void ToggleExtensions(int32_t paneIndex);
 
         // View mode helpers (R9b).
         void SetViewMode(int32_t paneIndex, ViewMode mode);

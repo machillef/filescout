@@ -14,7 +14,8 @@ namespace FileScoutNative::Shell
     {
     public:
         [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateDirectory(
-            std::filesystem::path const& path);
+            std::filesystem::path const& path,
+            bool includeHidden = false);
         [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateShellDirectory(
             std::filesystem::path const& path) const;
 

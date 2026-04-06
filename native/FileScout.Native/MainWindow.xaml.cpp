@@ -2987,6 +2987,8 @@ namespace winrt::FileScoutNative::implementation
         // can sort without accessing pane state across threads.
         SortColumn const sort_column = pane.sort_column;
         SortDirection const sort_direction = pane.sort_direction;
+        bool const show_hidden_files = pane.show_hidden_files;
+        bool const show_file_extensions = pane.show_file_extensions;
 
         // Switch to a thread-pool thread for I/O and shell COM calls.
         co_await winrt::resume_background();
@@ -3075,7 +3077,7 @@ namespace winrt::FileScoutNative::implementation
                 // Enumerate all items on the background thread, then post to the UI thread in
                 // two dispatches so the first visible rows appear quickly without a rows.Clear()
                 // (CollectionChange::Reset) on the finalize path.
-                auto items = m_shellInterop.EnumerateDirectory(absolute);
+                auto items = m_shellInterop.EnumerateDirectory(absolute, show_hidden_files);
                 timing.enumeration_end_tick = ::GetTickCount64();
 
                 // L1: Sort and pre-build all ViewModels on the background thread.
@@ -3086,7 +3088,19 @@ namespace winrt::FileScoutNative::implementation
                 std::vector<winrt::FileScoutNative::FileRowViewModel> prebuilt;
                 prebuilt.reserve(items.size());
                 for (auto const& item : items)
-                    prebuilt.push_back(MakeFileRowViewModel(item));
+                {
+                    auto vm = MakeFileRowViewModel(item);
+                    if (!show_file_extensions && !item.is_folder)
+                    {
+                        auto impl = vm.as<winrt::FileScoutNative::implementation::FileRowViewModel>();
+                        auto const dotPos = item.display_name.rfind(L'.');
+                        if (dotPos != std::wstring_view::npos && dotPos > 0)
+                        {
+                            impl->SetName(item.display_name.substr(0, dotPos));
+                        }
+                    }
+                    prebuilt.push_back(vm);
+                }
 
                 m_dispatcherQueue.TryEnqueue(
                     [this, lifetime, paneIndex, tabIndex, generation,
@@ -4337,6 +4351,18 @@ namespace winrt::FileScoutNative::implementation
         if (commandId == L"toggleDualPane")
         {
             ToggleDualPane();
+            return;
+        }
+
+        if (commandId == L"toggleHiddenFiles")
+        {
+            ToggleHiddenFiles(m_activePaneIndex);
+            return;
+        }
+
+        if (commandId == L"toggleExtensions")
+        {
+            ToggleExtensions(m_activePaneIndex);
             return;
         }
     }
@@ -6666,6 +6692,24 @@ namespace winrt::FileScoutNative::implementation
                 : RowPresentationStatusLabel(pane))));
     }
 
+    void MainWindow::ToggleHiddenFiles(int32_t const paneIndex)
+    {
+        auto& pane = m_panes[paneIndex];
+        pane.show_hidden_files = !pane.show_hidden_files;
+        LoadDirectory(pane.current_path);
+        StatusTextBlock().Text(ToHString(
+            pane.show_hidden_files ? L"Hidden files shown." : L"Hidden files hidden."));
+    }
+
+    void MainWindow::ToggleExtensions(int32_t const paneIndex)
+    {
+        auto& pane = m_panes[paneIndex];
+        pane.show_file_extensions = !pane.show_file_extensions;
+        RebuildAllTabRowsForPane(paneIndex);
+        StatusTextBlock().Text(ToHString(
+            pane.show_file_extensions ? L"File extensions shown." : L"File extensions hidden."));
+    }
+
     winrt::fire_and_forget MainWindow::LoadImagePreviewAsync(
         std::filesystem::path path,
         uint32_t const generation)
@@ -6751,6 +6795,15 @@ namespace winrt::FileScoutNative::implementation
             {
                 auto row = MakeFileRowViewModel(item);
                 auto rowImpl = winrt::get_self<winrt::FileScoutNative::implementation::FileRowViewModel>(row);
+
+                if (!pane.show_file_extensions && !item.is_folder)
+                {
+                    auto const dotPos = item.display_name.rfind(L'.');
+                    if (dotPos != std::wstring_view::npos && dotPos > 0)
+                    {
+                        rowImpl->SetName(item.display_name.substr(0, dotPos));
+                    }
+                }
 
                 if (pane.group_by_sort_column)
                 {
