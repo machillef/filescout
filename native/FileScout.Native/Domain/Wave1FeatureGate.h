@@ -17,6 +17,7 @@ namespace FileScoutNative::Domain
         switch (feature)
         {
         case Wave1Feature::CommandPalette:
+            return true;
         case Wave1Feature::ArchiveBrowsing:
         case Wave1Feature::BatchRename:
             return false;

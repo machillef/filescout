@@ -20,9 +20,9 @@ TEST(Wave1FeatureGate, FirstLaunchDefaultsToSinglePane)
     EXPECT_TRUE(Wave1UsesSinglePaneFirstLaunch());
 }
 
-TEST(Wave1FeatureGate, ClosedBetaKeepsSubBetaFeaturesDisabled)
+TEST(Wave1FeatureGate, CommandPaletteIsEnabledForClosedBeta)
 {
-    EXPECT_FALSE(IsWave1FeatureEnabled(Wave1Feature::CommandPalette));
+    EXPECT_TRUE(IsWave1FeatureEnabled(Wave1Feature::CommandPalette));
     EXPECT_FALSE(IsWave1FeatureEnabled(Wave1Feature::ArchiveBrowsing));
     EXPECT_FALSE(IsWave1FeatureEnabled(Wave1Feature::BatchRename));
 }
