@@ -77,11 +77,35 @@ namespace
     }
 } // anonymous namespace
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR cmdLine, int)
 {
     TraceLog(L"--- wWinMain start ---");
     std::filesystem::remove(StartupLogPath());
     LogSessionStart();
+
+    // Parse command-line for a path argument (from "Open in FileScout" context menu).
+    std::optional<std::filesystem::path> launchPath;
+    int argc = 0;
+    if (auto const* const* const argv = CommandLineToArgvW(GetCommandLineW(), &argc); argv != nullptr)
+    {
+        for (int i = 1; i < argc; ++i)
+        {
+            std::wstring arg{ argv[i] };
+            // Skip flags like --something
+            if (!arg.empty() && arg[0] != L'-')
+            {
+                launchPath = arg;
+                break;
+            }
+        }
+        LocalFree(const_cast<LPWSTR*>(argv));
+    }
+
+    if (launchPath.has_value())
+    {
+        winrt::FileScoutNative::implementation::App::SetLaunchPath(*launchPath);
+        TraceLog(L"[launch] Path argument: " + launchPath->wstring());
+    }
 
     PACKAGE_VERSION minVersion{};
     minVersion.Version = WINDOWSAPPSDK_RUNTIME_VERSION_UINT64;

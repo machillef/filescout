@@ -1704,8 +1704,10 @@ namespace winrt::FileScoutNative::implementation
                 PaneSurface_ContextRequested(sender, args);
             });
 
-        // Start in the user's home folder rather than the process working directory.
-        auto const startPath = m_favoritesService.GetUserHomePath();
+        // Start in the user's home folder rather than the process working directory,
+        // unless a launch path was provided (e.g. from "Open in FileScout" context menu).
+        auto const launchPath = winrt::FileScoutNative::implementation::App::LaunchPath();
+        auto const startPath = launchPath.value_or(m_favoritesService.GetUserHomePath());
         TraceLog(L"MainWindow ctor: startPath=" + startPath.wstring());
 
         // Initialize both panes. Right pane starts at the same path but is loaded
