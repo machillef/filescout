@@ -5981,6 +5981,19 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
+        // Persist the currently active tab's state before closing another tab.
+        if (pane.active_list_view && pane.active_tab_index >= 0 &&
+            pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
+        {
+            pane.tabs[pane.active_tab_index].path = pane.current_path;
+            pane.tabs[pane.active_tab_index].items = pane.items;
+            pane.tabs[pane.active_tab_index].selection = pane.selection;
+            pane.tabs[pane.active_tab_index].selected_item_index =
+                pane.active_list_view.SelectedIndex();
+            pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
+            pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
+        }
+
         pane.tab_switching = true;
         pane.tabs.erase(pane.tabs.begin() + index);
         pane.tab_rows.erase(pane.tab_rows.begin() + index);
@@ -6035,6 +6048,22 @@ namespace winrt::FileScoutNative::implementation
             // Tab hasn't loaded yet — navigate to its path now.
             LoadDirectory(tab.path);
             return;
+        }
+
+        // Re-sort and rebuild the active tab's rows with the pane's current presentation
+        // so they match what the user last configured (not what the tab was loaded with).
+        SortItems(pane.items, pane.sort_column, pane.sort_direction);
+        auto& rows = pane.tab_rows[pane.active_tab_index];
+        rows.Clear();
+        for (auto const& item : pane.items)
+        {
+            auto vm = MakeFileRowViewModel(item);
+            auto impl = vm.as<winrt::FileScoutNative::implementation::FileRowViewModel>();
+            if (pane.group_by_sort_column)
+            {
+                impl->SetGroupHeader(BuildGroupLabel(item, pane.sort_column), true);
+            }
+            rows.Append(vm);
         }
 
         // Restore the cached rows and selection without re-scanning the disk.
