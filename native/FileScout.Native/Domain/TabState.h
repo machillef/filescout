@@ -13,6 +13,7 @@ namespace FileScoutNative::Domain
         int32_t selected_item_index{ -1 };
         bool is_drives_view{ false };
         bool is_archive_view{ false };
+        bool is_recycle_bin_view{ false };
 
         [[nodiscard]] std::wstring display_name() const
         {

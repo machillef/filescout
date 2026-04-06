@@ -55,6 +55,7 @@ namespace winrt::FileScoutNative::implementation
         bool tab_switching{ false };
         bool is_drives_view{ false };   // True when the pane shows the "This PC" drives list.
         bool is_archive_view{ false };  // True when the pane shows a virtual archive folder.
+        bool is_recycle_bin_view{ false };  // True when the pane shows the Recycle Bin.
         // View toggles — per-pane to match Explorer behavior.
         bool show_hidden_files{ false };
         bool show_file_extensions{ false };

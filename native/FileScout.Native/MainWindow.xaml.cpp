@@ -2989,13 +2989,84 @@ namespace winrt::FileScoutNative::implementation
         SortDirection const sort_direction = pane.sort_direction;
         bool const show_hidden_files = pane.show_hidden_files;
         bool const show_file_extensions = pane.show_file_extensions;
+        bool const is_recycle_bin_view = pane.is_recycle_bin_view;
 
         // Switch to a thread-pool thread for I/O and shell COM calls.
         co_await winrt::resume_background();
 
         try
         {
-            if (m_shellInterop.IsArchivePath(absolute))
+            if (is_recycle_bin_view)
+            {
+                auto recycleItems = m_shellInterop.EnumerateRecycleBin();
+                timing.enumeration_end_tick = ::GetTickCount64();
+                m_dispatcherQueue.TryEnqueue(
+                    [this, lifetime, paneIndex, tabIndex, generation,
+                     absolute, selectAfter, timing, items = std::move(recycleItems)]() mutable
+                    {
+                        auto& pane = m_panes[paneIndex];
+                        if (pane.load_generation != generation) return;
+                        if (pane.active_tab_index != tabIndex) return;
+                        pane.awaiting_final_batch = false;
+
+                        SortItems(items, pane.sort_column, pane.sort_direction);
+                        std::size_t const totalItems = items.size();
+                        pane.current_path = absolute;
+                        pane.is_drives_view = false;
+                        pane.is_archive_view = false;
+                        pane.is_recycle_bin_view = true;
+                        pane.items = items;
+                        pane.selection.Clear();
+
+                        pane.tabs[tabIndex].path = absolute;
+                        pane.tabs[tabIndex].items = items;
+                        pane.tabs[tabIndex].selection = {};
+                        pane.tabs[tabIndex].selected_item_index = -1;
+                        pane.tabs[tabIndex].is_drives_view = false;
+                        pane.tabs[tabIndex].is_archive_view = false;
+                        pane.tabs[tabIndex].is_recycle_bin_view = true;
+
+                        auto tabView = TabViewForPane(paneIndex);
+                        if (tabIndex >= 0 && tabIndex < static_cast<int32_t>(pane.tabs.size()))
+                        {
+                            auto tabItem = tabView.TabItems()
+                                .GetAt(static_cast<uint32_t>(tabIndex))
+                                .as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>();
+                            tabItem.Header(winrt::box_value(ToHString(L"Recycle Bin")));
+                        }
+
+                        auto& rows = pane.tab_rows[tabIndex];
+                        pane.tab_switching = true;
+                        rows.Clear();
+                        pane.tab_switching = false;
+                        for (auto const& item : pane.items)
+                            rows.Append(MakeFileRowViewModel(item));
+
+                        if (pane.active_list_view)
+                        {
+                            pane.tab_switching = true;
+                            pane.active_list_view.SelectedIndex(-1);
+                            pane.tab_switching = false;
+                        }
+
+                        if (m_activePaneIndex == paneIndex)
+                        {
+                            ResetSelectionDetails();
+                            StatusTextBlock().Text(ToHString(
+                                std::to_wstring(totalItems) +
+                                (totalItems == 1 ? L" item in " : L" items in ") +
+                                L"Recycle Bin"));
+                        }
+
+                        timing.first_batch_publish_tick = ::GetTickCount64();
+                        timing.final_publish_tick = timing.first_batch_publish_tick;
+                        pane.last_load_timing = timing;
+                        TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                        if (selectAfter.has_value())
+                            SelectItemByPath(*selectAfter);
+                    });
+            }
+            else if (m_shellInterop.IsArchivePath(absolute))
             {
                 // Archive: enumerate all at once, then publish on the UI thread.
                 auto archiveItems = m_shellInterop.EnumerateArchiveDirectory(absolute);
@@ -3116,6 +3187,7 @@ namespace winrt::FileScoutNative::implementation
                         pane.current_path = absolute;
                         pane.is_drives_view = false;
                         pane.is_archive_view = false;
+                        pane.is_recycle_bin_view = false;
                         pane.items = items;
                         pane.selection.Clear();
 
@@ -3125,6 +3197,7 @@ namespace winrt::FileScoutNative::implementation
                         pane.tabs[tabIndex].selected_item_index = -1;
                         pane.tabs[tabIndex].is_drives_view = false;
                         pane.tabs[tabIndex].is_archive_view = false;
+                        pane.tabs[tabIndex].is_recycle_bin_view = false;
 
                         auto tabView = TabViewForPane(paneIndex);
                         if (tabIndex >= 0 && tabIndex < static_cast<int32_t>(pane.tabs.size()))
@@ -6933,9 +7006,14 @@ namespace winrt::FileScoutNative::implementation
             {
                 btn.Click([this](auto const&, auto const&)
                 {
-                    ShellExecuteW(GetWindowHandle(), L"open",
-                        L"shell:RecycleBinFolder", nullptr, nullptr, SW_SHOW);
-                    StatusTextBlock().Text(L"Opened Recycle Bin in Explorer.");
+                    auto& pane = ActivePane();
+                    pane.is_recycle_bin_view = true;
+                    pane.is_drives_view = false;
+                    pane.is_archive_view = false;
+                    pane.current_path = L"shell:RecycleBinFolder";
+                    pane.back_stack.push_back(pane.current_path);
+                    UpdateBreadcrumbs(std::filesystem::path{ L"Recycle Bin" });
+                    LoadDirectory(pane.current_path);
                 });
             }
             else if (!entry.path.empty())

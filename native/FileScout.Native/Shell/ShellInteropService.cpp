@@ -3,6 +3,13 @@
 #include "Domain/IconCacheKey.h"
 #include "TraceHelper.h"
 
+// PKEY_DateDeleted is not defined in propkey.h — define it manually.
+// {EC28F96D-2F6B-4187-9565-17519122E2C1} 10
+static const PROPERTYKEY PKEY_DateDeleted = {
+    { 0xEC28F96D, 0x2F6B, 0x4187, { 0x95, 0x65, 0x17, 0x51, 0x91, 0x22, 0xE2, 0xC1 } },
+    10
+};
+
 namespace FileScoutNative::Shell
 {
     namespace
@@ -776,6 +783,100 @@ namespace FileScoutNative::Shell
         }
 
         return drives;
+    }
+
+    std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateRecycleBin() const
+    {
+        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        bool const shouldUninitialize = SUCCEEDED(initHr);
+
+        std::vector<FileScoutNative::Domain::ShellItemRef> items;
+        try
+        {
+            winrt::com_ptr<IShellItem> recycleBinItem;
+            winrt::check_hresult(SHCreateItemInKnownFolder(
+                FOLDERID_RecycleBinFolder,
+                0,
+                nullptr,
+                IID_PPV_ARGS(recycleBinItem.put())));
+
+            winrt::com_ptr<IEnumShellItems> enumerator;
+            winrt::check_hresult(recycleBinItem->BindToHandler(
+                nullptr,
+                BHID_EnumItems,
+                IID_PPV_ARGS(enumerator.put())));
+
+            while (true)
+            {
+                winrt::com_ptr<IShellItem> child;
+                ULONG fetched{};
+                auto const nextHr = enumerator->Next(1, child.put(), &fetched);
+                if (nextHr == S_FALSE || fetched == 0)
+                {
+                    break;
+                }
+                winrt::check_hresult(nextHr);
+
+                auto parsingName = TryGetShellString(child.get(), SIGDN_DESKTOPABSOLUTEPARSING);
+                auto displayName = TryGetShellString(child.get(), SIGDN_NORMALDISPLAY)
+                    .value_or(parsingName.has_value()
+                        ? std::filesystem::path{ *parsingName }.filename().wstring()
+                        : L"Unknown");
+
+                SFGAOF attributes = SFGAO_FOLDER;
+                child->GetAttributes(SFGAO_FOLDER, &attributes);
+
+                FileScoutNative::Domain::ShellItemRef item;
+                item.path = parsingName.has_value() ? std::filesystem::path{ *parsingName } : std::filesystem::path{};
+                item.parsing_name = parsingName.value_or(L"");
+                item.display_name = std::move(displayName);
+                item.is_folder = (attributes & SFGAO_FOLDER) != 0;
+                item.kind_label = item.is_folder ? L"Folder" : L"Deleted file";
+                item.icon = GetIconForItem(item.path, item.is_folder);
+
+                winrt::com_ptr<IShellItem2> child2;
+                if (SUCCEEDED(child->QueryInterface(IID_PPV_ARGS(child2.put()))))
+                {
+                    if (auto kindLabel = TryGetShellPropertyString(child2.get(), PKEY_ItemTypeText);
+                        kindLabel.has_value() && !kindLabel->empty())
+                    {
+                        item.kind_label = *kindLabel;
+                    }
+
+                    ULONGLONG sizeBytes{};
+                    if (SUCCEEDED(child2->GetUInt64(PKEY_Size, &sizeBytes)))
+                    {
+                        item.size_available = true;
+                        item.size_bytes = sizeBytes;
+                    }
+
+                    FILETIME deletedTime{};
+                    if (SUCCEEDED(child2->GetFileTime(PKEY_DateDeleted, &deletedTime)))
+                    {
+                        item.date_modified_available = true;
+                        item.date_modified = FileTimeToChrono(deletedTime);
+                        item.date_modified_str = FormatShellDateTime(deletedTime).value_or(L"");
+                    }
+                }
+
+                items.push_back(std::move(item));
+            }
+        }
+        catch (...)
+        {
+            if (shouldUninitialize)
+            {
+                CoUninitialize();
+            }
+            throw;
+        }
+
+        if (shouldUninitialize)
+        {
+            CoUninitialize();
+        }
+
+        return items;
     }
 
     FileScoutNative::Domain::IconBitmap ShellInteropService::GetItemIcon(

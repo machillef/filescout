@@ -21,6 +21,7 @@ namespace FileScoutNative::Shell
 
         // Returns one ShellItemRef per attached drive root (e.g. C:\, D:\).
         [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateDrives();
+        [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateRecycleBin() const;
         [[nodiscard]] FileScoutNative::Domain::IconBitmap GetItemIcon(
             std::filesystem::path const& path,
             bool isFolder) const;
