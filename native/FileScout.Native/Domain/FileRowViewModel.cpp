@@ -38,6 +38,18 @@ namespace winrt::FileScoutNative::implementation
         RaisePropertyChanged(L"SelectionFillOpacity");
     }
 
+    void FileRowViewModel::IsCut(bool value) noexcept
+    {
+        if (m_isCut == value)
+        {
+            return;
+        }
+
+        m_isCut = value;
+        RaisePropertyChanged(L"IsCut");
+        RaisePropertyChanged(L"CutOpacity");
+    }
+
     void FileRowViewModel::IconSource(winrt::Microsoft::UI::Xaml::Media::ImageSource const& value)
     {
         m_iconSource = value;

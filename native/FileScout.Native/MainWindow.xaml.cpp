@@ -2893,6 +2893,7 @@ namespace winrt::FileScoutNative::implementation
         bool skipHistoryRecord)
     {
         ScopedTimer loadTimer{ L"LoadDirectory: " + path.wstring() };
+        m_cutItemPaths.clear();
         std::filesystem::path absolutePath;
         try
         {
@@ -3508,6 +3509,14 @@ namespace winrt::FileScoutNative::implementation
         for (uint32_t index = selectedCount; index < rowCount; ++index)
         {
             rows.GetAt(index).IsSelected(false);
+        }
+
+        // Apply cut-state opacity to all rows.
+        for (uint32_t index = 0; index < rowCount; ++index)
+        {
+            auto row = rows.GetAt(index).as<winrt::FileScoutNative::implementation::FileRowViewModel>();
+            auto const isCut = m_cutItemPaths.count(displayedItems[static_cast<std::size_t>(index)].parsing_name) > 0;
+            row->IsCut(isCut);
         }
     }
 
@@ -4130,6 +4139,12 @@ namespace winrt::FileScoutNative::implementation
             try
             {
                 m_shellClipboardService.CutShellItems(selectedItems);
+                m_cutItemPaths.clear();
+                for (auto const& item : selectedItems)
+                {
+                    m_cutItemPaths.insert(item.parsing_name);
+                }
+                UpdateRowSelectionVisuals(ActivePane());
                 StatusTextBlock().Text(ToHString(
                     L"Cut " + std::to_wstring(selectedItems.size()) +
                     (selectedItems.size() == 1 ? L" item." : L" items.")));
@@ -4151,6 +4166,7 @@ namespace winrt::FileScoutNative::implementation
                     GetWindowHandle(), ActivePane().current_path);
                 if (outcome.succeeded)
                 {
+                    m_cutItemPaths.clear();
                     LoadDirectory(ActivePane().current_path);
                     StatusTextBlock().Text(ToHString(BuildPasteSuccessStatus(outcome)));
                 }

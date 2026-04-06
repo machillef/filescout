@@ -213,6 +213,9 @@ namespace winrt::FileScoutNative::implementation
         // Avoids one WriteableBitmap allocation per item — one per unique extension per session.
         std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::Media::ImageSource> m_iconSourceCache;
 
+        // Paths of items currently in cut state (for faded icon feedback).
+        std::unordered_set<std::wstring> m_cutItemPaths;
+
         // Active-pane accessors.
         [[nodiscard]] PaneContext& ActivePane() noexcept { return m_panes[m_activePaneIndex]; }
         [[nodiscard]] PaneContext const& ActivePane() const noexcept { return m_panes[m_activePaneIndex]; }

@@ -30,6 +30,9 @@ namespace FileScoutNative
         // True when the row is selected in the active ListView.
         Boolean IsSelected { get; set; };
 
+        // Opacity multiplier for cut items (0.4 when cut, 1.0 otherwise).
+        Double CutOpacity { get; };
+
         // Selection-driven visual helpers consumed by row templates.
         Double SelectionOutlineOpacity { get; };
         Double SelectionFillOpacity { get; };
