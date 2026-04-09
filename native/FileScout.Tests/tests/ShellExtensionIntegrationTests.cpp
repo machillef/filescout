@@ -41,3 +41,13 @@ TEST(ShellExtensionIntegration, ShellExecuteResultBelowThirtyTwoIsFailure)
     EXPECT_FALSE(FileScoutShellExt::DidShellExecuteSucceed(reinterpret_cast<HINSTANCE>(32)));
     EXPECT_TRUE(FileScoutShellExt::DidShellExecuteSucceed(reinterpret_cast<HINSTANCE>(33)));
 }
+
+TEST(ShellExtensionIntegration, PrepareForInitializeClearsPreviousSelectionState)
+{
+    std::vector<std::wstring> selectedPaths{ L"C:\\old.txt" };
+
+    FileScoutShellExt::PrepareForInitialize(selectedPaths, 2);
+
+    EXPECT_TRUE(selectedPaths.empty());
+    EXPECT_GE(selectedPaths.capacity(), 2U);
+}

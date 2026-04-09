@@ -126,7 +126,7 @@ IFACEMETHODIMP FileScoutContextMenu::Initialize(
 
     auto const hDrop = static_cast<HDROP>(stg.hGlobal);
     auto const count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
-    m_selectedPaths.reserve(count);
+    FileScoutShellExt::PrepareForInitialize(m_selectedPaths, count);
 
     for (UINT i = 0; i < count; ++i)
     {

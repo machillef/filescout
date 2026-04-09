@@ -87,6 +87,12 @@ namespace FileScoutShellExt
     {
         return reinterpret_cast<INT_PTR>(result) > 32;
     }
+
+    inline void PrepareForInitialize(std::vector<std::wstring>& selectedPaths, size_t count)
+    {
+        selectedPaths.clear();
+        selectedPaths.reserve(count);
+    }
 }
 
 class DECLSPEC_UUID("A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
