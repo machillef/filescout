@@ -231,6 +231,147 @@
                                        Stretch="Uniform"
                                        Source="{x:Bind IconSource, Mode=OneWay}"
                                        Opacity="{x:Bind CutOpacity, Mode=OneWay}" />
+                                <TextBlock Grid.Column="1"
+                                           Text="{x:Bind Name}"
+                                           FontSize="12.5"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <Border Grid.Column="2"
+                                        HorizontalAlignment="Left"
+                                        Padding="6,2"
+                                        CornerRadius="6"
+                                        Background="{ThemeResource LayerFillColorAltBrush}"
+                                        Opacity="0.88">
+                                    <TextBlock Text="{x:Bind TypeLabel}"
+                                               FontSize="11.5"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                </Border>
+                                <TextBlock Grid.Column="3"
+                                           Text="{x:Bind SizeText}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                           Opacity="0.78"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="4"
+                                           Text="{x:Bind DateText}"
+                                           FontSize="12.5"
+                                           FontWeight="SemiBold"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                           Opacity="0.82"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                            <Rectangle Height="1"
+                                       Margin="28,0,0,0"
+                                       VerticalAlignment="Bottom"
+                                       Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                       Opacity="0.32" />
+                        </Grid>
+                    </Border>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="GroupRowTemplate"
+                          x:DataType="local:FileRowViewModel">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border Grid.Row="0"
+                            Height="{x:Bind GroupHeaderHeight, Mode=OneWay}"
+                            Margin="12,0,0,4"
+                            Padding="10,6,10,6"
+                            CornerRadius="9"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                            Opacity="{x:Bind GroupHeaderOpacity, Mode=OneWay}">
+                        <Grid ColumnSpacing="10"
+                              VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="6"
+                                    Height="20"
+                                    CornerRadius="3"
+                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                    VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{x:Bind GroupHeaderText, Mode=OneWay}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       CharacterSpacing="120"
+                                       Opacity="0.9"
+                                       TextWrapping="NoWrap"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2"
+                                       Text="GROUP"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       CharacterSpacing="140"
+                                       Opacity="0.56"
+                                       VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <Border Grid.Row="1"
+                            Margin="24,0,0,0"
+                            CornerRadius="10"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                            Opacity="{x:Bind SelectionOutlineOpacity, Mode=OneWay}" />
+                    <Border Grid.Row="1"
+                            Margin="25,1,0,1"
+                            Padding="12,7,12,7"
+                            CornerRadius="10"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                        <Grid>
+                            <Border CornerRadius="10"
+                                    Background="{ThemeResource AccentFillColorSecondaryBrush}"
+                                    Opacity="{x:Bind SelectionFillOpacity, Mode=OneWay}" />
+                            <Grid ColumnSpacing="12"
+                                  RowSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="6" />
+                                    <ColumnDefinition Width="44" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.RowSpan="2"
+                                        Width="3"
+                                        Margin="0,1,0,1"
+                                        CornerRadius="2"
+                                        Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                        Opacity="0.78"
+                                        VerticalAlignment="Stretch" />
+                                <Border Grid.Column="1"
+                                        Grid.RowSpan="2"
+                                        Width="32"
+                                        Height="32"
+                                        CornerRadius="8"
+                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        VerticalAlignment="Center">
+                                    <Image Width="16"
+                                           Height="16"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Stretch="Uniform"
+                                           Source="{x:Bind IconSource, Mode=OneWay}"
+                                           Opacity="{x:Bind CutOpacity, Mode=OneWay}" />
+                                </Border>
                                 <TextBlock Grid.Column="2"
                                            Text="{x:Bind Name}"
                                            FontSize="14"

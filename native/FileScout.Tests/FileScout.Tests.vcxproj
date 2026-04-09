@@ -152,6 +152,7 @@
     <ClCompile Include="tests\CommandRegistryTests.cpp" />
     <ClCompile Include="tests\FileRowViewModelTests.cpp" />
     <ClCompile Include="tests\DriveCapacityTests.cpp" />
+    <ClCompile Include="tests\MainWindowXamlTests.cpp" />
     <ClCompile Include="tests\NavigationInputTests.cpp" />
     <ClCompile Include="tests\RowIconStateTests.cpp" />
     <ClCompile Include="tests\ShellItemSortTests.cpp" />
