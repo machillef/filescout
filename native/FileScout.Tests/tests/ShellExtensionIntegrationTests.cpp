@@ -27,3 +27,17 @@ TEST(ShellExtensionIntegration, ResolveFileScoutPathFallsBackWhenStoredPathIsMis
 
     EXPECT_EQ(path, LR"(C:\repo\native\x64\Debug\FileScout.Native\FileScoutNative.exe)");
 }
+
+TEST(ShellExtensionIntegration, QuoteCommandLineArgumentEscapesDriveRoots)
+{
+    auto const quoted = FileScoutShellExt::QuoteCommandLineArgument(LR"(C:\)");
+
+    EXPECT_EQ(quoted, LR"("C:\\")");
+}
+
+TEST(ShellExtensionIntegration, ShellExecuteResultBelowThirtyTwoIsFailure)
+{
+    EXPECT_FALSE(FileScoutShellExt::DidShellExecuteSucceed(reinterpret_cast<HINSTANCE>(31)));
+    EXPECT_FALSE(FileScoutShellExt::DidShellExecuteSucceed(reinterpret_cast<HINSTANCE>(32)));
+    EXPECT_TRUE(FileScoutShellExt::DidShellExecuteSucceed(reinterpret_cast<HINSTANCE>(33)));
+}

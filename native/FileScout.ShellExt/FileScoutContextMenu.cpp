@@ -176,8 +176,18 @@ IFACEMETHODIMP FileScoutContextMenu::InvokeCommand(CMINVOKECOMMANDINFO* pici)
 
     for (auto const& path : m_selectedPaths)
     {
-        ShellExecuteW(pici->hwnd, L"open", fileScoutPath.c_str(),
-            (L"\"" + path + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+        auto const argument = FileScoutShellExt::QuoteCommandLineArgument(path);
+        auto const result = ShellExecuteW(
+            pici->hwnd,
+            L"open",
+            fileScoutPath.c_str(),
+            argument.c_str(),
+            nullptr,
+            SW_SHOWNORMAL);
+        if (!FileScoutShellExt::DidShellExecuteSucceed(result))
+        {
+            return E_FAIL;
+        }
     }
 
     return S_OK;

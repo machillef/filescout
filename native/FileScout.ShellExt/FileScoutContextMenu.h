@@ -50,6 +50,43 @@ namespace FileScoutShellExt
 
         return fallbackPath;
     }
+
+    inline std::wstring QuoteCommandLineArgument(std::wstring const& argument)
+    {
+        std::wstring quoted;
+        quoted.push_back(L'"');
+
+        size_t backslashCount = 0;
+        for (wchar_t ch : argument)
+        {
+            if (ch == L'\\')
+            {
+                ++backslashCount;
+                continue;
+            }
+
+            if (ch == L'"')
+            {
+                quoted.append(backslashCount * 2 + 1, L'\\');
+                quoted.push_back(ch);
+                backslashCount = 0;
+                continue;
+            }
+
+            quoted.append(backslashCount, L'\\');
+            backslashCount = 0;
+            quoted.push_back(ch);
+        }
+
+        quoted.append(backslashCount * 2, L'\\');
+        quoted.push_back(L'"');
+        return quoted;
+    }
+
+    inline bool DidShellExecuteSucceed(HINSTANCE result)
+    {
+        return reinterpret_cast<INT_PTR>(result) > 32;
+    }
 }
 
 class DECLSPEC_UUID("A1B2C3D4-E5F6-7890-ABCD-EF1234567890")

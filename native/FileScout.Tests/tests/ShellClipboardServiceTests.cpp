@@ -59,6 +59,11 @@ protected:
     static void ClearClipboard()
     {
         (void)OleSetClipboard(nullptr);
+        if (OpenClipboard(nullptr))
+        {
+            EmptyClipboard();
+            CloseClipboard();
+        }
     }
 };
 
