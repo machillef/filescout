@@ -46,6 +46,11 @@ FileScoutContextMenu::FileScoutContextMenu()
     InterlockedIncrement(&s_refCount);
 }
 
+bool FileScoutContextMenu::CanUnloadNow()
+{
+    return s_refCount == 0;
+}
+
 IFACEMETHODIMP FileScoutContextMenu::QueryInterface(REFIID riid, void** ppv)
 {
     static const QITAB qit[] = {
@@ -219,7 +224,7 @@ extern "C"
 
     STDAPI DllCanUnloadNow()
     {
-        return FileScoutContextMenu::s_refCount == 0 ? S_OK : S_FALSE;
+        return FileScoutContextMenu::CanUnloadNow() ? S_OK : S_FALSE;
     }
 
     STDAPI DllRegisterServer()

@@ -69,6 +69,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
+      <AdditionalOptions>/EXPORT:DllGetClassObject,PRIVATE /EXPORT:DllCanUnloadNow,PRIVATE /EXPORT:DllRegisterServer,PRIVATE /EXPORT:DllUnregisterServer,PRIVATE %(AdditionalOptions)</AdditionalOptions>
       <AdditionalDependencies>Shell32.lib;Shlwapi.lib;Ole32.lib;OleAut32.lib;Uuid.lib;User32.lib;Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
