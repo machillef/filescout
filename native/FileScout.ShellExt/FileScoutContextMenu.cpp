@@ -4,15 +4,61 @@
 // Get the FileScout executable path.
 // Tries registry first (set by installer or DllRegisterServer),
 // then falls back to the DLL's own directory.
+namespace
+{
+    constexpr wchar_t kClsidString[] = L"{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}";
+    constexpr wchar_t kInstallPathKey[] = L"Software\\FileScout";
+    constexpr wchar_t kInstallPathValue[] = L"InstallPath";
+    constexpr wchar_t kFileScoutExeName[] = L"FileScoutNative.exe";
+
+    bool TrimToDirectory(std::wstring& path)
+    {
+        auto const slash = path.find_last_of(L"\\/");
+        if (slash == std::wstring::npos)
+        {
+            return false;
+        }
+
+        path.erase(slash);
+        return true;
+    }
+
+    std::wstring GetShellExtModulePath()
+    {
+        HMODULE module{};
+        if (!GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                reinterpret_cast<LPCWSTR>(&GetShellExtModulePath),
+                &module))
+        {
+            return {};
+        }
+
+        wchar_t modulePath[MAX_PATH]{};
+        auto const length = GetModuleFileNameW(module, modulePath, MAX_PATH);
+        return length == 0 ? std::wstring{} : std::wstring{ modulePath, length };
+    }
+
+    std::wstring BuildDefaultFileScoutPath()
+    {
+        auto modulePath = GetShellExtModulePath();
+        if (!TrimToDirectory(modulePath) || !TrimToDirectory(modulePath))
+        {
+            return kFileScoutExeName;
+        }
+
+        return modulePath + L"\\" + kFileScoutExeName;
+    }
+}
+
 static std::wstring GetFileScoutPath()
 {
-    // Try registry: HKCU\Software\FileScout\InstallPath
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\FileScout", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    HKEY hKey{};
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kInstallPathKey, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
     {
         wchar_t path[MAX_PATH]{};
         DWORD size = sizeof(path);
-        if (RegQueryValueExW(hKey, L"InstallPath", nullptr, nullptr,
+        if (RegQueryValueExW(hKey, kInstallPathValue, nullptr, nullptr,
             reinterpret_cast<LPBYTE>(path), &size) == ERROR_SUCCESS)
         {
             RegCloseKey(hKey);
@@ -21,34 +67,36 @@ static std::wstring GetFileScoutPath()
         RegCloseKey(hKey);
     }
 
-    // Fallback: assume FileScout.Native.exe is next to this DLL.
-    wchar_t modulePath[MAX_PATH]{};
-    HMODULE hModule;
-    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        reinterpret_cast<LPCWSTR>(&GetFileScoutPath), &hModule))
-    {
-        GetModuleFileNameW(hModule, modulePath, MAX_PATH);
-        auto* lastSlash = wcsrchr(modulePath, L'\\');
-        if (lastSlash)
-        {
-            *(lastSlash + 1) = L'\0';
-        }
-        return std::wstring{ modulePath } + L"FileScout.Native.exe";
-    }
-
-    return L"FileScout.Native.exe";
+    return BuildDefaultFileScoutPath();
 }
 
-ULONG FileScoutContextMenu::s_refCount = 0;
+LONG FileScoutContextMenu::s_objectCount = 0;
+LONG FileScoutContextMenu::s_lockCount = 0;
 
 FileScoutContextMenu::FileScoutContextMenu()
 {
-    InterlockedIncrement(&s_refCount);
+    InterlockedIncrement(&s_objectCount);
+}
+
+FileScoutContextMenu::~FileScoutContextMenu()
+{
+    InterlockedDecrement(&s_objectCount);
 }
 
 bool FileScoutContextMenu::CanUnloadNow()
 {
-    return s_refCount == 0;
+    return s_objectCount == 0 && s_lockCount == 0;
+}
+
+void FileScoutContextMenu::UpdateServerLock(bool lock)
+{
+    if (lock)
+    {
+        InterlockedIncrement(&s_lockCount);
+        return;
+    }
+
+    InterlockedDecrement(&s_lockCount);
 }
 
 IFACEMETHODIMP FileScoutContextMenu::QueryInterface(REFIID riid, void** ppv)
@@ -63,12 +111,12 @@ IFACEMETHODIMP FileScoutContextMenu::QueryInterface(REFIID riid, void** ppv)
 
 IFACEMETHODIMP_(ULONG) FileScoutContextMenu::AddRef()
 {
-    return InterlockedIncrement(&s_refCount);
+    return static_cast<ULONG>(InterlockedIncrement(&m_refCount));
 }
 
 IFACEMETHODIMP_(ULONG) FileScoutContextMenu::Release()
 {
-    auto const count = InterlockedDecrement(&s_refCount);
+    auto const count = static_cast<ULONG>(InterlockedDecrement(&m_refCount));
     if (count == 0)
     {
         delete this;
@@ -184,6 +232,13 @@ extern "C"
 {
     STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** ppv)
     {
+        if (!ppv)
+        {
+            return E_POINTER;
+        }
+
+        *ppv = nullptr;
+
         if (rclsid != CLSID_FileScoutContextMenu)
         {
             return CLASS_E_CLASSNOTAVAILABLE;
@@ -192,8 +247,25 @@ extern "C"
         class Factory : public IClassFactory
         {
         public:
+            Factory()
+            {
+                FileScoutContextMenu::UpdateServerLock(true);
+            }
+
+            ~Factory()
+            {
+                FileScoutContextMenu::UpdateServerLock(false);
+            }
+
             IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override
             {
+                if (!ppv)
+                {
+                    return E_POINTER;
+                }
+
+                *ppv = nullptr;
+
                 if (riid == IID_IUnknown || riid == IID_IClassFactory)
                 {
                     *ppv = static_cast<IClassFactory*>(this);
@@ -202,24 +274,65 @@ extern "C"
                 }
                 return E_NOINTERFACE;
             }
-            IFACEMETHODIMP_(ULONG) AddRef() override { return 2; }
-            IFACEMETHODIMP_(ULONG) Release() override { return 1; }
+            IFACEMETHODIMP_(ULONG) AddRef() override
+            {
+                return static_cast<ULONG>(InterlockedIncrement(&m_refCount));
+            }
+
+            IFACEMETHODIMP_(ULONG) Release() override
+            {
+                auto const count = static_cast<ULONG>(InterlockedDecrement(&m_refCount));
+                if (count == 0)
+                {
+                    delete this;
+                }
+                return count;
+            }
+
             IFACEMETHODIMP CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppv) override
             {
-                if (pUnkOuter) return CLASS_E_NOAGGREGATION;
-                auto* ext = new FileScoutContextMenu();
-                auto const hr = ext->QueryInterface(riid, ppv);
-                if (FAILED(hr))
+                if (!ppv)
                 {
-                    delete ext;
+                    return E_POINTER;
                 }
+
+                *ppv = nullptr;
+
+                if (pUnkOuter)
+                {
+                    return CLASS_E_NOAGGREGATION;
+                }
+
+                auto* ext = new (std::nothrow) FileScoutContextMenu();
+                if (!ext)
+                {
+                    return E_OUTOFMEMORY;
+                }
+
+                auto const hr = ext->QueryInterface(riid, ppv);
+                ext->Release();
                 return hr;
             }
-            IFACEMETHODIMP LockServer(BOOL fLock) override { return S_OK; }
+
+            IFACEMETHODIMP LockServer(BOOL fLock) override
+            {
+                FileScoutContextMenu::UpdateServerLock(fLock != FALSE);
+                return S_OK;
+            }
+
+        private:
+            LONG m_refCount{ 1 };
         };
 
-        *ppv = new Factory();
-        return *ppv ? S_OK : E_OUTOFMEMORY;
+        auto* factory = new (std::nothrow) Factory();
+        if (!factory)
+        {
+            return E_OUTOFMEMORY;
+        }
+
+        auto const hr = factory->QueryInterface(riid, ppv);
+        factory->Release();
+        return hr;
     }
 
     STDAPI DllCanUnloadNow()
@@ -229,24 +342,33 @@ extern "C"
 
     STDAPI DllRegisterServer()
     {
-        wchar_t modulePath[MAX_PATH]{};
-        if (!GetModuleFileNameW(nullptr, modulePath, MAX_PATH))
+        auto const modulePath = GetShellExtModulePath();
+        if (modulePath.empty())
         {
             return SELFREG_E_CLASS;
         }
 
-        auto const clsidStr = L"{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}";
+        auto const fileScoutPath = BuildDefaultFileScoutPath();
 
-        HKEY hKey;
+        HKEY hKey{};
         auto const createKey = [&](std::wstring const& subKey) -> bool
         {
             return RegCreateKeyExW(HKEY_CURRENT_USER, subKey.c_str(), 0, nullptr, 0,
                 KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS;
         };
 
-        auto const setValue = [&](std::wstring const& value) -> bool
+        auto const setDefaultValue = [&](std::wstring const& value) -> bool
         {
             auto const result = RegSetValueExW(hKey, nullptr, 0, REG_SZ,
+                reinterpret_cast<const BYTE*>(value.c_str()),
+                static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+            RegCloseKey(hKey);
+            return result == ERROR_SUCCESS;
+        };
+
+        auto const setNamedValue = [&](wchar_t const* name, std::wstring const& value) -> bool
+        {
+            auto const result = RegSetValueExW(hKey, name, 0, REG_SZ,
                 reinterpret_cast<const BYTE*>(value.c_str()),
                 static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
             RegCloseKey(hKey);
@@ -256,41 +378,45 @@ extern "C"
         // Directory background (right-click on empty space in a folder)
         if (!createKey(L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\FileScout"))
             return SELFREG_E_CLASS;
-        if (!setValue(clsidStr)) return SELFREG_E_CLASS;
+        if (!setDefaultValue(kClsidString)) return SELFREG_E_CLASS;
 
         // Directory (right-click on a folder)
         if (!createKey(L"Software\\Classes\\Directory\\shellex\\ContextMenuHandlers\\FileScout"))
             return SELFREG_E_CLASS;
-        if (!setValue(clsidStr)) return SELFREG_E_CLASS;
+        if (!setDefaultValue(kClsidString)) return SELFREG_E_CLASS;
 
         // Drive (right-click on a drive letter)
         if (!createKey(L"Software\\Classes\\Drive\\shellex\\ContextMenuHandlers\\FileScout"))
             return SELFREG_E_CLASS;
-        if (!setValue(clsidStr)) return SELFREG_E_CLASS;
+        if (!setDefaultValue(kClsidString)) return SELFREG_E_CLASS;
+
+        if (!createKey(std::wstring{ L"Software\\Classes\\CLSID\\" } + kClsidString))
+            return SELFREG_E_CLASS;
+        if (!setDefaultValue(L"FileScout Context Menu")) return SELFREG_E_CLASS;
+
+        if (!createKey(std::wstring{ L"Software\\Classes\\CLSID\\" } + kClsidString + L"\\InprocServer32"))
+            return SELFREG_E_CLASS;
+        if (!setDefaultValue(modulePath)) return SELFREG_E_CLASS;
+
+        if (!createKey(std::wstring{ L"Software\\Classes\\CLSID\\" } + kClsidString + L"\\InprocServer32"))
+            return SELFREG_E_CLASS;
+        if (!setNamedValue(L"ThreadingModel", L"Apartment")) return SELFREG_E_CLASS;
 
         // Store install path for GetFileScoutPath()
-        if (createKey(L"Software\\FileScout"))
-        {
-            auto* lastSlash = wcsrchr(modulePath, L'\\');
-            if (lastSlash)
-            {
-                *(lastSlash + 1) = L'\0';
-            }
-            RegSetValueExW(hKey, L"InstallPath", 0, REG_SZ,
-                reinterpret_cast<const BYTE*>(modulePath),
-                static_cast<DWORD>((wcslen(modulePath) + 1) * sizeof(wchar_t)));
-            RegCloseKey(hKey);
-        }
+        if (!createKey(kInstallPathKey))
+            return SELFREG_E_CLASS;
+        if (!setNamedValue(kInstallPathValue, fileScoutPath)) return SELFREG_E_CLASS;
 
         return S_OK;
     }
 
     STDAPI DllUnregisterServer()
     {
-        RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\FileScout");
-        RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\shellex\\ContextMenuHandlers\\FileScout");
-        RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Classes\\Drive\\shellex\\ContextMenuHandlers\\FileScout");
-        RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\FileScout");
+        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\FileScout");
+        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\shellex\\ContextMenuHandlers\\FileScout");
+        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Drive\\shellex\\ContextMenuHandlers\\FileScout");
+        RegDeleteTreeW(HKEY_CURRENT_USER, (std::wstring{ L"Software\\Classes\\CLSID\\" } + kClsidString).c_str());
+        RegDeleteTreeW(HKEY_CURRENT_USER, kInstallPathKey);
         return S_OK;
     }
 }

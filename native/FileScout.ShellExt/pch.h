@@ -7,5 +7,6 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <olectl.h>
+#include <new>
 #include <string>
 #include <vector>

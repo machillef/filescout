@@ -16,8 +16,10 @@ class DECLSPEC_UUID("A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
 {
 public:
     FileScoutContextMenu();
+    ~FileScoutContextMenu();
 
     static bool CanUnloadNow();
+    static void UpdateServerLock(bool lock);
 
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override;
@@ -46,6 +48,8 @@ public:
         UINT cchMax) override;
 
 private:
-    static ULONG s_refCount;
+    LONG m_refCount{ 1 };
+    static LONG s_objectCount;
+    static LONG s_lockCount;
     std::vector<std::wstring> m_selectedPaths;
 };
