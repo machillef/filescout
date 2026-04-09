@@ -1,10 +1,12 @@
 #include "pch.h"
-#include "App.xaml.h"
 #include "TraceHelper.h"
 
 #include <fstream>
+#ifndef FILESCOUT_TESTING
+#include "App.xaml.h"
 #include <MddBootstrap.h>
 #include <WindowsAppSDK-VersionInfo.h>
+#endif
 
 namespace
 {
@@ -77,6 +79,23 @@ namespace
     }
 } // anonymous namespace
 
+namespace FileScoutNative::detail
+{
+    std::optional<std::filesystem::path> ResolveLaunchPathArgument(std::span<wchar_t const* const> args)
+    {
+        for (auto const* arg : args)
+        {
+            if (arg != nullptr && arg[0] != L'\0')
+            {
+                return std::filesystem::path{ arg };
+            }
+        }
+
+        return std::nullopt;
+    }
+}
+
+#ifndef FILESCOUT_TESTING
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR cmdLine, int)
 {
     TraceLog(L"--- wWinMain start ---");
@@ -88,15 +107,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR cmdLine, int)
     int argc = 0;
     if (auto const* const* const argv = CommandLineToArgvW(GetCommandLineW(), &argc); argv != nullptr)
     {
-        for (int i = 1; i < argc; ++i)
+        if (argc > 1)
         {
-            std::wstring arg{ argv[i] };
-            // Skip flags like --something
-            if (!arg.empty() && arg[0] != L'-')
-            {
-                launchPath = arg;
-                break;
-            }
+            launchPath = FileScoutNative::detail::ResolveLaunchPathArgument(
+                std::span<wchar_t const* const>{ argv + 1, static_cast<size_t>(argc - 1) });
         }
         LocalFree(const_cast<LPWSTR*>(argv));
     }
@@ -163,3 +177,4 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR cmdLine, int)
     ::MddBootstrapShutdown();
     return exitCode;
 }
+#endif

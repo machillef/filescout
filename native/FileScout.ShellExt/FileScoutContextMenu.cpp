@@ -34,6 +34,8 @@ namespace
 
 static std::wstring GetFileScoutPath()
 {
+    auto const fallbackPath = BuildDefaultFileScoutPath();
+
     HKEY hKey{};
     if (RegOpenKeyExW(HKEY_CURRENT_USER, kInstallPathKey, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
     {
@@ -43,12 +45,12 @@ static std::wstring GetFileScoutPath()
             reinterpret_cast<LPBYTE>(path), &size) == ERROR_SUCCESS)
         {
             RegCloseKey(hKey);
-            return path;
+            return FileScoutShellExt::ResolveFileScoutPath(path, fallbackPath);
         }
         RegCloseKey(hKey);
     }
 
-    return BuildDefaultFileScoutPath();
+    return fallbackPath;
 }
 
 LONG FileScoutContextMenu::s_objectCount = 0;

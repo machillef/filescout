@@ -18,3 +18,12 @@ TEST(ShellExtensionIntegration, ContextMenuHandlerKeysDoNotRegisterDirectoryBack
     EXPECT_EQ(std::wstring{ keys[0] }, L"Software\\Classes\\Directory\\shellex\\ContextMenuHandlers\\FileScout");
     EXPECT_EQ(std::wstring{ keys[1] }, L"Software\\Classes\\Drive\\shellex\\ContextMenuHandlers\\FileScout");
 }
+
+TEST(ShellExtensionIntegration, ResolveFileScoutPathFallsBackWhenStoredPathIsMissing)
+{
+    auto const path = FileScoutShellExt::ResolveFileScoutPath(
+        LR"(C:\definitely-missing\FileScoutNative.exe)",
+        LR"(C:\repo\native\x64\Debug\FileScout.Native\FileScoutNative.exe)");
+
+    EXPECT_EQ(path, LR"(C:\repo\native\x64\Debug\FileScout.Native\FileScoutNative.exe)");
+}
