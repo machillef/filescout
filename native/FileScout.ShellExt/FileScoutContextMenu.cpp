@@ -9,19 +9,6 @@ namespace
     constexpr wchar_t kClsidString[] = L"{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}";
     constexpr wchar_t kInstallPathKey[] = L"Software\\FileScout";
     constexpr wchar_t kInstallPathValue[] = L"InstallPath";
-    constexpr wchar_t kFileScoutExeName[] = L"FileScoutNative.exe";
-
-    bool TrimToDirectory(std::wstring& path)
-    {
-        auto const slash = path.find_last_of(L"\\/");
-        if (slash == std::wstring::npos)
-        {
-            return false;
-        }
-
-        path.erase(slash);
-        return true;
-    }
 
     std::wstring GetShellExtModulePath()
     {
@@ -41,13 +28,7 @@ namespace
 
     std::wstring BuildDefaultFileScoutPath()
     {
-        auto modulePath = GetShellExtModulePath();
-        if (!TrimToDirectory(modulePath) || !TrimToDirectory(modulePath))
-        {
-            return kFileScoutExeName;
-        }
-
-        return modulePath + L"\\" + kFileScoutExeName;
+        return FileScoutShellExt::BuildFileScoutPathFromShellExtensionPath(GetShellExtModulePath());
     }
 }
 
@@ -375,20 +356,12 @@ extern "C"
             return result == ERROR_SUCCESS;
         };
 
-        // Directory background (right-click on empty space in a folder)
-        if (!createKey(L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\FileScout"))
-            return SELFREG_E_CLASS;
-        if (!setDefaultValue(kClsidString)) return SELFREG_E_CLASS;
-
-        // Directory (right-click on a folder)
-        if (!createKey(L"Software\\Classes\\Directory\\shellex\\ContextMenuHandlers\\FileScout"))
-            return SELFREG_E_CLASS;
-        if (!setDefaultValue(kClsidString)) return SELFREG_E_CLASS;
-
-        // Drive (right-click on a drive letter)
-        if (!createKey(L"Software\\Classes\\Drive\\shellex\\ContextMenuHandlers\\FileScout"))
-            return SELFREG_E_CLASS;
-        if (!setDefaultValue(kClsidString)) return SELFREG_E_CLASS;
+        for (auto const& subKey : FileScoutShellExt::ContextMenuHandlerRegistryKeys())
+        {
+            if (!createKey(std::wstring{ subKey }))
+                return SELFREG_E_CLASS;
+            if (!setDefaultValue(kClsidString)) return SELFREG_E_CLASS;
+        }
 
         if (!createKey(std::wstring{ L"Software\\Classes\\CLSID\\" } + kClsidString))
             return SELFREG_E_CLASS;
@@ -412,9 +385,10 @@ extern "C"
 
     STDAPI DllUnregisterServer()
     {
-        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\FileScout");
-        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\shellex\\ContextMenuHandlers\\FileScout");
-        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Drive\\shellex\\ContextMenuHandlers\\FileScout");
+        for (auto const& subKey : FileScoutShellExt::ContextMenuHandlerRegistryKeys())
+        {
+            RegDeleteTreeW(HKEY_CURRENT_USER, std::wstring{ subKey }.c_str());
+        }
         RegDeleteTreeW(HKEY_CURRENT_USER, (std::wstring{ L"Software\\Classes\\CLSID\\" } + kClsidString).c_str());
         RegDeleteTreeW(HKEY_CURRENT_USER, kInstallPathKey);
         return S_OK;

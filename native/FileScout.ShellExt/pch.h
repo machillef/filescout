@@ -7,6 +7,9 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <olectl.h>
+#include <array>
+#include <filesystem>
 #include <new>
 #include <string>
+#include <string_view>
 #include <vector>

@@ -149,6 +149,7 @@
     <ClCompile Include="tests\SearchFilterTests.cpp" />
     <ClCompile Include="tests\SearchPresentationTests.cpp" />
     <ClCompile Include="tests\SearchServiceTests.cpp" />
+    <ClCompile Include="tests\ShellExtensionIntegrationTests.cpp" />
     <ClCompile Include="tests\CommandRegistryTests.cpp" />
     <ClCompile Include="tests\FileRowViewModelTests.cpp" />
     <ClCompile Include="tests\DriveCapacityTests.cpp" />
