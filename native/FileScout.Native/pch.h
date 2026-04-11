@@ -31,6 +31,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <future>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
