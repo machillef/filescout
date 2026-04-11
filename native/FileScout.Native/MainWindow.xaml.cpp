@@ -3426,14 +3426,52 @@ namespace winrt::FileScoutNative::implementation
 
         co_await winrt::resume_background();
 
-        for (auto& item : items)
+        // Parallel icon extraction with cancellation support.
+        auto const itemCount = items.size();
+        std::atomic<bool> anyWorkerCancelled{ false };
+
+        if (itemCount > 0 && !(cancelToken && cancelToken->load(std::memory_order_relaxed)))
         {
-            if (cancelToken && cancelToken->load(std::memory_order_relaxed))
+            auto const workerCount = (std::min)(
+                static_cast<size_t>(std::thread::hardware_concurrency()),
+                static_cast<size_t>(8));
+            auto const chunkSize = (itemCount + workerCount - 1) / workerCount;
+
+            std::vector<std::future<void>> futures;
+            futures.reserve(workerCount);
+
+            for (size_t w = 0; w < workerCount; ++w)
             {
-                co_return;
+                auto const start = w * chunkSize;
+                auto const end = (std::min)(start + chunkSize, itemCount);
+                if (start >= itemCount) break;
+
+                futures.push_back(std::async(std::launch::async,
+                    [this, &items, start, end, cancelToken, &anyWorkerCancelled]()
+                    {
+                        for (size_t i = start; i < end; ++i)
+                        {
+                            if (cancelToken && cancelToken->load(std::memory_order_relaxed))
+                            {
+                                anyWorkerCancelled.store(true, std::memory_order_relaxed);
+                                return;
+                            }
+                            items[i].icon = m_shellInterop.GetItemIcon(
+                                items[i].path, items[i].is_folder);
+                        }
+                    }));
             }
 
-            item.icon = m_shellInterop.GetItemIcon(item.path, item.is_folder);
+            for (auto& f : futures)
+            {
+                try { f.get(); }
+                catch (...) { /* Worker failed — continue */ }
+            }
+        }
+
+        if (anyWorkerCancelled.load(std::memory_order_relaxed))
+        {
+            co_return;
         }
 
         // Keep the UI thread responsive during recursive-search row hydration too.
