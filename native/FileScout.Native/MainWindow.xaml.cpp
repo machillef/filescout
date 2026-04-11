@@ -3334,8 +3334,39 @@ namespace winrt::FileScoutNative::implementation
 
         co_await winrt::resume_background();
 
-        for (auto& item : items)
-            item.icon = m_shellInterop.GetItemIcon(item.path, item.is_folder);
+        // Parallel icon extraction: split items across worker threads.
+        auto const itemCount = items.size();
+        if (itemCount > 0)
+        {
+            auto const workerCount = (std::min)(
+                static_cast<size_t>(std::thread::hardware_concurrency()),
+                static_cast<size_t>(8));
+            auto const chunkSize = (itemCount + workerCount - 1) / workerCount;
+
+            std::vector<std::future<void>> futures;
+            futures.reserve(workerCount);
+
+            for (size_t w = 0; w < workerCount; ++w)
+            {
+                auto const start = w * chunkSize;
+                auto const end = (std::min)(start + chunkSize, itemCount);
+                if (start >= itemCount) break;
+
+                futures.push_back(std::async(std::launch::async,
+                    [this, &items, start, end]()
+                    {
+                        for (size_t i = start; i < end; ++i)
+                            items[i].icon = m_shellInterop.GetItemIcon(
+                                items[i].path, items[i].is_folder);
+                    }));
+            }
+
+            for (auto& f : futures)
+            {
+                try { f.get(); }
+                catch (...) { /* Worker failed — icons remain empty, continue */ }
+            }
+        }
 
         // L3: Chunk UI dispatches at 500 items so the UI thread drains incrementally.
         constexpr uint32_t k_iconChunkSize = 500;
