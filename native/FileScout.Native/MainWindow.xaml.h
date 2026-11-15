@@ -190,6 +190,9 @@ namespace winrt::FileScoutNative::implementation
 
         // Dual-pane state: index 0 = left, index 1 = right.
         std::array<PaneContext, 2> m_panes{};
+        // Folders the user left in either pane, oldest first (UB-11); feeds the sidebar recents.
+        std::vector<std::filesystem::path> m_recentFolders;
+        static constexpr std::size_t kRecentFolderCapacity = 32;
         int32_t m_activePaneIndex{ 0 };
         // Set to true in TitleBarDragHost_Loaded (first render complete).
         // Guards against deferred WinUI TabView SelectionChanged events during init

@@ -3132,6 +3132,12 @@ namespace winrt::FileScoutNative::implementation
                 pane.back_stack, pane.forward_stack, pane.current_path, absolutePath, skipHistoryRecord);
             if (pane.back_stack.size() != backDepth)
             {
+                // The Recycle Bin already has its own sidebar row.
+                if (!::FileScoutNative::Domain::IsRecycleBinLocation(pane.current_path))
+                {
+                    ::FileScoutNative::Domain::RecordRecentFolder(
+                        m_recentFolders, pane.current_path, kRecentFolderCapacity);
+                }
                 BuildSidebarFavorites();  // refresh recent paths section
             }
         }
@@ -7355,9 +7361,9 @@ namespace winrt::FileScoutNative::implementation
             panel.Children().Append(btn);
         }
 
-        // Recent paths: last 5 navigated folders not already shown above.
+        // Recent paths: last 5 folders left in either pane, not already shown above.
         auto const recents = ::FileScoutNative::Domain::SelectRecentPaths(
-            m_panes[0].back_stack, shownPathKeys, 5);
+            m_recentFolders, shownPathKeys, 5);
 
         if (!recents.empty())
         {
