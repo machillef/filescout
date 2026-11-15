@@ -6178,12 +6178,33 @@ namespace winrt::FileScoutNative::implementation
         }
 
         auto const query = ::FileScoutNative::Domain::AppendTypeAheadCharacter(pane.type_ahead, ch, nowMs);
-        int32_t const selected = pane.active_list_view ? pane.active_list_view.SelectedIndex() : -1;
-        auto const focused = selected >= 0
-            ? std::optional<std::size_t>{ static_cast<std::size_t>(selected) }
+        // Search from the focused row (Ctrl+arrows move focus without selecting in Extended mode);
+        // fall back to the selection.
+        int32_t start = -1;
+        if (pane.active_list_view && pane.active_list_view.XamlRoot())
+        {
+            auto const focusedElement = winrt::Microsoft::UI::Xaml::Input::FocusManager::GetFocusedElement(
+                pane.active_list_view.XamlRoot());
+            if (auto const container = focusedElement.try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>())
+            {
+                start = pane.active_list_view.IndexFromContainer(container);
+            }
+            if (start < 0)
+            {
+                start = pane.active_list_view.SelectedIndex();
+            }
+        }
+        auto const focused = start >= 0
+            ? std::optional<std::size_t>{ static_cast<std::size_t>(start) }
             : std::nullopt;
+        // During a staged load DisplayedItems() already holds every row while the ListView only has
+        // the first batch; never select a row that has not been published yet.
+        std::size_t const published = pane.active_tab_index >= 0 &&
+                pane.active_tab_index < static_cast<int32_t>(pane.tab_rows.size())
+            ? (std::min)(displayed.size(), static_cast<std::size_t>(pane.tab_rows[pane.active_tab_index].Size()))
+            : displayed.size();
         auto const match = ::FileScoutNative::Domain::FindTypeAheadMatch(
-            displayed.size(),
+            published,
             [&](std::size_t const i) -> std::wstring_view { return displayed[i].display_name; },
             focused,
             query);
