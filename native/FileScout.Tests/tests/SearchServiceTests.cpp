@@ -350,3 +350,57 @@ TEST(SearchService, StartCancelStartNoCrash)
     svc.Start(L"C:\\Windows\\System32", L"nt", [](std::vector<SearchResult>) {}, [](bool, bool) {}, post);
     svc.Cancel();
 }
+
+// S-11: Start used to detach the previous worker and the destructor joined only the last one, so a
+// detached worker could still be inside post_fn (which in production points at a pane) after the
+// service was destroyed.
+TEST(SearchService, NoPostAfterDestructionWhenStartedTwice)
+{
+    struct Probe
+    {
+        std::mutex mutex;
+        bool destroyed = false;
+        int postsFinishedAfterDestroy = 0;
+        std::atomic<bool> firstWorkerInPost{ false };
+    };
+    auto probe = std::make_shared<Probe>();
+
+    auto slowPost = [probe](std::function<void()> fn)
+    {
+        probe->firstWorkerInPost = true;
+        // A slow dispatcher: the worker is still inside post_fn when Start/destroy run.
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        fn();
+        std::lock_guard lock{ probe->mutex };
+        if (probe->destroyed)
+        {
+            ++probe->postsFinishedAfterDestroy;
+        }
+    };
+
+    {
+        SearchService svc;
+        svc.Start(L"C:\\Windows", L"dll", [](std::vector<SearchResult>) {}, [](bool, bool) {}, slowPost);
+
+        auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        while (!probe->firstWorkerInPost && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        ASSERT_TRUE(probe->firstWorkerInPost.load());
+
+        // The second walk posts synchronously, so destroying the service is quick and only a
+        // join of the first worker can make the destructor wait for its slow post.
+        svc.Start(L"C:\\Windows", L"dll", [](std::vector<SearchResult>) {}, [](bool, bool) {},
+            [](std::function<void()> fn) { fn(); });
+    }
+    {
+        std::lock_guard lock{ probe->mutex };
+        probe->destroyed = true;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(800));
+
+    std::lock_guard lock{ probe->mutex };
+    EXPECT_EQ(probe->postsFinishedAfterDestroy, 0);
+}
