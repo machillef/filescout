@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "ShellOverflowMenuService.h"
+#include "ShellCommandVerb.h"
 
 namespace FileScoutNative::Shell
 {
@@ -8,13 +9,6 @@ namespace FileScoutNative::Shell
         constexpr UINT firstCommandId = 1;
         constexpr UINT lastCommandId = 0x7FFF;
         constexpr UINT_PTR menuSubclassId = 0x4653434D;
-
-        bool IsBlockedVerb(std::string const& verb)
-        {
-            return _stricmp(verb.c_str(), "copy") == 0
-                || _stricmp(verb.c_str(), "cut") == 0
-                || _stricmp(verb.c_str(), "paste") == 0;
-        }
 
         struct CoTaskMemPidlDeleter
         {
@@ -172,22 +166,6 @@ namespace FileScoutNative::Shell
             return contextMenu;
         }
 
-        std::string GetCommandVerb(IContextMenu* contextMenu, UINT commandOffset)
-        {
-            std::array<char, 256> buffer{};
-            if (FAILED(contextMenu->GetCommandString(
-                    commandOffset,
-                    GCS_VERB,
-                    nullptr,
-                    reinterpret_cast<LPSTR>(buffer.data()),
-                    static_cast<UINT>(buffer.size()))))
-            {
-                return {};
-            }
-
-            return std::string(buffer.data());
-        }
-
         void FilterBlockedVerbs(HMENU menu, IContextMenu* contextMenu)
         {
             auto const itemCount = GetMenuItemCount(menu);
@@ -204,8 +182,8 @@ namespace FileScoutNative::Shell
                     continue;
                 }
 
-                auto const verb = GetCommandVerb(contextMenu, menuId - firstCommandId);
-                if (!verb.empty() && IsBlockedVerb(verb))
+                auto const verb = ReadShellCommandVerb(contextMenu, menuId - firstCommandId);
+                if (!verb.empty() && IsBlockedShellVerb(verb))
                 {
                     DeleteMenu(menu, static_cast<UINT>(position), MF_BYPOSITION);
                 }
@@ -241,6 +219,9 @@ namespace FileScoutNative::Shell
         FilterBlockedVerbs(popupMenu.value, contextMenu.get());
         MenuMessageSubclass subclass(ownerWindow, contextMenu);
 
+        // The owner must be the foreground window or the menu does not close on an outside click,
+        // and WM_NULL afterwards makes the next click work (TrackPopupMenu remarks).
+        SetForegroundWindow(ownerWindow);
         auto const selectedCommandId = static_cast<UINT>(TrackPopupMenu(
             popupMenu.value,
             TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
@@ -249,6 +230,7 @@ namespace FileScoutNative::Shell
             0,
             ownerWindow,
             nullptr));
+        PostMessageW(ownerWindow, WM_NULL, 0, 0);
 
         if (selectedCommandId == 0)
         {
