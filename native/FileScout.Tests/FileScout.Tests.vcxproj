@@ -170,6 +170,7 @@
     <ClCompile Include="tests\BenchTests.cpp" />
     <ClCompile Include="tests\ParallelForTests.cpp" />
     <ClCompile Include="tests\BatchRenameInputTests.cpp" />
+    <ClCompile Include="tests\RenamePolicyTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
