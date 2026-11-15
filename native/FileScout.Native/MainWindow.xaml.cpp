@@ -7649,14 +7649,21 @@ namespace winrt::FileScoutNative::implementation
             SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
 
             auto& pane = ActivePane();
-            // This PC has no path; the folder being left still belongs in the recents.
+            // This PC has no path; the folder being left still belongs in the recents. The sidebar is
+            // rebuilt only after the pane state below says "This PC", so it highlights the right row.
+            bool recentsChanged = false;
             if (auto const left = ::FileScoutNative::Domain::FolderToRecordOnLeave(pane.current_path, std::filesystem::path{}))
             {
                 ::FileScoutNative::Domain::RecordRecentFolder(m_recentFolders, *left, kRecentFolderCapacity);
-                BuildSidebarFavorites();
+                recentsChanged = true;
             }
             pane.current_path = std::filesystem::path{};
             pane.is_drives_view = true;
+            pane.is_archive_view = false;
+            if (recentsChanged)
+            {
+                BuildSidebarFavorites();
+            }
             pane.is_archive_view = false;
             pane.items = items;
             pane.selection.Clear();
