@@ -1,0 +1,43 @@
+name: CI
+
+# Build + gtests on every PR and on master. Runs on the self-hosted win1 runner (label `filescout`),
+# a scheduled task running as an admin via S4U (as a Windows service the IFileOperation tests fail):
+# the repo is private, so hosted Windows minutes are billed, and win1 is also the GUI/perf test box.
+# Decision trail: docs/overhaul/README.md.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: [self-hosted, filescout]
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          # The NuGet cache is a junction at native/packages; a default clean could follow it.
+          clean: false
+
+      - name: Remove untracked files (keep the package junction)
+        shell: pwsh
+        run: git clean -ffdx -e native/packages
+
+      - name: Build (Debug x64) and run gtests
+        shell: pwsh
+        run: >
+          pwsh -NoProfile -File tools/win1/build.ps1
+          -Root $env:GITHUB_WORKSPACE
+          -Configuration Debug
+          -Target Rebuild
+          -PackagesCache C:\fsdev\packages
+          -Test
