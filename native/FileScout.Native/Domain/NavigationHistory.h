@@ -1,0 +1,78 @@
+#pragma once
+
+#include <filesystem>
+#include <string_view>
+#include <vector>
+
+namespace FileScoutNative::Domain
+{
+    // The location the sidebar's Recycle Bin row navigates to. std::filesystem::absolute() treats it
+    // as a relative path and prefixes the working directory, so recognise it by its last component.
+    inline constexpr std::wstring_view kRecycleBinLocation = L"shell:RecycleBinFolder";
+
+    [[nodiscard]] inline bool PathsEqualIgnoringCase(
+        std::filesystem::path const& left,
+        std::filesystem::path const& right)
+    {
+        auto const& a = left.native();
+        auto const& b = right.native();
+        return ::CompareStringOrdinal(
+                   a.c_str(), static_cast<int>(a.size()),
+                   b.c_str(), static_cast<int>(b.size()),
+                   TRUE) == CSTR_EQUAL;
+    }
+
+    [[nodiscard]] inline bool IsRecycleBinLocation(std::filesystem::path const& path)
+    {
+        return !path.empty() && PathsEqualIgnoringCase(path.filename(), std::filesystem::path{ kRecycleBinLocation });
+    }
+
+    // lexically_normal() keeps a trailing separator ("C:\\Users\\Docs\\"), which made a reload of the
+    // same folder look like a navigation. Drop it, except for a root ("C:\\").
+    [[nodiscard]] inline std::filesystem::path NormalizeFolderForCompare(std::filesystem::path const& path)
+    {
+        auto normal = path.lexically_normal();
+        if (!normal.has_filename() && normal != normal.root_path())
+        {
+            normal = normal.parent_path();
+        }
+        return normal;
+    }
+
+    // History rule for a user navigation from `current` to `target`: the folder being left goes onto
+    // the back stack and the forward stack is dropped. Nothing is recorded when there is no current
+    // folder (first load, drives view) or when the target is the current folder (refresh, reload
+    // after rename/create/delete), so Back always leaves the folder.
+    inline void RecordNavigation(
+        std::vector<std::filesystem::path>& backStack,
+        std::vector<std::filesystem::path>& forwardStack,
+        std::filesystem::path const& current,
+        std::filesystem::path const& target)
+    {
+        if (current.empty() ||
+            PathsEqualIgnoringCase(NormalizeFolderForCompare(current), NormalizeFolderForCompare(target)))
+        {
+            return;
+        }
+
+        backStack.push_back(current);
+        forwardStack.clear();
+    }
+
+    // Starts a navigation: records history (unless it is a Back/Forward step) and makes `target` the
+    // pane's current folder right away. A second navigation started before the first one's listing
+    // arrives then records the pending target (e.g. the Recycle Bin), not the folder left earlier.
+    inline void BeginNavigation(
+        std::vector<std::filesystem::path>& backStack,
+        std::vector<std::filesystem::path>& forwardStack,
+        std::filesystem::path& current,
+        std::filesystem::path const& target,
+        bool const isHistoryStep)
+    {
+        if (!isHistoryStep)
+        {
+            RecordNavigation(backStack, forwardStack, current, target);
+        }
+        current = target;
+    }
+}

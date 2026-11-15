@@ -14,6 +14,7 @@
 #include "Domain/DragDropPlanning.h"
 #include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
+#include "Domain/NavigationHistory.h"
 #include "Domain/NavigationInput.h"
 #include "Domain/RenamePolicy.h"
 #include "Domain/RowIconState.h"
@@ -3125,12 +3126,17 @@ namespace winrt::FileScoutNative::implementation
         auto& pane = ActivePane();
 
         // Record current path in back-stack unless this is a history navigation.
-        if (!skipHistoryRecord && !pane.current_path.empty())
         {
-            pane.back_stack.push_back(pane.current_path);
-            pane.forward_stack.clear();
-            BuildSidebarFavorites();  // refresh recent paths section
+            auto const backDepth = pane.back_stack.size();
+            ::FileScoutNative::Domain::BeginNavigation(
+                pane.back_stack, pane.forward_stack, pane.current_path, absolutePath, skipHistoryRecord);
+            if (pane.back_stack.size() != backDepth)
+            {
+                BuildSidebarFavorites();  // refresh recent paths section
+            }
         }
+        // The Recycle Bin is a view chosen by the target, so Back/Forward/sidebar clicks leave it.
+        pane.is_recycle_bin_view = ::FileScoutNative::Domain::IsRecycleBinLocation(absolutePath);
         UpdateNavButtons();
         if (pane.search_mode != SearchMode::None)
         {
@@ -3160,6 +3166,17 @@ namespace winrt::FileScoutNative::implementation
         pane.items.clear();
         pane.selection.Clear();
         pane.tab_rows[tabIndex].Clear();
+        // The tab's cached listing belongs to the folder being left; drop it now that current_path
+        // already names the pending target, so a sort or tab switch before the listing arrives
+        // cannot pair the new path with the old folder's items (RestoreActiveTab reloads an empty cache).
+        if (tabIndex >= 0 && tabIndex < static_cast<int32_t>(pane.tabs.size()))
+        {
+            pane.tabs[tabIndex].items.clear();
+            pane.tabs[tabIndex].path = path;
+            // The pending target is a folder, not This PC: a restore must reload it, not the drives.
+            pane.tabs[tabIndex].is_drives_view = false;
+        }
+        pane.is_drives_view = false;
         if (pane.active_list_view)
         {
             pane.tab_switching = true;
@@ -7320,14 +7337,8 @@ namespace winrt::FileScoutNative::implementation
             {
                 btn.Click([this](auto const&, auto const&)
                 {
-                    auto& pane = ActivePane();
-                    pane.is_recycle_bin_view = true;
-                    pane.is_drives_view = false;
-                    pane.is_archive_view = false;
-                    pane.current_path = L"shell:RecycleBinFolder";
-                    pane.back_stack.push_back(pane.current_path);
-                    UpdateBreadcrumbs(std::filesystem::path{ L"Recycle Bin" });
-                    LoadDirectory(pane.current_path);
+                    // LoadDirectory records the folder being left and switches to the Recycle Bin view.
+                    LoadDirectory(std::filesystem::path{ ::FileScoutNative::Domain::kRecycleBinLocation });
                 });
             }
             else if (!entry.path.empty())
