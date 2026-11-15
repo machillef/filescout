@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include "Domain\CommandEntry.h"
 
@@ -8,6 +9,11 @@ namespace FileScoutNative::Shell
 {
     // Registry of all palette-dispatchable commands.
     // Constructed once at window startup; stateless after construction.
+    // Orders scored commands by descending score; equal scores keep their input
+    // (registration) order.
+    std::vector<::FileScoutNative::Domain::CommandEntry> RankCommandsByScore(
+        std::vector<std::pair<int, ::FileScoutNative::Domain::CommandEntry>> scored);
+
     class CommandRegistry
     {
     public:

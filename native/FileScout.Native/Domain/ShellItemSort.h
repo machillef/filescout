@@ -25,9 +25,30 @@ namespace FileScoutNative::Domain
             return _wcsicmp(left.c_str(), right.c_str());
         }
 
+        inline int CompareOrdinal(std::wstring const& left, std::wstring const& right)
+        {
+            auto const comparison = left.compare(right);
+            return comparison < 0 ? -1 : (comparison > 0 ? 1 : 0);
+        }
+
+        // Case-insensitive name first; names equal ignoring case (search hits from different
+        // folders, "a" vs "A") fall back to the ordinal name and then the full path, so the
+        // order never depends on the input order.
         inline int CompareByName(ShellItemRef const& left, ShellItemRef const& right)
         {
-            return CompareCaseInsensitive(left.display_name, right.display_name);
+            if (auto const comparison = CompareCaseInsensitive(left.display_name, right.display_name);
+                comparison != 0)
+            {
+                return comparison;
+            }
+
+            if (auto const comparison = CompareOrdinal(left.display_name, right.display_name);
+                comparison != 0)
+            {
+                return comparison;
+            }
+
+            return CompareOrdinal(left.path.native(), right.path.native());
         }
     }
 
@@ -86,7 +107,7 @@ namespace FileScoutNative::Domain
         ShellItemSortColumn const column,
         ShellItemSortDirection const direction)
     {
-        std::sort(
+        std::stable_sort(
             items.begin(),
             items.end(),
             [column, direction](ShellItemRef const& left, ShellItemRef const& right)
