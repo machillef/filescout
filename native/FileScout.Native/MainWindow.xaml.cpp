@@ -10,6 +10,7 @@
 #include "MainWindow.xaml.h"
 #include "Domain/WorkerCount.h"
 #include "Domain/AddressNavigation.h"
+#include "Domain/TextFold.h"
 #include "Domain/BatchRenameInput.h"
 #include "Domain/DragDropPlanning.h"
 #include "Domain/DriveCapacity.h"
@@ -5486,7 +5487,7 @@ namespace winrt::FileScoutNative::implementation
             {
                 return std::ranges::any_of(ActivePane().items, [&name](auto const& item)
                     {
-                        return item.is_folder && _wcsicmp(item.display_name.c_str(), name.c_str()) == 0;
+                        return item.is_folder && ::FileScoutNative::Domain::EqualsIgnoreCase(item.display_name, name);
                     });
             };
 

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "ThemeService.h"
+#include "TextFold.h"
 
 #include <cwctype>
 #include <fstream>
@@ -10,16 +11,6 @@ namespace FileScoutNative::Domain
     namespace
     {
         constexpr wchar_t const* k_default_theme_id = L"default-dark";
-
-        std::wstring ToLowerInvariant(std::wstring value)
-        {
-            std::transform(
-                value.begin(),
-                value.end(),
-                value.begin(),
-                [](wchar_t const ch) { return static_cast<wchar_t>(::towlower(ch)); });
-            return value;
-        }
 
         std::string ToUtf8(std::wstring_view const value)
         {
@@ -304,7 +295,7 @@ namespace FileScoutNative::Domain
 
     ThemeDefinition ThemeService::GetTheme(std::wstring_view const id)
     {
-        auto const normalized = ToLowerInvariant(std::wstring{ id });
+        auto const normalized = FoldCase(id);
         for (auto const& theme : GetAllThemes())
         {
             if (theme.id == normalized)

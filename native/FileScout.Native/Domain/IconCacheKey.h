@@ -3,16 +3,13 @@
 #include <cwctype>
 #include <filesystem>
 #include <string>
+#include "TextFold.h"
 
 namespace FileScoutNative::Domain
 {
-    [[nodiscard]] inline std::wstring LowercaseCopy(std::wstring value)
+    [[nodiscard]] inline std::wstring LowercaseCopy(std::wstring const& value)
     {
-        for (auto& ch : value)
-        {
-            ch = static_cast<wchar_t>(::towlower(ch));
-        }
-        return value;
+        return FoldCase(value);
     }
 
     [[nodiscard]] inline bool UsesPerItemIconIdentity(

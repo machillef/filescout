@@ -5,6 +5,7 @@
 
 #include "FileNameValidation.h"
 #include "ShellItemRef.h"
+#include "TextFold.h"
 
 namespace FileScoutNative::Domain
 {
@@ -55,24 +56,14 @@ namespace FileScoutNative::Domain
 
     namespace detail
     {
-        inline std::wstring ToLowerInvariant(std::wstring value)
+        inline std::wstring ToLowerInvariant(std::wstring const& value)
         {
-            std::transform(
-                value.begin(),
-                value.end(),
-                value.begin(),
-                [](wchar_t const ch) { return static_cast<wchar_t>(std::towlower(ch)); });
-            return value;
+            return FoldCase(value);
         }
 
-        inline std::wstring ToUpperInvariant(std::wstring value)
+        inline std::wstring ToUpperInvariant(std::wstring const& value)
         {
-            std::transform(
-                value.begin(),
-                value.end(),
-                value.begin(),
-                [](wchar_t const ch) { return static_cast<wchar_t>(std::towupper(ch)); });
-            return value;
+            return UpperCase(value);
         }
 
         inline std::wstring BuildBatchRenameNumber(std::size_t const value, std::size_t const width)
@@ -213,11 +204,9 @@ namespace FileScoutNative::Domain
             bool capitalizeNext = true;
             for (auto& ch : value)
             {
-                if (std::iswalnum(ch) != 0)
+                if (IsLetterOrDigit(ch))
                 {
-                    ch = capitalizeNext
-                        ? static_cast<wchar_t>(std::towupper(ch))
-                        : static_cast<wchar_t>(std::towlower(ch));
+                    ch = capitalizeNext ? UpperChar(ch) : LowerChar(ch);
                     capitalizeNext = false;
                     continue;
                 }
@@ -235,7 +224,7 @@ namespace FileScoutNative::Domain
             switch (transform)
             {
             case BatchRenameCaseTransform::Lowercase:
-                return ToLowerInvariant(std::move(value));
+                return LowerCase(value);
             case BatchRenameCaseTransform::Uppercase:
                 return ToUpperInvariant(std::move(value));
             case BatchRenameCaseTransform::TitleCase:

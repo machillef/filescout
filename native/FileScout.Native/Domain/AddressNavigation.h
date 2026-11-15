@@ -63,7 +63,7 @@ namespace FileScoutNative::Domain
     inline bool IsDriveLetterOnlyAddressNavigationTarget(std::wstring_view value)
     {
         return value.size() == 2 &&
-            std::iswalpha(value[0]) != 0 &&
+            ((value[0] >= L'A' && value[0] <= L'Z') || (value[0] >= L'a' && value[0] <= L'z')) &&
             value[1] == L':';
     }
 

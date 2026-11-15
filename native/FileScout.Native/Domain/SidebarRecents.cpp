@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "SidebarRecents.h"
+#include "TextFold.h"
 #include <algorithm>
 #include <cwctype>
 
@@ -9,10 +10,7 @@ namespace FileScoutNative::Domain
     {
         std::error_code ec;
         auto const absolute = std::filesystem::absolute(path, ec);
-        auto normalized = (ec ? path : absolute).lexically_normal().wstring();
-        std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-            [](wchar_t const c) { return static_cast<wchar_t>(::towlower(c)); });
-        return normalized;
+        return FoldCase((ec ? path : absolute).lexically_normal().wstring());
     }
 
     std::vector<std::filesystem::path> SelectRecentPaths(

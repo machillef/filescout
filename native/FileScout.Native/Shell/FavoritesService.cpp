@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "FavoritesService.h"
+#include "Domain/TextFold.h"
 #include <cwctype>
 #include <fstream>
 #include <unordered_set>
@@ -18,16 +19,6 @@ namespace FileScoutNative::Shell
             ~CoTaskMemWString() { if (ptr) CoTaskMemFree(ptr); }
         };
 
-        std::wstring ToLowerInvariant(std::wstring value)
-        {
-            std::transform(
-                value.begin(),
-                value.end(),
-                value.begin(),
-                [](wchar_t const ch) { return static_cast<wchar_t>(::towlower(ch)); });
-            return value;
-        }
-
         std::filesystem::path NormalizePath(std::filesystem::path const& path)
         {
             std::error_code absoluteError;
@@ -37,7 +28,7 @@ namespace FileScoutNative::Shell
 
         std::wstring PathKey(std::filesystem::path const& path)
         {
-            return ToLowerInvariant(NormalizePath(path).wstring());
+            return ::FileScoutNative::Domain::FoldCase(NormalizePath(path).wstring());
         }
 
         std::string ToUtf8(std::wstring_view const value)

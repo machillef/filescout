@@ -1,6 +1,7 @@
 #pragma once
 #include <string_view>
 #include <cwctype>
+#include "Domain/TextFold.h"
 
 namespace FileScoutNative::Search
 {
@@ -20,8 +21,8 @@ namespace FileScoutNative::Search
 
         while (qi < query.size() && fi < filename.size())
         {
-            wchar_t qc = std::towlower(query[qi]);
-            wchar_t fc = std::towlower(filename[fi]);
+            wchar_t qc = ::FileScoutNative::Domain::FoldChar(query[qi]);
+            wchar_t fc = ::FileScoutNative::Domain::FoldChar(filename[fi]);
 
             if (qc == fc)
             {
