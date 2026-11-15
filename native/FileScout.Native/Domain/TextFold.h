@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace FileScoutNative::Domain
 {
@@ -52,10 +53,33 @@ namespace FileScoutNative::Domain
 
         // Case folding = lowercase plus the one Greek special case of Unicode simple folding:
         // final sigma (U+03C2) folds like sigma (U+03C3), so a name typed in capitals matches.
+        // Also covers the other BMP entries of Unicode CaseFolding.txt (status C/S) whose target is
+        // not the lowercase mapping: Greek/Latin letter variants fold to the letter a user types.
         inline std::unique_ptr<CaseTable> BuildFoldTable()
         {
             auto table = BuildCaseTable(LCMAP_LOWERCASE);
-            (*table)[0x03C2] = 0x03C3;
+            static constexpr std::array<std::pair<wchar_t, wchar_t>, 16> k_simpleFolds{ {
+                { 0x00B5, 0x03BC },  // micro sign -> mu
+                { 0x017F, 0x0073 },  // long s -> s
+                { 0x0345, 0x03B9 },  // combining ypogegrammeni -> iota
+                { 0x03C2, 0x03C3 },  // final sigma -> sigma
+                { 0x03D0, 0x03B2 },  // beta symbol
+                { 0x03D1, 0x03B8 },  // theta symbol
+                { 0x03D5, 0x03C6 },  // phi symbol
+                { 0x03D6, 0x03C0 },  // pi symbol
+                { 0x03F0, 0x03BA },  // kappa symbol
+                { 0x03F1, 0x03C1 },  // rho symbol
+                { 0x03F5, 0x03B5 },  // lunate epsilon symbol
+                { 0x1E9B, 0x1E61 },  // long s with dot above
+                { 0x1FBE, 0x03B9 },  // Greek prosgegrammeni
+                { 0x2126, 0x03C9 },  // ohm sign -> omega
+                { 0x212A, 0x006B },  // Kelvin sign -> k
+                { 0x212B, 0x00E5 },  // angstrom sign -> a ring
+            } };
+            for (auto const& [from, to] : k_simpleFolds)
+            {
+                (*table)[static_cast<std::size_t>(from)] = to;
+            }
             return table;
         }
 

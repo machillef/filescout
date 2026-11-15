@@ -81,3 +81,14 @@ TEST(TextFold, BatchRenameCaseTransformsHandleGreek)
             L"\u03B1\u03C1\u03C7\u03B5\u03AF\u03BF \u03BA\u03B5\u03B9\u03BC\u03AD\u03BD\u03BF\u03C5",
             BatchRenameCaseTransform::TitleCase));
 }
+
+// Unicode simple case folding entries whose target is not the lowercase mapping.
+TEST(TextFold, SymbolVariantsFoldToTheLetterUsersType)
+{
+    using FileScoutNative::Domain::FoldChar;
+    EXPECT_EQ(FoldChar(L'\u03D0'), L'\u03B2');  // beta symbol
+    EXPECT_EQ(FoldChar(L'\u03F1'), L'\u03C1');  // rho symbol
+    EXPECT_EQ(FoldChar(L'\u00B5'), L'\u03BC');  // micro sign
+    EXPECT_EQ(FoldChar(L'\u212A'), L'k');        // Kelvin sign
+    EXPECT_EQ(FoldChar(L'\u017F'), L's');        // long s
+}
