@@ -7,6 +7,7 @@
 #include "Domain\PaneSelectionState.h"
 #include "Domain\ShellItemRef.h"
 #include "Domain\TabState.h"
+#include "Domain\TypeAhead.h"
 #include "Shell\ContextMenuService.h"
 #include "Shell\FavoritesService.h"
 #include "Shell\ShellClipboardService.h"
@@ -77,6 +78,7 @@ namespace winrt::FileScoutNative::implementation
         // Set to true while a staged final-batch publish is still pending. Cleared by
         // RebuildAllTabRowsForPane so any mid-load sort/group/view-mode change cancels the append.
         bool awaiting_final_batch{ false };
+        ::FileScoutNative::Domain::TypeAheadBuffer type_ahead;  // UB-18 list type-ahead
         // Set to true when the user interacts with the pane after the first batch appears.
         // Prevents the final-batch publish from overwriting live selection/focus state.
         bool user_interacted_after_first_batch{ false };
@@ -330,6 +332,8 @@ namespace winrt::FileScoutNative::implementation
         // R18c: keyboard type-ahead in file list.
         void FileRowsListView_KeyDown(
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args);
+        void FileRowsListView_CharacterReceived(
+            winrt::Microsoft::UI::Xaml::Input::CharacterReceivedRoutedEventArgs const& args);
 
         // R13b: navigation history.
         void NavigateBack();

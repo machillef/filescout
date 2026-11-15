@@ -18,7 +18,7 @@ TEST(RenamePolicy, CaseOnlyChange_IsNotSkipped)
 
 TEST(RenamePolicy, CaseOnlyChange_NonLatin_IsNotSkipped)
 {
-    EXPECT_FALSE(IsRenameNoOp(L"Αρχείο.txt", L"αρχείο.txt"));
+    EXPECT_FALSE(IsRenameNoOp(L"\u0391\u03C1\u03C7\u03B5\u03AF\u03BF.txt", L"\u03B1\u03C1\u03C7\u03B5\u03AF\u03BF.txt"));
 }
 
 TEST(RenamePolicy, DifferentName_IsNotSkipped)
