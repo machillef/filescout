@@ -78,6 +78,77 @@ namespace FileScoutNative::Shell
         }
     }
 
+    namespace
+    {
+        // Records the first item that failed. With FOF_NOERRORUI the shell does not fail
+        // PerformOperations for a refused item; it only sets the aborted flag, so without this the
+        // failure looks like a cancel and loses which item it was.
+        struct ItemFailureSink : winrt::implements<ItemFailureSink, IFileOperationProgressSink>
+        {
+            HRESULT first_failure = S_OK;
+            std::wstring failed_path;
+
+            void Record(HRESULT const result, IShellItem* const item, IShellItem* const fallback = nullptr)
+            {
+                if (SUCCEEDED(result) || FAILED(first_failure))
+                {
+                    return;
+                }
+
+                first_failure = result;
+                for (auto* const candidate : { item, fallback })
+                {
+                    PWSTR text{};
+                    if (candidate != nullptr && SUCCEEDED(candidate->GetDisplayName(SIGDN_FILESYSPATH, &text)))
+                    {
+                        failed_path = text;
+                        CoTaskMemFree(text);
+                        return;
+                    }
+                }
+            }
+
+            HRESULT __stdcall StartOperations() noexcept override { return S_OK; }
+            HRESULT __stdcall FinishOperations(HRESULT) noexcept override { return S_OK; }
+            HRESULT __stdcall PreRenameItem(DWORD, IShellItem*, LPCWSTR) noexcept override { return S_OK; }
+            HRESULT __stdcall PostRenameItem(DWORD, IShellItem* item, LPCWSTR, HRESULT result, IShellItem*) noexcept override
+            {
+                Record(result, item);
+                return S_OK;
+            }
+            HRESULT __stdcall PreMoveItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) noexcept override { return S_OK; }
+            HRESULT __stdcall PostMoveItem(DWORD, IShellItem* item, IShellItem*, LPCWSTR, HRESULT result, IShellItem*) noexcept override
+            {
+                Record(result, item);
+                return S_OK;
+            }
+            HRESULT __stdcall PreCopyItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) noexcept override { return S_OK; }
+            HRESULT __stdcall PostCopyItem(DWORD, IShellItem* item, IShellItem*, LPCWSTR, HRESULT result, IShellItem*) noexcept override
+            {
+                Record(result, item);
+                return S_OK;
+            }
+            HRESULT __stdcall PreDeleteItem(DWORD, IShellItem*) noexcept override { return S_OK; }
+            HRESULT __stdcall PostDeleteItem(DWORD, IShellItem* item, HRESULT result, IShellItem*) noexcept override
+            {
+                Record(result, item);
+                return S_OK;
+            }
+            HRESULT __stdcall PreNewItem(DWORD, IShellItem*, LPCWSTR) noexcept override { return S_OK; }
+            HRESULT __stdcall PostNewItem(DWORD, IShellItem*, LPCWSTR, LPCWSTR, DWORD, HRESULT result, IShellItem*) noexcept override
+            {
+                // The item argument is the destination folder, not the item that failed; record no
+                // path so the caller's requested target path is reported.
+                Record(result, nullptr, nullptr);
+                return S_OK;
+            }
+            HRESULT __stdcall UpdateProgress(UINT, UINT) noexcept override { return S_OK; }
+            HRESULT __stdcall ResetTimer() noexcept override { return S_OK; }
+            HRESULT __stdcall PauseTimer() noexcept override { return S_OK; }
+            HRESULT __stdcall ResumeTimer() noexcept override { return S_OK; }
+        };
+    }
+
     std::optional<FileOperationError> ClassifyFileOperationOutcome(
         HRESULT const performResult,
         bool const anyOperationsAborted,
@@ -185,7 +256,7 @@ namespace FileScoutNative::Shell
                 name.c_str(),
                 nullptr,
                 nullptr));
-            PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get(), L"Create folder", targetPath.wstring());
             return targetPath;
         }
         catch (FileOperationException const&)
@@ -213,7 +284,7 @@ namespace FileScoutNative::Shell
             auto item = CreateShellItem(path);
 
             winrt::check_hresult(fileOperation->RenameItem(item.get(), newName.c_str(), nullptr));
-            PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get(), L"Rename", path.wstring());
             return path.parent_path() / newName;
         }
         catch (FileOperationException const&)
@@ -276,11 +347,21 @@ namespace FileScoutNative::Shell
 
         try
         {
-            PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get(), L"Batch rename", requests.front().path.wstring());
         }
         catch (FileOperationException const&)
         {
             throw;
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            // The shell runs the whole batch in one PerformOperations call and does not say which
+            // request failed, so name the first one.
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Batch rename",
+                .path = requests.front().path.wstring(),
+                .detail = BuildHResultDetail(error),
+            });
         }
         return renamedPaths;
     }
@@ -293,7 +374,7 @@ namespace FileScoutNative::Shell
             auto item = CreateShellItem(path);
 
             winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
-            PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get(), L"Delete", path.wstring());
         }
         catch (FileOperationException const&)
         {
@@ -327,7 +408,7 @@ namespace FileScoutNative::Shell
                 winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
             }
 
-            PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get(), L"Delete", paths.front().wstring());
         }
         catch (FileOperationException const&)
         {
@@ -376,7 +457,7 @@ namespace FileScoutNative::Shell
                 }
             }
 
-            PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get(), move ? L"Move" : L"Copy", sourcePaths.front().wstring());
         }
         catch (FileOperationException const&)
         {
@@ -411,7 +492,7 @@ namespace FileScoutNative::Shell
                 targetName,
                 nullptr));
 
-            PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get(), L"Copy", sourcePath.wstring());
         }
         catch (FileOperationException const&)
         {
@@ -449,7 +530,7 @@ namespace FileScoutNative::Shell
                 winrt::check_hresult(fileOperation->CopyItems(clipboardDataObject, destinationFolder.get()));
             }
 
-            PerformFileOperation(fileOperation.get());
+            PerformFileOperation(fileOperation.get(), move ? L"Paste move" : L"Paste copy", destinationDirectory.wstring());
         }
         catch (FileOperationException const&)
         {
@@ -488,9 +569,23 @@ namespace FileScoutNative::Shell
         return fileOperation;
     }
 
-    void ShellFileOperationService::PerformFileOperation(IFileOperation* const fileOperation) const
+    void ShellFileOperationService::PerformFileOperation(
+        IFileOperation* const fileOperation,
+        std::wstring_view const action,
+        std::wstring const& path) const
     {
-        HRESULT const performResult = fileOperation->PerformOperations();
+        auto const sink = winrt::make_self<ItemFailureSink>();
+        DWORD cookie = 0;
+        // Without the sink, refused items would be reported as success or "canceled"; do not run.
+        winrt::check_hresult(fileOperation->Advise(sink.get(), &cookie));
+        bool const advised = true;
+
+        HRESULT performResult = fileOperation->PerformOperations();
+
+        if (advised)
+        {
+            fileOperation->Unadvise(cookie);
+        }
 
         BOOL operationsAborted = FALSE;
         HRESULT const abortQueryResult = fileOperation->GetAnyOperationsAborted(&operationsAborted);
@@ -499,15 +594,23 @@ namespace FileScoutNative::Shell
             operationsAborted = FALSE;
         }
 
-        if (auto error = ClassifyFileOperationOutcome(
-                performResult, operationsAborted != FALSE, L"File operation", L"");
-            error.has_value() && error->canceled)
+        // A refused item is a failure of that item, even though the shell only aborted the batch.
+        std::wstring failurePath = path;
+        if (FAILED(sink->first_failure) && (SUCCEEDED(performResult) || performResult == HRESULT_FROM_WIN32(ERROR_CANCELLED) ||
+                                            performResult == COPYENGINE_E_USER_CANCELLED))
+        {
+            performResult = sink->first_failure;
+            if (!sink->failed_path.empty())
+            {
+                failurePath = sink->failed_path;
+            }
+        }
+
+        if (auto error = ClassifyFileOperationOutcome(performResult, operationsAborted != FALSE, action, failurePath))
         {
             ThrowFileOperationFailure(std::move(*error));
         }
 
-        // Other failures keep flowing to the callers' hresult_error handlers, which add the action.
-        winrt::check_hresult(performResult);
         // A success code from PerformOperations does not prove everything completed; if the abort
         // status itself cannot be read, the outcome is unknown, so report it instead of success.
         winrt::check_hresult(abortQueryResult);

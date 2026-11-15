@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -96,6 +97,11 @@ namespace FileScoutNative::Shell
         [[nodiscard]] winrt::com_ptr<IFileOperation> CreateFileOperation(
             HWND ownerWindow,
             DWORD operationFlags) const;
-        void PerformFileOperation(IFileOperation* fileOperation) const;
+        // Runs the queued operations. Throws FileOperationException naming action and path (or the
+        // item that failed), with IsCanceled() when the user aborted.
+        void PerformFileOperation(
+            IFileOperation* fileOperation,
+            std::wstring_view action,
+            std::wstring const& path) const;
     };
 }

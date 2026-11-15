@@ -594,3 +594,66 @@ TEST(FileOperationOutcomeTests, CancelDoesNotDependOnMessageText)
     error.canceled = true;
     EXPECT_TRUE(FileOperationException{ error }.IsCanceled());
 }
+
+// ─── RenameItems failure from PerformOperations (S-06) ───────────────────────
+
+namespace
+{
+    // Runs RenameItems and reports how it failed: "FileOperationException", "hresult_error", or "none".
+    std::string RenameItemsFailureKind(
+        ShellFileOperationService const& service,
+        std::vector<RenameRequest> const& requests,
+        FileOperationError& captured)
+    {
+        try
+        {
+            [[maybe_unused]] auto const renamed = service.RenameItems(nullptr, requests);
+            return "none";
+        }
+        catch (FileOperationException const& error)
+        {
+            captured = error.Error();
+            return "FileOperationException";
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            return "hresult_error " + winrt::to_string(error.message());
+        }
+    }
+}
+
+TEST_F(ShellFileOperationFixture, RenameItemsFailureDuringPerformCarriesActionAndPath)
+{
+    auto const source = WriteFile(m_root / L"alpha.txt", "data");
+    // Queued fine, but the shell refuses the name when the operation runs.
+    std::vector<RenameRequest> requests{ { source, L"bad<name>.txt" } };
+
+    FileOperationError captured;
+    auto const kind = RenameItemsFailureKind(m_svc, requests, captured);
+
+    ASSERT_EQ(kind, "FileOperationException");
+    EXPECT_FALSE(captured.canceled) << "a refused name is a failure, not a cancel";
+    EXPECT_EQ(captured.action, L"Batch rename");
+    std::error_code ec;
+    EXPECT_TRUE(!captured.path.empty() && std::filesystem::equivalent(captured.path, source, ec))
+        << winrt::to_string(captured.path);
+    EXPECT_FALSE(captured.detail.empty());
+}
+
+TEST_F(ShellFileOperationFixture, RenameItemsSourceGoneDuringPerformCarriesActionAndPath)
+{
+    auto const source = WriteFile(m_root / L"alpha.txt", "data");
+    // The second request's source no longer exists once the first one has run.
+    std::vector<RenameRequest> requests{
+        { source, L"beta.txt" },
+        { source, L"gamma.txt" },
+    };
+
+    FileOperationError captured;
+    auto const kind = RenameItemsFailureKind(m_svc, requests, captured);
+
+    ASSERT_EQ(kind, "FileOperationException");
+    EXPECT_FALSE(captured.canceled) << "a missing source is a failure, not a cancel";
+    EXPECT_EQ(captured.action, L"Batch rename");
+    EXPECT_FALSE(captured.path.empty());
+}
