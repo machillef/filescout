@@ -179,3 +179,36 @@ TEST(CommandRegistry, AllPanelToggleCommandsPresent)
         EXPECT_TRUE(found) << "Missing panel toggle command id: " << id.c_str();
     }
 }
+
+// D-08: commands with the same fuzzy score keep their registration order.
+TEST(CommandRegistry, RankByScore_KeepsRegistrationOrderForTies)
+{
+    std::vector<std::pair<int, CommandEntry>> scored;
+    for (int index = 0; index < 100; ++index)
+    {
+        CommandEntry entry;
+        entry.id = L"cmd" + std::to_wstring(index);
+        scored.emplace_back(index % 3, std::move(entry));
+    }
+
+    auto const ranked = RankCommandsByScore(std::move(scored));
+
+    ASSERT_EQ(ranked.size(), 100u);
+    std::vector<std::wstring> expected;
+    for (int score = 2; score >= 0; --score)
+    {
+        for (int index = 0; index < 100; ++index)
+        {
+            if (index % 3 == score)
+            {
+                expected.push_back(L"cmd" + std::to_wstring(index));
+            }
+        }
+    }
+    std::vector<std::wstring> actual;
+    for (auto const& entry : ranked)
+    {
+        actual.push_back(entry.id);
+    }
+    EXPECT_EQ(expected, actual);
+}
