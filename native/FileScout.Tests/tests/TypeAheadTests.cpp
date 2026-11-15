@@ -1,0 +1,97 @@
+#include "pch.h"
+#include <gtest/gtest.h>
+#include "Domain/TypeAhead.h"
+
+#include <string>
+#include <vector>
+
+using namespace FileScoutNative::Domain;
+
+namespace
+{
+    // Runs one key press against `names` (the displayed rows) and returns the matched row.
+    std::optional<std::size_t> Type(
+        TypeAheadBuffer& buffer,
+        std::vector<std::wstring> const& names,
+        std::optional<std::size_t> focused,
+        wchar_t const ch,
+        std::uint64_t const nowMs)
+    {
+        auto const query = AppendTypeAheadCharacter(buffer, ch, nowMs);
+        return FindTypeAheadMatch(
+            names.size(), [&](std::size_t i) -> std::wstring_view { return names[i]; }, focused, query);
+    }
+}
+
+TEST(TypeAhead, CharactersWithinTheTimeout_BuildAPrefix)
+{
+    std::vector<std::wstring> const names{ L"alpha", L"beta", L"bravo", L"charlie" };
+    TypeAheadBuffer buffer;
+    EXPECT_EQ(Type(buffer, names, std::nullopt, L'b', 1000), 1u);
+    EXPECT_EQ(Type(buffer, names, 1, L'r', 1300), 2u);  // "br" -> bravo
+    EXPECT_EQ(buffer.text, L"br");
+}
+
+TEST(TypeAhead, PauseLongerThanTheTimeout_StartsANewPrefix)
+{
+    std::vector<std::wstring> const names{ L"alpha", L"beta", L"bravo", L"rome" };
+    TypeAheadBuffer buffer;
+    EXPECT_EQ(Type(buffer, names, std::nullopt, L'b', 1000), 1u);
+    EXPECT_EQ(Type(buffer, names, 1, L'r', 1000 + kTypeAheadResetMs + 1), 3u);  // "r" -> rome
+    EXPECT_EQ(buffer.text, L"r");
+}
+
+TEST(TypeAhead, RepeatedSameLetter_CyclesThroughMatches)
+{
+    std::vector<std::wstring> const names{ L"b1", L"a", L"b2", L"b3" };
+    TypeAheadBuffer buffer;
+    EXPECT_EQ(Type(buffer, names, std::nullopt, L'b', 0), 0u);
+    EXPECT_EQ(Type(buffer, names, 0, L'b', 100), 2u);
+    EXPECT_EQ(Type(buffer, names, 2, L'b', 200), 3u);
+    EXPECT_EQ(Type(buffer, names, 3, L'b', 300), 0u);  // wraps
+}
+
+TEST(TypeAhead, SingleLetter_StartsAfterTheFocusedRow)
+{
+    std::vector<std::wstring> const names{ L"c1", L"c2", L"c3" };
+    TypeAheadBuffer buffer;
+    EXPECT_EQ(Type(buffer, names, 1, L'c', 0), 2u);
+}
+
+TEST(TypeAhead, ExtendingThePrefix_KeepsTheFocusedRowWhenItStillMatches)
+{
+    std::vector<std::wstring> const names{ L"foo", L"food" };
+    TypeAheadBuffer buffer;
+    EXPECT_EQ(Type(buffer, names, std::nullopt, L'f', 0), 0u);
+    EXPECT_EQ(Type(buffer, names, 0, L'o', 100), 0u);
+}
+
+TEST(TypeAhead, CaseInsensitive_GreekAndDigits)
+{
+    std::vector<std::wstring> const names{ L"2024 report", L"Έγγραφα", L"Φωτογραφίες" };
+    TypeAheadBuffer buffer;
+    // "φω" typed in lower case matches "Φωτογραφίες".
+    EXPECT_EQ(Type(buffer, names, std::nullopt, L'φ', 0), 2u);
+    EXPECT_EQ(Type(buffer, names, 2, L'ω', 100), 2u);
+    TypeAheadBuffer digits;
+    EXPECT_EQ(Type(digits, names, 2, L'2', 0), 0u);
+}
+
+TEST(TypeAhead, NoMatch_ReturnsNothing)
+{
+    std::vector<std::wstring> const names{ L"alpha" };
+    TypeAheadBuffer buffer;
+    EXPECT_FALSE(Type(buffer, names, std::nullopt, L'z', 0).has_value());
+    EXPECT_FALSE(FindTypeAheadMatch(0, [](std::size_t) { return std::wstring_view{}; }, std::nullopt, TypeAheadQuery{ L"a", true }).has_value());
+}
+
+TEST(TypeAhead, AcceptsPrintableCharactersButNotControlOrLeadingSpace)
+{
+    EXPECT_TRUE(AcceptsTypeAheadCharacter(L'a', true));
+    EXPECT_TRUE(AcceptsTypeAheadCharacter(L'Ω', true));
+    EXPECT_TRUE(AcceptsTypeAheadCharacter(L'7', true));
+    EXPECT_TRUE(AcceptsTypeAheadCharacter(L' ', false));
+    EXPECT_FALSE(AcceptsTypeAheadCharacter(L' ', true));
+    EXPECT_FALSE(AcceptsTypeAheadCharacter(L'\r', true));
+    EXPECT_FALSE(AcceptsTypeAheadCharacter(L'\b', false));
+}
