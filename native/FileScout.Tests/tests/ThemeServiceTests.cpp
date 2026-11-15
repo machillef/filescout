@@ -229,3 +229,40 @@ TEST_F(ThemeServiceFixture, SaveThemeId_WithoutLocalAppDataFallsBackToCurrentDir
     ASSERT_TRUE(std::filesystem::exists(storagePath));
     EXPECT_EQ(ThemeService::LoadSavedThemeId(), L"tokyo-night");
 }
+
+// D-10: LOCALAPPDATA of 260+ characters must still be honoured (GetEnvironmentVariableW with a
+// MAX_PATH buffer returns the needed size and writes nothing), never a cwd-relative theme.txt.
+TEST_F(ThemeServiceFixture, SaveThemeId_LongLocalAppDataIsNotReplacedByARelativePath)
+{
+    auto longRoot = tempRoot;
+    while (longRoot.wstring().size() < 300)
+    {
+        longRoot /= std::wstring(40, L'x');
+    }
+    ScopedEnvironmentVariable longLocalAppData{ L"LOCALAPPDATA", longRoot.wstring() };
+
+    EXPECT_NO_THROW(ThemeService::SaveThemeId(L"tokyo-night"));
+
+    // The fixture's current directory is tempRoot: a relative or current-directory fallback would
+    // land here, so neither location may exist, and the file must be under the long LOCALAPPDATA.
+    EXPECT_FALSE(std::filesystem::exists(tempRoot / L"FileScoutNative" / L"theme.txt"));
+    EXPECT_FALSE(std::filesystem::exists(tempRoot / L"theme.txt"));
+    EXPECT_TRUE(std::filesystem::exists(
+        std::filesystem::path{ L"\\\\?\\" + (longRoot / L"FileScoutNative" / L"theme.txt").wstring() }));
+    EXPECT_EQ(ThemeService::LoadSavedThemeId(), L"tokyo-night");
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        std::filesystem::path{ L"\\\\?\\" + (tempRoot / std::wstring(40, L'x')).wstring() }, ec);
+}
+
+// D-10: a folder that cannot be created must not throw out of SaveThemeId.
+TEST_F(ThemeServiceFixture, SaveThemeId_DoesNotThrowWhenTheFolderCannotBeCreated)
+{
+    auto const blocker = tempRoot / L"blocker";
+    std::ofstream{ blocker } << "a file where a folder should be";
+    ScopedEnvironmentVariable blockedLocalAppData{ L"LOCALAPPDATA", blocker.wstring() };
+
+    EXPECT_NO_THROW(ThemeService::SaveThemeId(L"tokyo-night"));
+    EXPECT_EQ(ThemeService::LoadSavedThemeId(), L"default-dark");
+}

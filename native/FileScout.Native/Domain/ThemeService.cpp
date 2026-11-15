@@ -3,6 +3,7 @@
 
 #include <cwctype>
 #include <fstream>
+#include <optional>
 
 namespace FileScoutNative::Domain
 {
@@ -87,17 +88,89 @@ namespace FileScoutNative::Domain
             return std::wstring(start, end);
         }
 
-        std::filesystem::path GetThemeStoragePath()
+        // Reads an environment variable of any length: a fixed MAX_PATH buffer gets only the
+        // required size back (nothing written) when the value is 260+ characters.
+        std::optional<std::wstring> ReadEnvironmentVariable(wchar_t const* name)
         {
-            wchar_t localAppDataBuf[MAX_PATH]{};
-            if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppDataBuf, MAX_PATH) > 0)
+            std::wstring buffer(MAX_PATH, L'\0');
+            for (int attempt = 0; attempt < 3; ++attempt)
             {
-                return std::filesystem::path{ localAppDataBuf } /
-                    L"FileScoutNative" /
-                    L"theme.txt";
+                auto const length = GetEnvironmentVariableW(
+                    name, buffer.data(), static_cast<DWORD>(buffer.size()));
+                if (length == 0)
+                {
+                    return std::nullopt;
+                }
+
+                if (length < buffer.size())
+                {
+                    buffer.resize(length);
+                    return buffer;
+                }
+
+                buffer.resize(length); // the required size, terminator included
             }
 
-            return std::filesystem::current_path() / L"theme.txt";
+            return std::nullopt;
+        }
+
+        // Paths of MAX_PATH or more only work through the \\?\ prefix (no long-path manifest).
+        std::filesystem::path WithLongPathPrefix(std::filesystem::path path)
+        {
+            auto const& native = path.native();
+            if (native.size() < 248 || native.starts_with(L"\\\\?\\"))
+            {
+                return path;
+            }
+
+            if (native.starts_with(L"\\\\"))
+            {
+                return std::filesystem::path{ L"\\\\?\\UNC\\" + native.substr(2) };
+            }
+
+            return std::filesystem::path{ L"\\\\?\\" + native };
+        }
+
+        std::filesystem::path GetThemeStoragePath()
+        {
+            if (auto const localAppData = ReadEnvironmentVariable(L"LOCALAPPDATA");
+                localAppData.has_value())
+            {
+                std::filesystem::path const base{ *localAppData };
+                if (base.is_absolute())
+                {
+                    return WithLongPathPrefix(
+                        (base / L"FileScoutNative" / L"theme.txt").lexically_normal());
+                }
+            }
+
+            std::error_code ec;
+            return WithLongPathPrefix(std::filesystem::current_path(ec) / L"theme.txt");
+        }
+
+        // create_directories without exceptions, one CreateDirectoryW per missing level so a
+        // \\?\-prefixed path never has its prefix split into components.
+        bool EnsureDirectory(std::filesystem::path const& directory)
+        {
+            std::error_code ec;
+            if (std::filesystem::is_directory(directory, ec))
+            {
+                return true;
+            }
+
+            auto const parent = directory.parent_path();
+            if (parent.empty() || parent == directory || !EnsureDirectory(parent))
+            {
+                return false;
+            }
+
+            if (CreateDirectoryW(directory.c_str(), nullptr) != FALSE)
+            {
+                return true;
+            }
+
+            return GetLastError() == ERROR_ALREADY_EXISTS &&
+                std::filesystem::is_directory(directory, ec);
         }
     }
 
@@ -177,7 +250,8 @@ namespace FileScoutNative::Domain
     std::wstring ThemeService::LoadSavedThemeId()
     {
         auto const storagePath = GetThemeStoragePath();
-        if (!std::filesystem::exists(storagePath))
+        std::error_code ec;
+        if (!std::filesystem::exists(storagePath, ec))
         {
             return std::wstring{ k_default_theme_id };
         }
@@ -195,16 +269,28 @@ namespace FileScoutNative::Domain
         return GetTheme(trimmed).id;
     }
 
-    void ThemeService::SaveThemeId(std::wstring_view const id)
+    bool ThemeService::SaveThemeId(std::wstring_view const id) noexcept
     {
-        auto const storagePath = GetThemeStoragePath();
-        std::filesystem::create_directories(storagePath.parent_path());
+        try
+        {
+            auto const storagePath = GetThemeStoragePath();
+            if (!EnsureDirectory(storagePath.parent_path()))
+            {
+                return false;
+            }
 
-        auto const canonicalId = GetTheme(id).id;
-        auto const utf8 = ToUtf8(canonicalId);
+            auto const canonicalId = GetTheme(id).id;
+            auto const utf8 = ToUtf8(canonicalId);
 
-        std::ofstream output(storagePath, std::ios::binary | std::ios::trunc);
-        output.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
+            std::ofstream output(storagePath, std::ios::binary | std::ios::trunc);
+            output.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
+            output.close();
+            return !output.fail();
+        }
+        catch (...)
+        {
+            return false;
+        }
     }
 
     std::vector<ThemeDefinition> ThemeService::GetAllThemes()

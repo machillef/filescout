@@ -21,7 +21,8 @@ namespace FileScoutNative::Domain
     {
     public:
         [[nodiscard]] static std::wstring LoadSavedThemeId();
-        static void SaveThemeId(std::wstring_view id);
+        // Returns false (never throws) when the theme file cannot be written.
+        static bool SaveThemeId(std::wstring_view id) noexcept;
         [[nodiscard]] static std::vector<ThemeDefinition> GetAllThemes();
         [[nodiscard]] static ThemeDefinition GetTheme(std::wstring_view id);
     };
