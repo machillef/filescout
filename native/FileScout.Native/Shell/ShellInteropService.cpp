@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Domain/ParallelFor.h"
 #include "ShellInteropService.h"
+#include "ComApartment.h"
 #include "Domain/IconCacheKey.h"
 #include "TraceHelper.h"
 
@@ -115,7 +116,8 @@ namespace FileScoutNative::Shell
             DWORD const fileAttributes,
             bool const useLiteralPath = false)
         {
-            // COM is already initialized by winrt::init_apartment in main.cpp.
+            // Callers on background threads hold a ComApartment (see EnumerateDirectory and the
+            // icon backfill workers); the UI thread is the app's STA.
             SHFILEINFOW shellInfo{};
             DWORD const flags = useLiteralPath
                 ? SHGFI_ICON | SHGFI_SMALLICON
@@ -436,6 +438,7 @@ namespace FileScoutNative::Shell
         // WIN32_FIND_DATA already contains name, size, attributes, write time, and creation time —
         // no additional stat calls. BuildFastShellItemRef uses a two-bucket icon fallback and
         // extension-based archive detection, eliminating all per-item shell calls.
+        ComApartment apartment; // SHGetFileInfoW for the two icon buckets, and the shell fallback.
         auto const searchPattern = (path / L"*").wstring();
         WIN32_FIND_DATAW findData{};
         // FindExInfoBasic skips the 8.3 short name and FIND_FIRST_EX_LARGE_FETCH asks for bigger
@@ -501,11 +504,10 @@ namespace FileScoutNative::Shell
         }
 
         LocaleDateTimeFormatter dateFormatter;
-        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        bool const shouldUninitialize = SUCCEEDED(initHr);
+        // One apartment for the whole walk; COM objects below are released before it ends.
+        ComApartment apartment;
 
         std::vector<FileScoutNative::Domain::ShellItemRef> items;
-        try
         {
             winrt::com_ptr<IShellItem> folderItem;
             winrt::check_hresult(SHCreateItemFromParsingName(
@@ -578,19 +580,6 @@ namespace FileScoutNative::Shell
                 items.push_back(std::move(item));
             }
         }
-        catch (...)
-        {
-            if (shouldUninitialize)
-            {
-                CoUninitialize();
-            }
-            throw;
-        }
-
-        if (shouldUninitialize)
-        {
-            CoUninitialize();
-        }
 
         return items;
     }
@@ -660,11 +649,10 @@ namespace FileScoutNative::Shell
     std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateRecycleBin() const
     {
         LocaleDateTimeFormatter dateFormatter;
-        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        bool const shouldUninitialize = SUCCEEDED(initHr);
+        // One apartment for the whole walk; COM objects below are released before it ends.
+        ComApartment apartment;
 
         std::vector<FileScoutNative::Domain::ShellItemRef> items;
-        try
         {
             winrt::com_ptr<IShellItem> recycleBinItem;
             winrt::check_hresult(SHCreateItemInKnownFolder(
@@ -735,19 +723,6 @@ namespace FileScoutNative::Shell
                 items.push_back(std::move(item));
             }
         }
-        catch (...)
-        {
-            if (shouldUninitialize)
-            {
-                CoUninitialize();
-            }
-            throw;
-        }
-
-        if (shouldUninitialize)
-        {
-            CoUninitialize();
-        }
 
         return items;
     }
@@ -814,11 +789,8 @@ namespace FileScoutNative::Shell
             }
         }
 
-        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        bool const shouldUninitialize = SUCCEEDED(initHr);
         bool supported = false;
-
-        if (SUCCEEDED(initHr) || initHr == RPC_E_CHANGED_MODE)
+        if (ComApartment apartment; apartment.IsUsable())
         {
             winrt::com_ptr<IShellItem> shellItem;
             if (SUCCEEDED(SHCreateItemFromParsingName(
@@ -832,11 +804,6 @@ namespace FileScoutNative::Shell
                     BHID_EnumItems,
                     IID_PPV_ARGS(enumerator.put())));
             }
-        }
-
-        if (shouldUninitialize)
-        {
-            CoUninitialize();
         }
 
         {

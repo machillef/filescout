@@ -121,6 +121,9 @@
     <ClInclude Include="Shell\LocaleDateTimeFormatter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Shell\ComApartment.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Shell\ShellClipboardService.h">
       <Filter>Header Files</Filter>
     </ClInclude>
