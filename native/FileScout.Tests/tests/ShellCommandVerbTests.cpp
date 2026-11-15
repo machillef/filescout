@@ -107,3 +107,18 @@ TEST(ShellCommandVerbTests, RetriesWhenAHandlerTruncatesSilently)
 
     EXPECT_EQ(FileScoutNative::Shell::ReadShellCommandVerb(menu.get(), 0), longVerb);
 }
+
+TEST(ShellCommandVerbTests, ReadsASilentlyTruncatingVerbBetween16KAnd32K)
+{
+    std::wstring const longVerb(20'000, L'v');
+    auto const menu = winrt::make_self<TruncatingVerbMenu>(longVerb);
+
+    EXPECT_EQ(FileScoutNative::Shell::ReadShellCommandVerb(menu.get(), 0), longVerb);
+}
+
+TEST(ShellCommandVerbTests, AFullBufferAtTheLimitGivesNoVerbRatherThanATruncatedOne)
+{
+    auto const menu = winrt::make_self<TruncatingVerbMenu>(std::wstring(40'000, L'v'));
+
+    EXPECT_TRUE(FileScoutNative::Shell::ReadShellCommandVerb(menu.get(), 0).empty());
+}
