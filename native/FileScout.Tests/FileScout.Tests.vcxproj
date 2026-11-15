@@ -166,6 +166,7 @@
     <ClCompile Include="tests\ThemeServiceTests.cpp" />
     <ClCompile Include="tests\Wave1FeatureGateTests.cpp" />
     <ClCompile Include="tests\ScopedTimerTests.cpp" />
+    <ClCompile Include="tests\SourceEncodingTests.cpp" />
     <ClCompile Include="tests\DefaultFileManagerServiceTests.cpp" />
     <ClCompile Include="tests\BenchTests.cpp" />
     <ClCompile Include="tests\ParallelForTests.cpp" />
