@@ -21,6 +21,7 @@
 #include "Search/SearchFilter.h"
 #include "Search/SearchPresentation.h"
 #include "TraceHelper.h"
+#include "Bench.h"
 
 #if __has_include("MainWindow.g.cpp")
 #include "MainWindow.g.cpp"
@@ -1667,6 +1668,90 @@ namespace
         }
     }
 
+    // ---- Bench mode (FILESCOUT_BENCH_OUT); measurement only, see Bench.h ----
+
+    // Marks `name` once `frames` more frames have been rendered. Two frames after a publish means the
+    // frame that laid out the new rows has been presented.
+    void BenchMarkAfterFrames(std::wstring name, int frames, std::function<void()> then = {})
+    {
+        auto& recorder = ::FileScoutNative::Bench::Recorder::Instance();
+        if (!recorder.Enabled() || recorder.HasMark(name))
+        {
+            return;
+        }
+        auto remaining = std::make_shared<int>(frames);
+        auto token = std::make_shared<winrt::event_token>();
+        *token = winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(
+            [remaining, token, name = std::move(name), then = std::move(then)](auto&&, auto&&)
+            {
+                if (--*remaining > 0)
+                {
+                    return;
+                }
+                winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(*token);
+                ::FileScoutNative::Bench::Recorder::Instance().Mark(name);
+                if (then)
+                {
+                    then();
+                }
+            });
+    }
+
+    // Scrolls the list from top to bottom-ish in fixed steps, one step per frame, and records every
+    // frame interval; then writes the report. Programmatic ChangeView realises and recycles rows the
+    // same way wheel scrolling does.
+    void BenchRunScroll(winrt::Microsoft::UI::Xaml::Controls::ScrollViewer const& viewer)
+    {
+        auto& recorder = ::FileScoutNative::Bench::Recorder::Instance();
+        if (!viewer)
+        {
+            recorder.Mark(L"scroll_skipped");
+            recorder.Write();
+            return;
+        }
+        struct State
+        {
+            int frame = 0;
+            double lastMs = -1.0;
+            winrt::event_token token{};
+        };
+        auto state = std::make_shared<State>();
+        recorder.Mark(L"scroll_start");
+        state->token = winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(
+            [state, viewer](auto&&, auto&&)
+            {
+                constexpr int k_frames = 300;
+                constexpr double k_stepPx = 96.0;
+                auto& rec = ::FileScoutNative::Bench::Recorder::Instance();
+                double const now = rec.NowMs();
+                if (state->lastMs >= 0.0)
+                {
+                    rec.AddFrameInterval(now - state->lastMs);
+                }
+                state->lastMs = now;
+                if (++state->frame > k_frames)
+                {
+                    winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(state->token);
+                    rec.Mark(L"scroll_done");
+                    rec.Write();
+                    return;
+                }
+                viewer.ChangeView(nullptr, winrt::box_value(viewer.VerticalOffset() + k_stepPx).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
+            });
+    }
+
+    // Only pane 0 is measured: pane 1 also loads the start folder at startup but is hidden in the
+    // default single-pane layout, so it has no realised list to scroll.
+    bool BenchTargets(std::filesystem::path const& path)
+    {
+        auto const& target = ::FileScoutNative::Bench::Recorder::Instance().TargetPath();
+        if (target.empty())
+        {
+            return false;
+        }
+        std::error_code ec;
+        return std::filesystem::equivalent(path, std::filesystem::path{ target }, ec);
+    }
 }
 
 namespace winrt::FileScoutNative::implementation
@@ -1770,6 +1855,7 @@ namespace winrt::FileScoutNative::implementation
                 m_activePaneIndex = 0;
                 UpdateActivePaneIndicator();
                 m_initComplete = true;
+                BenchMarkAfterFrames(L"window_first_frame", 1);
             });
     }
 
@@ -2859,6 +2945,26 @@ namespace winrt::FileScoutNative::implementation
         return TRUE;
     }
 
+    void MainWindow::BenchOnFullList(int32_t const paneIndex, std::size_t const itemCount)
+    {
+        auto& recorder = ::FileScoutNative::Bench::Recorder::Instance();
+        recorder.SetItemCount(itemCount);
+        recorder.Mark(L"full_list_published");
+        auto const list = m_panes[paneIndex].active_list_view;
+        BenchMarkAfterFrames(L"full_list", 2, [list]()
+            {
+                // Let the list settle (icon backfill etc.) before the scroll run starts.
+                auto timer = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread().CreateTimer();
+                timer.Interval(std::chrono::milliseconds(1500));
+                timer.IsRepeating(false);
+                timer.Tick([list, timer](auto&&, auto&&)
+                    {
+                        BenchRunScroll(list ? FindDescendantByType<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>(list) : nullptr);
+                    });
+                timer.Start();
+            });
+    }
+
     void MainWindow::SortItems(
         std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
         SortColumn const column,
@@ -3230,6 +3336,12 @@ namespace winrt::FileScoutNative::implementation
 
                         timing.first_batch_publish_tick = ::GetTickCount64();
                         pane.user_interacted_after_first_batch = false;
+                        bool const benchTarget = paneIndex == 0 && BenchTargets(absolute);
+                        if (benchTarget)
+                        {
+                            ::FileScoutNative::Bench::Recorder::Instance().Mark(L"enumerated_and_first_publish");
+                            BenchMarkAfterFrames(L"first_rows", 2);
+                        }
 
                         if (pane.active_list_view)
                         {
@@ -3247,6 +3359,10 @@ namespace winrt::FileScoutNative::implementation
 
                         if (totalItems <= k_first_batch)
                         {
+                            if (benchTarget)
+                            {
+                                BenchOnFullList(paneIndex, totalItems);
+                            }
                             pane.awaiting_final_batch = false;
                             timing.final_publish_tick = timing.first_batch_publish_tick;
                             pane.last_load_timing = timing;
@@ -3292,6 +3408,10 @@ namespace winrt::FileScoutNative::implementation
                                 timing.final_publish_tick = ::GetTickCount64();
                                 pane.last_load_timing = timing;
                                 TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                                if (paneIndex == 0 && BenchTargets(absolute))
+                                {
+                                    BenchOnFullList(paneIndex, totalItems);
+                                }
                                 if (!pane.user_interacted_after_first_batch && selectAfter.has_value())
                                     SelectItemByPath(*selectAfter);
                                 // P4: backfill real per-extension icons after all rows appear.
