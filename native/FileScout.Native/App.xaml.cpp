@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "App.xaml.h"
 #include "Domain/ThemeService.h"
+#include "Domain/UnhandledExceptionReport.h"
 #include "MainWindow.xaml.h"
 #include "Shell/TempStagingCleanup.h"
 #include "TraceHelper.h"
@@ -113,14 +114,14 @@ namespace winrt::FileScoutNative::implementation
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::UnhandledExceptionEventArgs const& e)
         {
-            auto message = std::wstring{ e.Message().c_str() };
-            if (message.empty())
-            {
-                message = L"XAML raised an unhandled exception without a message.";
-            }
-
-            ShowStartupError(L"FileScout Native XAML exception", message);
-            e.Handled(true);
+            // UA-09: log, tell the user, then let WinUI terminate the process. Continuing in an
+            // unknown state on top of the user's files is worse than closing.
+            auto const report = ::FileScoutNative::Domain::BuildUnhandledExceptionReport(
+                e.Message().c_str(), static_cast<int32_t>(e.Exception().value));
+            TraceLog(report.log_line);
+            AppendStartupLog(report.log_line);
+            ::MessageBoxW(nullptr, report.message.c_str(), report.title.c_str(), MB_OK | MB_ICONERROR | MB_TASKMODAL);
+            e.Handled(::FileScoutNative::Domain::ShouldMarkUnhandledExceptionHandled());
         });
     }
 
