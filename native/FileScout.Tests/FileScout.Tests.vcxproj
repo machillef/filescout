@@ -169,6 +169,7 @@
     <ClCompile Include="tests\DefaultFileManagerServiceTests.cpp" />
     <ClCompile Include="tests\BenchTests.cpp" />
     <ClCompile Include="tests\ParallelForTests.cpp" />
+    <ClCompile Include="tests\BatchRenameInputTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
