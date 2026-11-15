@@ -251,6 +251,47 @@ TEST(IconCachePolicy, DocumentsAndFoldersKeepSharedBuckets)
         L"__file__");
 }
 
+// D-09: a drive root is looked up literally (drive-specific icon), so it must not share the
+// generic "__folder__" cache slot, and two drives must not share a slot either.
+TEST(IconCachePolicy, DriveRootsGetTheirOwnKeys)
+{
+    using FileScoutNative::Domain::BuildFileIconCacheKey;
+
+    auto const folderKey = BuildFileIconCacheKey(LR"(C:\Temp\folder)", true);
+    auto const cKey = BuildFileIconCacheKey(LR"(C:\)", true);
+    auto const dKey = BuildFileIconCacheKey(LR"(D:\)", true);
+
+    EXPECT_NE(cKey, folderKey);
+    EXPECT_NE(dKey, folderKey);
+    EXPECT_NE(cKey, dKey);
+    EXPECT_EQ(cKey, BuildFileIconCacheKey(LR"(c:\)", true));
+}
+
+// D-09: every path the icon loader looks up literally gets a per-item key; every other path
+// gets a shared bucket.
+TEST(IconCachePolicy, LiteralLookupAndPerItemKeysAgree)
+{
+    struct Case { wchar_t const* path; bool is_folder; };
+    Case const cases[] = {
+        { LR"(C:\)", true },
+        { LR"(D:\)", true },
+        { LR"(C:\Temp\folder)", true },
+        { LR"(C:\Apps\Alpha.EXE)", false },
+        { LR"(C:\Temp\alpha.txt)", false },
+        { LR"(C:\Temp\README)", false },
+    };
+
+    for (auto const& c : cases)
+    {
+        std::filesystem::path const path{ c.path };
+        auto const key = FileScoutNative::Domain::BuildFileIconCacheKey(path, c.is_folder);
+        EXPECT_EQ(
+            FileScoutNative::Domain::UsesLiteralIconLookup(path, c.is_folder),
+            key.starts_with(L"__item__:"))
+            << std::filesystem::path{ c.path }.string() << " -> " << std::filesystem::path{ key }.string();
+    }
+}
+
 // ── EnumerateDrives ────────────────────────────────────────────────────────────
 
 TEST(EnumerateDrivesTest, ReturnsAtLeastOneDrive)
