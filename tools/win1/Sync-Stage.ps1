@@ -60,8 +60,9 @@ foreach ($file in Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Force) {
     else {
         New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
     }
+    # Stamp the staged copy first, so the destination never holds the old Linux time even briefly.
+    $file.LastWriteTime = $now
     Copy-Item -LiteralPath $file.FullName -Destination $target -Force
-    (Get-Item -LiteralPath $target -Force).LastWriteTime = $now
     $copied++
 }
 
