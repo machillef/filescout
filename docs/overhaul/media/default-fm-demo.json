@@ -1,0 +1,63 @@
+﻿{
+    "steps":  [
+                  {
+                      "step":  "Win+E before",
+                      "opened":  "Explorer",
+                      "expected":  "Explorer",
+                      "ok":  true,
+                      "title":  "Home - File Explorer",
+                      "time":  "2026-11-15T15:12:11.0341747+00:00"
+                  },
+                  {
+                      "step":  "Win+E",
+                      "opened":  "FileScout",
+                      "expected":  "FileScout",
+                      "ok":  true,
+                      "title":  "FileScout Native",
+                      "time":  "2026-11-15T15:12:23.1401193+00:00"
+                  },
+                  {
+                      "step":  "Desktop folder double-click",
+                      "opened":  "FileScout",
+                      "expected":  "FileScout",
+                      "ok":  true,
+                      "title":  "FileScout Native",
+                      "time":  "2026-11-15T15:12:29.4552567+00:00"
+                  },
+                  {
+                      "step":  "Run dialog folder",
+                      "opened":  "FileScout",
+                      "expected":  "FileScout",
+                      "ok":  true,
+                      "title":  "FileScout Native",
+                      "time":  "2026-11-15T15:12:38.1707723+00:00"
+                  },
+                  {
+                      "step":  "Edge Open downloads folder",
+                      "opened":  "FileScout",
+                      "expected":  "FileScout",
+                      "ok":  true,
+                      "title":  "FileScout Native",
+                      "time":  "2026-11-15T15:12:51.2023919+00:00"
+                  },
+                  {
+                      "step":  "Win+E after restore",
+                      "opened":  "Explorer",
+                      "expected":  "Explorer",
+                      "ok":  true,
+                      "title":  "Home - File Explorer",
+                      "time":  "2026-11-15T15:13:04.9429275+00:00"
+                  },
+                  {
+                      "step":  "Folder open after restore",
+                      "opened":  "Explorer",
+                      "expected":  "Explorer",
+                      "ok":  true,
+                      "title":  "FileScout Demo - File Explorer",
+                      "time":  "2026-11-15T15:13:08.6702659+00:00"
+                  }
+              ],
+    "registryBefore":  "9604E459AAE476D5031C3C166AF9F1CACB215D99AF21A7A683191B55DAA05CBF",
+    "registryAfter":  "9604E459AAE476D5031C3C166AF9F1CACB215D99AF21A7A683191B55DAA05CBF",
+    "registryIdentical":  true
+}
