@@ -730,16 +730,7 @@ namespace
     ::FileScoutNative::Domain::BatchRenameCaseTransform BatchRenameCaseTransformFromSelectedIndex(
         int32_t const selectedIndex)
     {
-        switch (selectedIndex)
-        {
-        case 1:
-            return ::FileScoutNative::Domain::BatchRenameCaseTransform::Uppercase;
-        case 2:
-            return ::FileScoutNative::Domain::BatchRenameCaseTransform::TitleCase;
-        case 0:
-        default:
-            return ::FileScoutNative::Domain::BatchRenameCaseTransform::Lowercase;
-        }
+        return ::FileScoutNative::Domain::BatchRenameCaseTransformFromIndex(selectedIndex);
     }
 
     BatchRenamePreset BatchRenamePresetFromSelectedIndex(int32_t const selectedIndex)
