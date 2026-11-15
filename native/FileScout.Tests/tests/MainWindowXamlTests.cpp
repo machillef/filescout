@@ -6,6 +6,8 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <regex>
+#include <vector>
 
 namespace
 {
@@ -51,18 +53,28 @@ TEST(MainWindowXaml, HasNoEmptyStatusIconSlot)
     EXPECT_EQ(xaml.find("StatusIconTextBlock"), std::string::npos);
 }
 
-// New look: chrome brushes come from theme resources; no hard-coded colours in the window XAML
-// (spec-ui UA-08 / UB-13 "no colour islands"). The command-palette scrim is the one exception.
+// New look: chrome brushes come from theme resources; no literal colours (named or #hex) in the window
+// XAML (spec-ui UA-08 / UB-13 "no colour islands"). The command-palette scrim is the one exception.
 TEST(MainWindowXaml, UsesThemeBrushesInsteadOfHardCodedColours)
 {
     auto const xaml = ReadMainWindowXaml();
+    std::regex const colourAttribute{
+        R"re(\b(Foreground|Background|BorderBrush|Fill|Stroke|Color)="([^"{][^"]*)")re" };
 
-    std::size_t position = 0;
-    std::size_t hardCoded = 0;
-    while ((position = xaml.find("=\"#", position)) != std::string::npos)
+    std::vector<std::string> literals;
+    for (auto it = std::sregex_iterator(xaml.begin(), xaml.end(), colourAttribute); it != std::sregex_iterator{}; ++it)
     {
-        ++hardCoded;
-        ++position;
+        auto const value = (*it)[2].str();
+        if (value != "Transparent")
+        {
+            literals.push_back((*it)[1].str() + "=" + value);
+        }
     }
-    EXPECT_LE(hardCoded, 1u) << "only the palette scrim may use a literal colour";
+
+    ASSERT_EQ(literals.size(), 1u) << "literal colours: " << ::testing::PrintToString(literals);
+    EXPECT_EQ(literals.front(), "Background=#80000000");
+    auto const scrim = xaml.find("Background=\"#80000000\"");
+    auto const palette = xaml.rfind("x:Name=\"CommandPaletteOverlay\"", scrim);
+    EXPECT_NE(palette, std::string::npos);
+    EXPECT_LT(scrim - palette, 200u) << "the only literal colour must be the palette scrim";
 }

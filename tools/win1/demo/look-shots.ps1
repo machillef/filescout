@@ -1,6 +1,7 @@
 # Screenshots of the prototype looks (proto/looks build): current, a, b, c, same folder, maximised,
 # one row selected with a real click.
 param([string]$Exe, [string]$Folder = 'C:\Windows', [string]$Out = 'C:\fsdev\gui-out\looks')
+$ErrorActionPreference = 'Stop'
 Import-Module C:\fsdev\tools\Win1Ui.psm1 -DisableNameChecking
 New-Item -ItemType Directory -Force $Out | Out-Null
 Get-Process FileScoutNative -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -12,7 +13,9 @@ foreach ($look in 'current', 'a', 'b', 'c') {
     $p = [System.Diagnostics.Process]::Start($psi)
     Start-Sleep 6
     $w = Wait-Window { param($x) $x.Current.ProcessId -eq $p.Id } 10000
-    try { $w.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).SetWindowVisualState('Maximized') } catch { }
+    if (-not $w) { throw 'FileScout window not found' }
+    # Fixed click coordinates and comparable shots need a maximised window; stop otherwise.
+    $w.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).SetWindowVisualState('Maximized')
     Start-Sleep 3
     Invoke-Click 700 330
     Start-Sleep 2
