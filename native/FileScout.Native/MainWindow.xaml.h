@@ -3,6 +3,7 @@
 #include "MainWindow.g.h"
 #include "Domain\AddressNavigation.h"
 #include "Domain\BatchRenamePlan.h"
+#include "Domain\ContextMenuAnchor.h"
 #include "Domain\ContextMenuModel.h"
 #include "Domain\PaneSelectionState.h"
 #include "Domain\ShellItemRef.h"
@@ -303,8 +304,14 @@ namespace winrt::FileScoutNative::implementation
         bool AppendContextCommands(
             winrt::Microsoft::UI::Xaml::Controls::MenuFlyout const& flyout,
             std::vector<::FileScoutNative::Domain::ExplorerCommand> const& commands,
-            std::optional<int32_t> itemIndex);
-        void ExecuteContextCommand(std::wstring const& commandId, std::optional<int32_t> itemIndex);
+            std::optional<int32_t> itemIndex,
+            std::optional<POINT> clickPoint);
+        void ExecuteContextCommand(
+            std::wstring const& commandId,
+            std::optional<int32_t> itemIndex,
+            std::optional<POINT> clickPoint = std::nullopt);
+        [[nodiscard]] std::optional<::FileScoutNative::Domain::ScreenRect> TryGetDisplayedRowScreenRect(int32_t displayedIndex);
+        [[nodiscard]] ::FileScoutNative::Domain::ScreenRect WindowClientScreenRect();
         [[nodiscard]] bool ActivateDisplayedItemByIndex(std::optional<int32_t> itemIndex);
         [[nodiscard]] bool ActivateCurrentSelection();
         [[nodiscard]] bool ShouldTextInputOwnFileShortcut(std::wstring_view commandId);

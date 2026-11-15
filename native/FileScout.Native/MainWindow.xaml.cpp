@@ -12,6 +12,7 @@
 #include "Domain/AddressNavigation.h"
 #include "Domain/TextFold.h"
 #include "Domain/BatchRenameInput.h"
+#include "Domain/ContextMenuAnchor.h"
 #include "Domain/DragDropPlanning.h"
 #include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
@@ -2534,10 +2535,17 @@ namespace winrt::FileScoutNative::implementation
 
         args.Handled(true);
 
-        if (POINT point{}; GetCursorPos(&point))
+        // Shift+F10 / the Menu key raise ContextRequested without a pointer position; the mouse
+        // cursor is then unrelated to the menu, so record no click point.
+        m_hasLastContextMenuPoint = false;
+        if (winrt::Windows::Foundation::Point pointerPosition{};
+            args.TryGetPosition(nullptr, pointerPosition))
         {
-            m_lastContextMenuPoint = point;
-            m_hasLastContextMenuPoint = true;
+            if (POINT point{}; GetCursorPos(&point))
+            {
+                m_lastContextMenuPoint = point;
+                m_hasLastContextMenuPoint = true;
+            }
         }
 
         if (ActivePane().active_list_view)
@@ -4193,6 +4201,50 @@ namespace winrt::FileScoutNative::implementation
         return HasAncestorOfType<winrt::Microsoft::UI::Xaml::Controls::Button>(source);
     }
 
+    std::optional<::FileScoutNative::Domain::ScreenRect> MainWindow::TryGetDisplayedRowScreenRect(
+        int32_t const displayedIndex)
+    {
+        auto const& listView = ActivePane().active_list_view;
+        if (!listView || displayedIndex < 0)
+        {
+            return std::nullopt;
+        }
+
+        auto const container =
+            listView.ContainerFromIndex(displayedIndex).try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>();
+        if (!container || !Content() || !Content().XamlRoot())
+        {
+            return std::nullopt;
+        }
+
+        // TryGetElementRect gives physical pixels relative to the XAML root, which fills the client area.
+        auto const rect = TryGetElementRect(container, Content().XamlRoot().RasterizationScale());
+        POINT origin{ 0, 0 };
+        if (!rect.has_value() || !::ClientToScreen(GetWindowHandle(), &origin))
+        {
+            return std::nullopt;
+        }
+
+        return ::FileScoutNative::Domain::ScreenRect{
+            origin.x + rect->X,
+            origin.y + rect->Y,
+            origin.x + rect->X + rect->Width,
+            origin.y + rect->Y + rect->Height,
+        };
+    }
+
+    ::FileScoutNative::Domain::ScreenRect MainWindow::WindowClientScreenRect()
+    {
+        auto const hwnd = GetWindowHandle();
+        RECT client{};
+        POINT origin{ 0, 0 };
+        if (!::GetClientRect(hwnd, &client) || !::ClientToScreen(hwnd, &origin))
+        {
+            return {};
+        }
+        return { origin.x, origin.y, origin.x + client.right, origin.y + client.bottom };
+    }
+
     void MainWindow::ShowContextMenu(
         ::FileScoutNative::Domain::ContextMenuModel const& model,
         std::optional<int32_t> const itemIndex,
@@ -4205,8 +4257,15 @@ namespace winrt::FileScoutNative::implementation
             m_contextMenu = nullptr;
         }
 
+        // The click point belongs to this menu only; commands run later from the keyboard or the
+        // palette get none and anchor at the focused row (UB-15).
+        auto const clickPoint = m_hasLastContextMenuPoint
+            ? std::optional<POINT>{ m_lastContextMenuPoint }
+            : std::nullopt;
+        m_hasLastContextMenuPoint = false;
+
         auto flyout = winrt::Microsoft::UI::Xaml::Controls::MenuFlyout{};
-        bool hasAppendedItems = AppendContextCommands(flyout, model.primary_commands, itemIndex);
+        bool hasAppendedItems = AppendContextCommands(flyout, model.primary_commands, itemIndex, clickPoint);
         for (auto const& group : model.groups)
         {
             if (group.commands.empty())
@@ -4219,7 +4278,7 @@ namespace winrt::FileScoutNative::implementation
                 flyout.Items().Append(winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator{});
             }
 
-            auto const appendedGroupItems = AppendContextCommands(flyout, group.commands, itemIndex);
+            auto const appendedGroupItems = AppendContextCommands(flyout, group.commands, itemIndex, clickPoint);
             if (appendedGroupItems)
             {
                 hasAppendedItems = true;
@@ -4249,7 +4308,8 @@ namespace winrt::FileScoutNative::implementation
     bool MainWindow::AppendContextCommands(
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout const& flyout,
         std::vector<::FileScoutNative::Domain::ExplorerCommand> const& commands,
-        std::optional<int32_t> const itemIndex)
+        std::optional<int32_t> const itemIndex,
+        std::optional<POINT> const clickPoint)
     {
         bool appendedAny = false;
         auto const selectionCount = GetSelectedItems().size();
@@ -4284,11 +4344,11 @@ namespace winrt::FileScoutNative::implementation
             }
 
             auto const commandId = command.id;
-            flyoutItem.Click([this, commandId, itemIndex](
+            flyoutItem.Click([this, commandId, itemIndex, clickPoint](
                                  winrt::Windows::Foundation::IInspectable const&,
                                  winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
                 {
-                    ExecuteContextCommand(commandId, itemIndex);
+                    ExecuteContextCommand(commandId, itemIndex, clickPoint);
                 });
 
             flyout.Items().Append(flyoutItem);
@@ -4300,7 +4360,8 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::ExecuteContextCommand(
         std::wstring const& commandId,
-        std::optional<int32_t> const itemIndex)
+        std::optional<int32_t> const itemIndex,
+        std::optional<POINT> const clickPoint)
     {
         auto const selectedItems = GetSelectedItems();
         std::optional<::FileScoutNative::Domain::ShellItemRef> item;
@@ -4611,7 +4672,16 @@ namespace winrt::FileScoutNative::implementation
                 m_contextMenu.Hide();
             }
 
-            auto const screenPoint = m_hasLastContextMenuPoint ? m_lastContextMenuPoint : POINT{ 160, 160 };
+            auto const rowIndex = itemIndex.has_value()
+                ? *itemIndex
+                : (ActivePane().active_list_view ? ActivePane().active_list_view.SelectedIndex() : -1);
+            auto const anchor = ::FileScoutNative::Domain::ChooseContextMenuAnchor(
+                clickPoint.has_value()
+                    ? std::optional<::FileScoutNative::Domain::ScreenPoint>{ { clickPoint->x, clickPoint->y } }
+                    : std::nullopt,
+                TryGetDisplayedRowScreenRect(rowIndex),
+                WindowClientScreenRect());
+            POINT const screenPoint{ anchor.x, anchor.y };
 
             try
             {
