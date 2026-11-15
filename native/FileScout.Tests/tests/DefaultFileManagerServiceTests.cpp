@@ -231,6 +231,16 @@ TEST_F(DefaultFileManagerRegistry, SetAsDefaultWritesFolderDriveAndWinEVerbs)
     EXPECT_EQ(Read(m_classes + L"\\Directory\\shell"), L"FileScout");
     EXPECT_EQ(Read(m_classes + L"\\Directory\\shell\\FileScout\\command"), BuildFolderCommandValue(k_exe));
     EXPECT_EQ(Read(m_classes + L"\\Drive\\shell"), L"FileScout");
+    for (std::wstring const cls : { L"\\Directory", L"\\Drive" })
+    {
+        for (std::wstring const verb : { L"open", L"explore" })
+        {
+            auto const key = m_classes + cls + L"\\shell\\" + verb + L"\\command";
+            EXPECT_EQ(Read(key), BuildFolderCommandValue(k_exe)) << key;
+            EXPECT_EQ(Read(key, L"DelegateExecute"), L"") << key;
+        }
+    }
+    EXPECT_EQ(Read(m_classes + L"\\Folder\\shell\\explore\\command"), BuildFolderCommandValue(k_exe));
     EXPECT_EQ(Read(m_classes + k_winE), BuildWinECommandValue(k_exe));
     EXPECT_EQ(Read(m_classes + k_winE, L"DelegateExecute"), L"");
 }
@@ -288,6 +298,37 @@ TEST_F(DefaultFileManagerRegistry, MissingWinEHandlerIsPartiallyDefault)
     ::RegDeleteTreeW(HKEY_CURRENT_USER, (m_classes + L"\\CLSID").c_str());
 
     EXPECT_EQ(service.GetStatus(), DefaultFileManagerStatus::PartiallyDefault);
+}
+
+TEST_F(DefaultFileManagerRegistry, MissingExploreVerbIsPartiallyDefault)
+{
+    // Edge's "Open downloads folder" uses the explore verb; without it that path opens Explorer.
+    auto service = Service();
+    ASSERT_TRUE(service.SetAsDefault());
+    ::RegDeleteTreeW(HKEY_CURRENT_USER, (m_classes + L"\\Directory\\shell\\explore").c_str());
+
+    EXPECT_EQ(service.GetStatus(), DefaultFileManagerStatus::PartiallyDefault);
+}
+
+TEST_F(DefaultFileManagerRegistry, MissingFolderExploreVerbIsPartiallyDefault)
+{
+    auto service = Service();
+    ASSERT_TRUE(service.SetAsDefault());
+    ::RegDeleteTreeW(HKEY_CURRENT_USER, (m_classes + L"\\Folder").c_str());
+
+    EXPECT_EQ(service.GetStatus(), DefaultFileManagerStatus::PartiallyDefault);
+}
+
+TEST_F(DefaultFileManagerRegistry, RestoreKeepsAnotherAppsOpenVerb)
+{
+    Write(m_classes + L"\\Directory\\shell\\open\\command", nullptr, L"\"C:\\Other\\other.exe\" \"%1\"");
+    auto const before = Dump(m_classes);
+
+    auto service = Service();
+    ASSERT_TRUE(service.SetAsDefault());
+    ASSERT_TRUE(service.RestoreDefault());
+
+    EXPECT_EQ(Dump(m_classes), before);
 }
 
 TEST_F(DefaultFileManagerRegistry, VerbsOfAnotherFileScoutCopyAreNotDefault)

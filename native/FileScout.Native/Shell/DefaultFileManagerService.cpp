@@ -246,16 +246,31 @@ namespace FileScoutNative::Shell
         {
             std::wstring const verb{ k_verbName };
             std::wstring const winEKey = L"CLSID\\" + std::wstring{ k_winEClsid } + L"\\shell\\opennewwindow\\command";
-            return {
-                { L"Directory\\shell\\" + verb, L"", L"Open in FileScout" },
-                { L"Directory\\shell\\" + verb + L"\\command", L"", BuildFolderCommandValue(exePath) },
-                { L"Directory\\shell", L"", verb },
-                { L"Drive\\shell\\" + verb, L"", L"Open in FileScout" },
-                { L"Drive\\shell\\" + verb + L"\\command", L"", BuildFolderCommandValue(exePath) },
-                { L"Drive\\shell", L"", verb },
-                { winEKey, L"", BuildWinECommandValue(exePath) },
-                { winEKey, L"DelegateExecute", L"" },
-            };
+            std::vector<RegistryValueSpec> values;
+            for (std::wstring const cls : { L"Directory", L"Drive" })
+            {
+                values.push_back({ cls + L"\\shell\\" + verb, L"", L"Open in FileScout" });
+                values.push_back({ cls + L"\\shell\\" + verb + L"\\command", L"", BuildFolderCommandValue(exePath) });
+                values.push_back({ cls + L"\\shell", L"", verb });
+                // Explicit verbs: many apps call ShellExecute(L"open", folder) and Chromium/Edge's
+                // "Open downloads folder" uses L"explore"; without these, both resolve to
+                // Explorer's Folder\shell verbs. The empty DelegateExecute makes the shell run the
+                // command instead of a COM delegate inherited from HKLM.
+                for (std::wstring const explicitVerb : { L"open", L"explore" })
+                {
+                    auto const key = cls + L"\\shell\\" + explicitVerb + L"\\command";
+                    values.push_back({ key, L"", BuildFolderCommandValue(exePath) });
+                    values.push_back({ key, L"DelegateExecute", L"" });
+                }
+            }
+            // Edge's "Open downloads folder" forces the Folder class with the explore verb (traced on
+            // win1: Folder\shell\explore received C:\Users\<user>\Downloads). Folder also covers
+            // virtual folders; FileScout hands "::{CLSID}" paths back to Explorer (main.cpp).
+            values.push_back({ L"Folder\\shell\\explore\\command", L"", BuildFolderCommandValue(exePath) });
+            values.push_back({ L"Folder\\shell\\explore\\command", L"DelegateExecute", L"" });
+            values.push_back({ winEKey, L"", BuildWinECommandValue(exePath) });
+            values.push_back({ winEKey, L"DelegateExecute", L"" });
+            return values;
         }
 
         std::wstring EncodeManifestEntry(ManifestEntry const& entry)
@@ -323,8 +338,21 @@ namespace FileScoutNative::Shell
         {
             auto const defaultVerb = ReadString(Join(m_classesRoot, cls + L"\\shell"), L"");
             auto const command = ReadString(Join(m_classesRoot, cls + L"\\shell\\" + verb + L"\\command"), L"");
+            auto const explicitVerbsPointHere = [&]
+            {
+                for (std::wstring const explicitVerb : { L"open", L"explore" })
+                {
+                    auto const value = ReadString(Join(m_classesRoot, cls + L"\\shell\\" + explicitVerb + L"\\command"), L"");
+                    if (!value.has_value() || !detail::ValuePointsToExecutable(*value, m_exePath))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            };
             return defaultVerb.has_value() && FoldCase(*defaultVerb) == FoldCase(verb) &&
-                command.has_value() && detail::ValuePointsToExecutable(*command, m_exePath);
+                command.has_value() && detail::ValuePointsToExecutable(*command, m_exePath) &&
+                explicitVerbsPointHere();
         };
         std::wstring const winEKey = Join(m_classesRoot,
             L"CLSID\\" + std::wstring{ detail::k_winEClsid } + L"\\shell\\opennewwindow\\command");
@@ -332,7 +360,9 @@ namespace FileScoutNative::Shell
         auto const delegate = ReadString(winEKey, L"DelegateExecute");
         bool const winE = winECommand.has_value() && detail::ValuePointsToExecutable(*winECommand, m_exePath) &&
             delegate.has_value() && delegate->empty();
-        return detail::DeriveStatus(verbIsDefault(L"Drive"), verbIsDefault(L"Directory"), winE);
+        auto const folderExplore = ReadString(Join(m_classesRoot, L"Folder\\shell\\explore\\command"), L"");
+        bool const folderVerbs = folderExplore.has_value() && detail::ValuePointsToExecutable(*folderExplore, m_exePath);
+        return detail::DeriveStatus(verbIsDefault(L"Drive") && folderVerbs, verbIsDefault(L"Directory"), winE);
     }
 
     bool DefaultFileManagerService::SetAsDefault()
