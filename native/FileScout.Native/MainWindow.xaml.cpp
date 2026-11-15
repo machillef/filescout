@@ -9,6 +9,7 @@
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
 #include "Domain/AddressNavigation.h"
+#include "Domain/BatchRenameInput.h"
 #include "Domain/DragDropPlanning.h"
 #include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
@@ -716,20 +717,7 @@ namespace
 
     std::optional<uint32_t> TryParsePositiveInteger(std::wstring const& value)
     {
-        auto const trimmed = TrimFileName(value);
-        if (trimmed.empty())
-        {
-            return std::nullopt;
-        }
-
-        wchar_t* end = nullptr;
-        auto const parsed = wcstoul(trimmed.c_str(), &end, 10);
-        if (end == nullptr || *end != L'\0' || parsed == 0)
-        {
-            return std::nullopt;
-        }
-
-        return static_cast<uint32_t>(parsed);
+        return ::FileScoutNative::Domain::ParseBatchRenamePositiveInteger(value);
     }
 
     enum class BatchRenamePreset
