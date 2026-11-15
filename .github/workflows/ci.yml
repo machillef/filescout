@@ -1,6 +1,7 @@
 name: CI
 
-# Build + gtests on every PR and on master. Runs on the self-hosted win1 runner (label `filescout`):
+# Build + gtests on every PR and on master. Runs on the self-hosted win1 runner (label `filescout`),
+# a scheduled task running as an admin via S4U (as a Windows service the IFileOperation tests fail):
 # the repo is private, so hosted Windows minutes are billed, and win1 is also the GUI/perf test box.
 # Decision trail: docs/overhaul/README.md.
 on:
@@ -38,5 +39,5 @@ jobs:
           -Root $env:GITHUB_WORKSPACE
           -Configuration Debug
           -Target Rebuild
-          -PackagesCache C:\fsdev\ci-packages
+          -PackagesCache C:\fsdev\packages
           -Test
