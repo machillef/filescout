@@ -58,23 +58,40 @@ TEST(MainWindowXaml, HasNoEmptyStatusIconSlot)
 TEST(MainWindowXaml, UsesThemeBrushesInsteadOfHardCodedColours)
 {
     auto const xaml = ReadMainWindowXaml();
-    std::regex const colourAttribute{
-        R"re(\b(Foreground|Background|BorderBrush|Fill|Stroke|Color)="([^"{][^"]*)")re" };
+    // Every start tag, then every attribute in it (either quote style, optional spaces around '=').
+    std::regex const startTag{ R"re(<([A-Za-z][\w:.]*)\b([^>]*)>)re" };
+    std::regex const attribute{ R"re(([\w:.]+)\s*=\s*(["'])(.*?)\2)re" };
+    std::regex const colourName{ R"re(^(Foreground|Background|BorderBrush|Fill|Stroke|Color)$)re" };
 
-    std::vector<std::string> literals;
-    for (auto it = std::sregex_iterator(xaml.begin(), xaml.end(), colourAttribute); it != std::sregex_iterator{}; ++it)
+    struct Literal { std::string element; std::string name; std::string attribute; std::string value; };
+    std::vector<Literal> literals;
+    for (auto tag = std::sregex_iterator(xaml.begin(), xaml.end(), startTag); tag != std::sregex_iterator{}; ++tag)
     {
-        auto const value = (*it)[2].str();
-        if (value != "Transparent")
+        auto const body = (*tag)[2].str();
+        std::string elementName;
+        std::vector<std::pair<std::string, std::string>> colours;
+        for (auto attr = std::sregex_iterator(body.begin(), body.end(), attribute); attr != std::sregex_iterator{}; ++attr)
         {
-            literals.push_back((*it)[1].str() + "=" + value);
+            auto const key = (*attr)[1].str();
+            auto const value = (*attr)[3].str();
+            if (key == "x:Name")
+            {
+                elementName = value;
+            }
+            else if (std::regex_match(key, colourName) && !value.empty() && value.front() != '{' && value != "Transparent")
+            {
+                colours.emplace_back(key, value);
+            }
+        }
+        for (auto const& [key, value] : colours)
+        {
+            literals.push_back({ (*tag)[1].str(), elementName, key, value });
         }
     }
 
-    ASSERT_EQ(literals.size(), 1u) << "literal colours: " << ::testing::PrintToString(literals);
-    EXPECT_EQ(literals.front(), "Background=#80000000");
-    auto const scrim = xaml.find("Background=\"#80000000\"");
-    auto const palette = xaml.rfind("x:Name=\"CommandPaletteOverlay\"", scrim);
-    EXPECT_NE(palette, std::string::npos);
-    EXPECT_LT(scrim - palette, 200u) << "the only literal colour must be the palette scrim";
+    ASSERT_EQ(literals.size(), 1u) << "only the palette scrim may use a literal colour";
+    EXPECT_EQ(literals.front().element, "Grid");
+    EXPECT_EQ(literals.front().name, "CommandPaletteOverlay");
+    EXPECT_EQ(literals.front().attribute, "Background");
+    EXPECT_EQ(literals.front().value, "#80000000");
 }
