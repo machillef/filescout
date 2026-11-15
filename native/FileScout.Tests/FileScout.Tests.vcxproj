@@ -175,6 +175,7 @@
     <ClCompile Include="tests\RenamePolicyTests.cpp" />
     <ClCompile Include="tests\WorkerCountTests.cpp" />
     <ClCompile Include="tests\PaneSelectionStateTests.cpp" />
+    <ClCompile Include="tests\NavigationHistoryTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
