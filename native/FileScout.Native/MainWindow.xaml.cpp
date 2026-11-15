@@ -1767,6 +1767,14 @@ namespace winrt::FileScoutNative::implementation
             ScopedTimer timer{ L"ConfigureWindow" };
             ConfigureWindow();
         }
+        try
+        {
+            ApplyLookPreset();
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            TraceLog(L"[look] ApplyLookPreset failed: " + std::wstring{ error.message() });
+        }
         {
             ScopedTimer timer{ L"SetupKeyboardAccelerators" };
             SetupKeyboardAccelerators();
@@ -2887,6 +2895,118 @@ namespace winrt::FileScoutNative::implementation
             passthroughRects);
     }
 
+    // PROTOTYPE ONLY (proto/looks): FILESCOUT_LOOK=a|b|c restyles the chrome so three candidate looks
+    // can be rendered and screenshotted from one build. The chosen look is then done properly in XAML.
+    void MainWindow::ApplyLookPreset()
+    {
+        wchar_t buffer[8]{};
+        ::GetEnvironmentVariableW(L"FILESCOUT_LOOK", buffer, 8);
+        wchar_t const look = buffer[0];
+        if (look != L'a' && look != L'b' && look != L'c')
+        {
+            return;
+        }
+        using namespace winrt::Microsoft::UI::Xaml;
+        using winrt::Microsoft::UI::Xaml::Media::SolidColorBrush;
+        auto const brush = [](uint32_t argb)
+        {
+            return SolidColorBrush(winrt::Windows::UI::Color{
+                static_cast<uint8_t>(argb >> 24), static_cast<uint8_t>(argb >> 16),
+                static_cast<uint8_t>(argb >> 8), static_cast<uint8_t>(argb) });
+        };
+        auto const rowMinHeight = [&](wchar_t const* styleKey, double height, Thickness margin)
+        {
+            // Parsed styles are sealed: derive a new one and replace the resource entry.
+            auto const key = winrt::box_value(styleKey);
+            auto const original = RootGrid().Resources().Lookup(key).as<Style>();
+            Style derived{ winrt::xaml_typename<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>() };
+            derived.BasedOn(original);
+            derived.Setters().Append(Setter{ FrameworkElement::MinHeightProperty(), winrt::box_value(height) });
+            derived.Setters().Append(Setter{ FrameworkElement::MarginProperty(), winrt::box_value(margin) });
+            RootGrid().Resources().Insert(key, derived);
+        };
+
+        ActiveLocationTextBlock().Visibility(Visibility::Collapsed);
+        if (look == L'a')
+        {
+            // A — "Fluent native": Explorer-like, Mica shows through, no card chrome, 32 px rows.
+            ChromeGrid().Padding({ 12, 6, 12, 6 });
+            ChromeGrid().RowSpacing(6);
+            ContentGrid().Padding({ 6, 0, 8, 6 });
+            ContentGrid().ColumnSpacing(6);
+            SidebarColumn().Width(GridLengthHelper::FromPixels(232));
+            SidebarBorder().Background(brush(0x00000000));
+            SidebarBorder().BorderThickness({ 0, 0, 0, 0 });
+            SidebarBorder().Padding({ 2, 4, 6, 4 });
+            for (auto const& pane : { LeftPaneBorder(), RightPaneBorder() })
+            {
+                pane.CornerRadius({ 8, 8, 8, 8 });
+                pane.Background(brush(0x4C3A3A3A));
+            }
+            BreadcrumbBarBorder().MinHeight(32);
+            BreadcrumbBarBorder().CornerRadius({ 4, 4, 4, 4 });
+            SearchTextBox().MinHeight(32);
+            SearchTextBox().CornerRadius({ 4, 4, 4, 4 });
+            StatusBarBorder().Background(brush(0x00000000));
+            StatusBarBorder().Padding({ 14, 2, 14, 6 });
+            rowMinHeight(L"ListRowItemStyle", 32, { 0, 0, 8, 0 });
+        }
+        else if (look == L'b')
+        {
+            // B — "Dense pro": opaque graphite, hairline dividers, square corners, 24 px rows,
+            // accent status bar (power-user file managers).
+            SystemBackdrop(nullptr);
+            RootGrid().Background(brush(0xFF17171B));
+            ChromeGrid().Padding({ 8, 4, 8, 4 });
+            ChromeGrid().RowSpacing(4);
+            ContentGrid().Padding({ 0, 0, 0, 0 });
+            ContentGrid().ColumnSpacing(0);
+            SidebarColumn().Width(GridLengthHelper::FromPixels(208));
+            SidebarBorder().CornerRadius({ 0, 0, 0, 0 });
+            SidebarBorder().BorderThickness({ 0, 1, 1, 0 });
+            SidebarBorder().BorderBrush(brush(0xFF2C2C33));
+            SidebarBorder().Background(brush(0xFF1C1C21));
+            SidebarBorder().Padding({ 6, 8, 6, 8 });
+            for (auto const& pane : { LeftPaneBorder(), RightPaneBorder() })
+            {
+                pane.CornerRadius({ 0, 0, 0, 0 });
+                pane.BorderThickness({ 0, 1, 0, 0 });
+                pane.BorderBrush(brush(0xFF2C2C33));
+                pane.Background(brush(0xFF17171B));
+            }
+            BreadcrumbBarBorder().MinHeight(28);
+            BreadcrumbBarBorder().CornerRadius({ 2, 2, 2, 2 });
+            BreadcrumbBarBorder().Background(brush(0xFF222228));
+            SearchTextBox().MinHeight(28);
+            SearchTextBox().CornerRadius({ 2, 2, 2, 2 });
+            StatusBarBorder().Background(brush(0xFF0B5CAD));
+            StatusBarBorder().Padding({ 10, 2, 10, 2 });
+            rowMinHeight(L"ListRowItemStyle", 24, { 0, 0, 0, 0 });
+        }
+        else
+        {
+            // C — "Refined cards": today's card layout, tightened: smaller radii, neutral strokes,
+            // calmer spacing, 30 px rows.
+            ChromeGrid().Padding({ 14, 8, 14, 8 });
+            ChromeGrid().RowSpacing(8);
+            ContentGrid().Padding({ 12, 0, 12, 10 });
+            ContentGrid().ColumnSpacing(10);
+            SidebarColumn().Width(GridLengthHelper::FromPixels(240));
+            SidebarBorder().CornerRadius({ 10, 10, 10, 10 });
+            SidebarBorder().Padding({ 8, 10, 8, 10 });
+            for (auto const& pane : { LeftPaneBorder(), RightPaneBorder() })
+            {
+                pane.CornerRadius({ 10, 10, 10, 10 });
+            }
+            BreadcrumbBarBorder().MinHeight(36);
+            BreadcrumbBarBorder().CornerRadius({ 8, 8, 8, 8 });
+            SearchTextBox().MinHeight(36);
+            SearchTextBox().CornerRadius({ 8, 8, 8, 8 });
+            StatusBarBorder().Padding({ 16, 4, 16, 6 });
+            rowMinHeight(L"ListRowItemStyle", 30, { 0, 0, 12, 0 });
+        }
+    }
+
     void MainWindow::ConfigureWindow()
     {
         Title(L"FileScout Native");
@@ -2897,10 +3017,22 @@ namespace winrt::FileScoutNative::implementation
         const auto hwnd = GetWindowHandle();
         const UINT dpi = GetDpiForWindow(hwnd);
         const float scale = static_cast<float>(dpi) / 96.0f;
-        const int width = static_cast<int>(1520 * scale);
-        const int height = static_cast<int>(920 * scale);
-
-        SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
+        int width = static_cast<int>(1520 * scale);
+        int height = static_cast<int>(920 * scale);
+        // Never larger than the monitor's work area (it was 1520x920 on a 1280x800 screen).
+        MONITORINFO monitor{ sizeof(monitor) };
+        if (::GetMonitorInfoW(::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor))
+        {
+            auto const& work = monitor.rcWork;
+            width = (std::min)(width, static_cast<int>((work.right - work.left) * 0.94));
+            height = (std::min)(height, static_cast<int>((work.bottom - work.top) * 0.94));
+            SetWindowPos(hwnd, nullptr, work.left + ((work.right - work.left) - width) / 2,
+                work.top + ((work.bottom - work.top) - height) / 2, width, height, SWP_NOZORDER);
+        }
+        else
+        {
+            SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
+        }
 
         static constexpr UINT_PTR navigationWindowSubclassId = 0x46534E56;
         SetWindowSubclass(

@@ -245,6 +245,7 @@ namespace winrt::FileScoutNative::implementation
         void InitializeThemeDropDown();
         void RefreshThemeDropDown();
         void ApplyThemeSelection(std::wstring_view themeId);
+        void ApplyLookPreset();
         void BenchOnFullList(int32_t paneIndex, std::size_t itemCount);
         void RefreshThemeSensitiveChrome();
         void SetupKeyboardAccelerators();

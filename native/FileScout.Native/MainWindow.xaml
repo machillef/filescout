@@ -9,7 +9,7 @@
     mc:Ignorable="d"
     Title="FileScout Native">
 
-    <Grid>
+    <Grid x:Name="RootGrid">
         <Grid.Resources>
             <Style x:Key="CardRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -420,7 +420,8 @@
             </Grid.ColumnDefinitions>
 
             <Grid Grid.Column="1" Padding="0,0,0,8">
-                <Grid Padding="16,10,16,14"
+                <Grid x:Name="ChromeGrid"
+                      Padding="16,10,16,14"
                       RowSpacing="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -596,7 +597,7 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="1" Padding="20,4,20,12" ColumnSpacing="14">
+        <Grid x:Name="ContentGrid" Grid.Row="1" Padding="20,4,20,12" ColumnSpacing="14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColumn" Width="260" />
                 <ColumnDefinition Width="*" />
@@ -765,7 +766,8 @@
             </Border>
         </Grid>
 
-        <Border Grid.Row="2"
+        <Border x:Name="StatusBarBorder"
+                Grid.Row="2"
                 Padding="18,8"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal"
