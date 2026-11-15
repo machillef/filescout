@@ -534,3 +534,63 @@ TEST_F(ShellFileOperationFixture, RenameFailureIncludesActionAndSourcePath)
     ExpectContains(message, "Rename");
     ExpectContains(message, winrt::to_string(winrt::hstring{ original.wstring() }));
 }
+
+// ─── ClassifyFileOperationOutcome (S-05) ──────────────────────────────────────
+
+TEST(FileOperationOutcomeTests, AbortedOperationMapsToCanceled)
+{
+    auto const outcome = ClassifyFileOperationOutcome(S_OK, true, L"Delete", LR"(C:\Temp\a.txt)");
+
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_TRUE(outcome->canceled);
+    EXPECT_EQ(outcome->action, L"Delete");
+    EXPECT_EQ(outcome->path, LR"(C:\Temp\a.txt)");
+    EXPECT_TRUE(FileOperationException{ *outcome }.IsCanceled());
+}
+
+TEST(FileOperationOutcomeTests, CanceledHResultsMapToCanceled)
+{
+    for (HRESULT const hr : { HRESULT_FROM_WIN32(ERROR_CANCELLED), COPYENGINE_E_USER_CANCELLED })
+    {
+        auto const outcome = ClassifyFileOperationOutcome(hr, false, L"Paste", L"");
+        ASSERT_TRUE(outcome.has_value());
+        EXPECT_TRUE(outcome->canceled) << std::hex << hr;
+    }
+}
+
+TEST(FileOperationOutcomeTests, SuccessHasNoOutcome)
+{
+    EXPECT_FALSE(ClassifyFileOperationOutcome(S_OK, false, L"Delete", L"").has_value());
+}
+
+TEST(FileOperationOutcomeTests, FailureIsNotCanceledAndKeepsActionPathAndDetail)
+{
+    auto const outcome = ClassifyFileOperationOutcome(E_ACCESSDENIED, false, L"Batch rename", LR"(C:\Temp\a.txt)");
+
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_FALSE(outcome->canceled);
+    EXPECT_EQ(outcome->action, L"Batch rename");
+    EXPECT_EQ(outcome->path, LR"(C:\Temp\a.txt)");
+    EXPECT_FALSE(outcome->detail.empty());
+    EXPECT_FALSE(FileOperationException{ *outcome }.IsCanceled());
+}
+
+TEST(FileOperationOutcomeTests, FailedHResultWithAbortFlagIsAFailureNotACancel)
+{
+    // FOF_NOERRORUI: a refused item fails PerformOperations and also sets the aborted flag.
+    auto const outcome = ClassifyFileOperationOutcome(
+        HRESULT_FROM_WIN32(ERROR_INVALID_NAME), true, L"Rename", LR"(C:\Temp\a.txt)");
+
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_FALSE(outcome->canceled);
+}
+
+TEST(FileOperationOutcomeTests, CancelDoesNotDependOnMessageText)
+{
+    FileOperationError error{ .action = L"Copy", .path = L"", .detail = L"Windows canceled the file operation." };
+    EXPECT_FALSE(FileOperationException{ error }.IsCanceled());
+
+    error.detail = L"Something localised";
+    error.canceled = true;
+    EXPECT_TRUE(FileOperationException{ error }.IsCanceled());
+}
