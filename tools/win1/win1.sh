@@ -27,9 +27,10 @@ case "$cmd" in
     ssh_q "Remove-Item -Recurse -Force '$stage' -ea 0; New-Item -ItemType Directory -Force '$stage','$dest' | Out-Null"
     (cd "$dir" && git ls-files -co --exclude-standard -z | tar --null -cf - -T -) | \
       ssh_q "tar -xf - -C '$stage'"
-    # tar keeps the Linux mtimes; a file edited before the last win1 build can then look older than
-    # its .obj and MSBuild skips it. Every file robocopy actually copies gets "now" as its mtime.
-    ssh_q "\$copied = robocopy '$stage' '$dest' /MIR /XD packages bin obj x64 'Generated Files' .vs /XF build-*.log /FP /NDL /NJH /NJS /NP /NC /NS; \$rc = \$LASTEXITCODE; \$now = Get-Date; \$n = 0; foreach (\$line in \$copied) { \$f = \$line.Trim(); if (\$f.StartsWith('$stage', [StringComparison]::OrdinalIgnoreCase)) { \$f = '$dest' + \$f.Substring('$stage'.Length) }; if (\$f -and (Test-Path -LiteralPath \$f -PathType Leaf)) { (Get-Item -LiteralPath \$f).LastWriteTime = \$now; \$n++ } }; if (\$rc -ge 8) { Write-Error \"robocopy failed (\$rc); \$n copied files were still re-timestamped\"; exit 1 }; Remove-Item -Recurse -Force '$stage'; \"synced $dest (\$n files updated)\""
+    # Content-based mirror (Sync-Stage.ps1): changed files get "now" so MSBuild rebuilds them,
+    # unchanged ones keep a stable time so the next sync does not copy them again.
+    scp -q "$(dirname "$0")/Sync-Stage.ps1" "$HOST:C:/fsdev/tools/Sync-Stage.ps1"
+    ssh_q "pwsh -NoProfile -File C:\\fsdev\\tools\\Sync-Stage.ps1 -Stage '$stage' -Dest '$dest'; if (\$LASTEXITCODE) { exit 1 }; Remove-Item -Recurse -Force '$stage'"
     # Branches cut before tools/win1 existed still build with the current helper scripts.
     ssh_q "New-Item -ItemType Directory -Force '$dest\\tools\\win1' | Out-Null"
     scp -q "$(dirname "$0")/build.ps1" "$HOST:$(echo "$dest" | tr '\\' '/')/tools/win1/build.ps1"
