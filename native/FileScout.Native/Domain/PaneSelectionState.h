@@ -1,7 +1,15 @@
 #pragma once
 
+#include <optional>
+#include <span>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
 namespace FileScoutNative::Domain
 {
+    // Selected item ids of one pane, in the order they were selected, plus the focused id.
+    // An empty id never counts as selected.
     class PaneSelectionState
     {
     public:
@@ -17,15 +25,21 @@ namespace FileScoutNative::Domain
         void Clear()
         {
             m_selected.clear();
+            m_order.clear();
             m_focus.reset();
             m_anchor.reset();
         }
 
         void ReplaceWith(std::wstring id)
         {
-            m_selected.clear();
-            m_selected.insert(id);
-            Focus(*m_selected.begin());
+            Clear();
+            if (id.empty())
+            {
+                return;
+            }
+
+            Add(id);
+            Focus(std::move(id));
         }
 
         void ReplaceWith(
@@ -33,15 +47,16 @@ namespace FileScoutNative::Domain
             std::optional<std::wstring> focus = std::nullopt)
         {
             m_selected.clear();
+            m_order.clear();
             for (auto const& id : ids)
             {
                 if (!id.empty())
                 {
-                    m_selected.insert(id);
+                    Add(id);
                 }
             }
 
-            if (m_selected.empty())
+            if (m_order.empty())
             {
                 m_focus.reset();
                 m_anchor.reset();
@@ -54,7 +69,7 @@ namespace FileScoutNative::Domain
             }
             else
             {
-                m_focus = *m_selected.begin();
+                m_focus = m_order.front();
             }
 
             if (!m_anchor.has_value() || !IsSelected(*m_anchor))
@@ -70,7 +85,7 @@ namespace FileScoutNative::Domain
 
         [[nodiscard]] std::vector<std::wstring> SelectedIds() const
         {
-            return std::vector<std::wstring>{ m_selected.begin(), m_selected.end() };
+            return m_order;
         }
 
         [[nodiscard]] std::optional<std::wstring> FocusedId() const
@@ -79,7 +94,16 @@ namespace FileScoutNative::Domain
         }
 
     private:
+        void Add(std::wstring const& id)
+        {
+            if (m_selected.insert(id).second)
+            {
+                m_order.push_back(id);
+            }
+        }
+
         std::unordered_set<std::wstring> m_selected;
+        std::vector<std::wstring> m_order;
         std::optional<std::wstring> m_focus;
         std::optional<std::wstring> m_anchor;
     };
