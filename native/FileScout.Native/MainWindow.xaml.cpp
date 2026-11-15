@@ -3132,14 +3132,9 @@ namespace winrt::FileScoutNative::implementation
             auto const leaving = pane.current_path;
             ::FileScoutNative::Domain::BeginNavigation(
                 pane.back_stack, pane.forward_stack, pane.current_path, absolutePath, skipHistoryRecord);
-            bool const leftAFolder = !leaving.empty() &&
-                !::FileScoutNative::Domain::PathsEqualIgnoringCase(
-                    ::FileScoutNative::Domain::NormalizeFolderForCompare(leaving),
-                    ::FileScoutNative::Domain::NormalizeFolderForCompare(absolutePath));
-            // The Recycle Bin already has its own sidebar row.
-            if (leftAFolder && !::FileScoutNative::Domain::IsRecycleBinLocation(leaving))
+            if (auto const left = ::FileScoutNative::Domain::FolderToRecordOnLeave(leaving, absolutePath))
             {
-                ::FileScoutNative::Domain::RecordRecentFolder(m_recentFolders, leaving, kRecentFolderCapacity);
+                ::FileScoutNative::Domain::RecordRecentFolder(m_recentFolders, *left, kRecentFolderCapacity);
                 BuildSidebarFavorites();  // refresh recent paths section
             }
         }

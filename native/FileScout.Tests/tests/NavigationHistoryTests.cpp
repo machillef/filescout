@@ -95,3 +95,16 @@ TEST(NavigationHistory, HistoryStep_MovesWithoutRecording)
     EXPECT_EQ(back.size(), 1u);
     EXPECT_EQ(current, std::filesystem::path{ L"C:\\A" });
 }
+
+// Recents record the folder being left (Back/Forward included), not the destination.
+TEST(NavigationHistory, RecentsRecordTheFolderLeft_ToAnotherFolderAndToTheRecycleBin)
+{
+    using FileScoutNative::Domain::FolderToRecordOnLeave;
+    std::filesystem::path const recycleBin{ L"shell:RecycleBinFolder" };
+
+    EXPECT_EQ(FolderToRecordOnLeave(L"C:\\A", L"C:\\B"), std::filesystem::path{ L"C:\\A" });
+    EXPECT_EQ(FolderToRecordOnLeave(L"C:\\A", recycleBin), std::filesystem::path{ L"C:\\A" });
+    EXPECT_FALSE(FolderToRecordOnLeave(recycleBin, L"C:\\B").has_value());
+    EXPECT_FALSE(FolderToRecordOnLeave(L"C:\\A", L"C:\\A\\").has_value());
+    EXPECT_FALSE(FolderToRecordOnLeave(L"", L"C:\\B").has_value());
+}

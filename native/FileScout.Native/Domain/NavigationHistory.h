@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -74,5 +75,20 @@ namespace FileScoutNative::Domain
             RecordNavigation(backStack, forwardStack, current, target);
         }
         current = target;
+    }
+
+    // The folder a navigation from `leaving` to `target` adds to the recents: the folder actually
+    // left (Back/Forward included), never the target, nothing for a reload of the same folder or a
+    // first load, and never the Recycle Bin (it has its own sidebar row).
+    [[nodiscard]] inline std::optional<std::filesystem::path> FolderToRecordOnLeave(
+        std::filesystem::path const& leaving,
+        std::filesystem::path const& target)
+    {
+        if (leaving.empty() || IsRecycleBinLocation(leaving) ||
+            PathsEqualIgnoringCase(NormalizeFolderForCompare(leaving), NormalizeFolderForCompare(target)))
+        {
+            return std::nullopt;
+        }
+        return leaving;
     }
 }
