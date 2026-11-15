@@ -107,4 +107,6 @@ TEST(NavigationHistory, RecentsRecordTheFolderLeft_ToAnotherFolderAndToTheRecycl
     EXPECT_FALSE(FolderToRecordOnLeave(recycleBin, L"C:\\B").has_value());
     EXPECT_FALSE(FolderToRecordOnLeave(L"C:\\A", L"C:\\A\\").has_value());
     EXPECT_FALSE(FolderToRecordOnLeave(L"", L"C:\\B").has_value());
+    // To This PC (no path): the folder left is recorded.
+    EXPECT_EQ(FolderToRecordOnLeave(L"C:\\A", std::filesystem::path{}), std::filesystem::path{ L"C:\\A" });
 }
