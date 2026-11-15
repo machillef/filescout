@@ -217,3 +217,21 @@ TEST(LocaleDateTimeFormatterTests, SubMinuteTransitionMatchesDirectConversion)
             << "second " << second;
     }
 }
+
+// An hour without a transition is converted once and then served from the cache (the first/last
+// tick probes must agree despite SYSTEMTIME's millisecond precision).
+TEST(LocaleDateTimeFormatterTests, HourWithoutTransitionIsCachedAndReused)
+{
+    TIME_ZONE_INFORMATION zone{};
+    zone.Bias = -120;  // UTC+02:00, no daylight time
+    LocaleDateTimeFormatter formatter{ L"en-US", zone };
+
+    auto first = MakeLocal(2026, 7, 1, 10, 5);
+    auto second = MakeLocal(2026, 7, 1, 10, 50);
+    auto const a = formatter.FormatFileTime(ToFileTime(first));
+    auto const b = formatter.FormatFileTime(ToFileTime(second));
+
+    EXPECT_FALSE(a.empty());
+    EXPECT_FALSE(b.empty());
+    EXPECT_EQ(formatter.CachedHourCount(), 1u);
+}

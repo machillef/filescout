@@ -36,13 +36,17 @@ namespace FileScoutNative::Shell
         SYSTEMTIME utcTime{};
         SYSTEMTIME localTime{};
         FILETIME localFileTime{};
+        FILETIME roundedUtc{};
+        // SYSTEMTIME has millisecond precision: subtract the UTC time as it went through SYSTEMTIME,
+        // not the original 100 ns value, or the offset carries a sub-millisecond error.
         if (!FileTimeToSystemTime(&utcFileTime, &utcTime) ||
+            !SystemTimeToFileTime(&utcTime, &roundedUtc) ||
             !SystemTimeToTzSpecificLocalTime(m_timeZone ? &*m_timeZone : nullptr, &utcTime, &localTime) ||
             !SystemTimeToFileTime(&localTime, &localFileTime))
         {
             return std::nullopt;
         }
-        return static_cast<std::int64_t>(ToTicks(localFileTime)) - static_cast<std::int64_t>(utcTicks);
+        return static_cast<std::int64_t>(ToTicks(localFileTime)) - static_cast<std::int64_t>(ToTicks(roundedUtc));
     }
 
     std::optional<std::int64_t> LocaleDateTimeFormatter::LocalOffsetAt(std::uint64_t const utcTicks)

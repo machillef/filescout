@@ -26,6 +26,9 @@ namespace FileScoutNative::Shell
         // An already-local SYSTEMTIME -> text.
         [[nodiscard]] std::wstring FormatLocal(SYSTEMTIME const& local);
 
+        // Tests: how many UTC hours have a cached offset.
+        [[nodiscard]] std::size_t CachedHourCount() const noexcept { return m_hourOffsets.size(); }
+
     private:
         [[nodiscard]] wchar_t const* LocaleName() const noexcept;
         std::wstring const& DateText(SYSTEMTIME const& local);
