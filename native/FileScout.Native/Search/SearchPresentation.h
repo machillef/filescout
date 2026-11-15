@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 #include "Domain/ShellItemRef.h"
+#include "Search/SearchLimits.h"
 #include "Search/SearchService.h"
 
 namespace FileScoutNative::Search
@@ -30,7 +31,8 @@ namespace FileScoutNative::Search
     {
         if (cap_reached)
         {
-            return L"Showing top 200 matches - refine your query to narrow results";
+            return L"Showing top " + std::to_wstring(k_max_search_results) +
+                L" matches - refine your query to narrow results";
         }
 
         return BuildSearchProgressStatus(count) + L" in " + root.wstring();

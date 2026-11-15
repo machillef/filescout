@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "Search/SearchLimits.h"
 
 namespace FileScoutNative::Search
 {
@@ -60,7 +61,7 @@ namespace FileScoutNative::Search
 
     private:
         static constexpr uint32_t    k_max_depth = 12;
-        static constexpr std::size_t k_heap_cap = 200;
+        static constexpr std::size_t k_heap_cap = k_max_search_results;
         static constexpr int         k_batch_interval_ms = 50;
 
         std::shared_ptr<std::atomic<bool>> m_cancelled_flag;

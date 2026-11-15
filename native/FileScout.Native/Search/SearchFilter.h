@@ -6,13 +6,14 @@
 #include <vector>
 #include "Domain/ShellItemRef.h"
 #include "Search/FuzzyMatcher.h"
+#include "Search/SearchLimits.h"
 
 namespace FileScoutNative::Search
 {
     inline std::vector<::FileScoutNative::Domain::ShellItemRef const*> BuildFilterResults(
         std::wstring_view const query,
         std::span<::FileScoutNative::Domain::ShellItemRef const> snapshot,
-        std::size_t const max_results = 200)
+        std::size_t const max_results = k_max_search_results)
     {
         std::vector<::FileScoutNative::Domain::ShellItemRef const*> results;
         if (snapshot.empty() || max_results == 0)
