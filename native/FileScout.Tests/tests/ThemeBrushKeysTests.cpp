@@ -37,7 +37,7 @@ namespace
     {
         auto const config = ReadFile(NativeDir() / "FileScout.Native" / "packages.config");
         std::smatch match;
-        std::regex const versionPattern{ R"(id="Microsoft\.WindowsAppSDK\.WinUI" version="([^"]+)")" };
+        std::regex const versionPattern{ R"re(id="Microsoft\.WindowsAppSDK\.WinUI" version="([^"]+)")re" };
         if (!std::regex_search(config, match, versionPattern))
         {
             ADD_FAILURE() << "Microsoft.WindowsAppSDK.WinUI not found in packages.config";
@@ -64,7 +64,7 @@ namespace
 TEST(ThemeBrushKeys, EveryBrushKeyInMainWindowIsAKnownThemeResource)
 {
     auto const source = ReadFile(NativeDir() / "FileScout.Native" / "MainWindow.xaml.cpp");
-    std::regex const keyPattern{ R"(L"([A-Za-z]+Brush)")" };
+    std::regex const keyPattern{ R"re(L"([A-Za-z]+Brush)")re" };
     std::set<std::string> keys;
     for (auto it = std::sregex_iterator(source.begin(), source.end(), keyPattern); it != std::sregex_iterator(); ++it)
     {
