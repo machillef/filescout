@@ -198,7 +198,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR cmdLine, int)
             return EXIT_FAILURE;
         }
         auto const explorer = std::filesystem::path{ windowsDir } / L"explorer.exe";
-        ::ShellExecuteW(nullptr, nullptr, explorer.c_str(), (L"\"" + launchPath->wstring() + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+        auto const result = reinterpret_cast<INT_PTR>(::ShellExecuteW(nullptr, nullptr, explorer.c_str(),
+            (L"\"" + launchPath->wstring() + L"\"").c_str(), nullptr, SW_SHOWNORMAL));
+        if (result <= 32)
+        {
+            TraceLog(L"[launch] ShellExecuteW(explorer.exe) failed: " + std::to_wstring(result));
+            return EXIT_FAILURE;
+        }
         return EXIT_SUCCESS;
     }
 
