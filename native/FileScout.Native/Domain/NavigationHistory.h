@@ -5,6 +5,8 @@
 #include <string_view>
 #include <vector>
 
+#include "SidebarRecents.h"
+
 namespace FileScoutNative::Domain
 {
     // The location the sidebar's Recycle Bin row navigates to. std::filesystem::absolute() treats it
@@ -90,5 +92,27 @@ namespace FileScoutNative::Domain
             return std::nullopt;
         }
         return leaving;
+    }
+
+    // The whole navigation step LoadDirectory performs on history and recents: capture the folder
+    // being left, start the navigation (history + pending current folder), then add the folder left
+    // to the recents. Returns true when the recents changed.
+    inline bool NavigateAndRecordRecent(
+        std::vector<std::filesystem::path>& backStack,
+        std::vector<std::filesystem::path>& forwardStack,
+        std::filesystem::path& current,
+        std::vector<std::filesystem::path>& recents,
+        std::filesystem::path const& target,
+        bool const isHistoryStep,
+        std::size_t const recentCapacity)
+    {
+        auto const leaving = current;
+        BeginNavigation(backStack, forwardStack, current, target, isHistoryStep);
+        if (auto const left = FolderToRecordOnLeave(leaving, target))
+        {
+            RecordRecentFolder(recents, *left, recentCapacity);
+            return true;
+        }
+        return false;
     }
 }

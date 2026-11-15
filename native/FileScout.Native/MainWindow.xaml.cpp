@@ -3129,12 +3129,10 @@ namespace winrt::FileScoutNative::implementation
         {
             // Recents list the folder being LEFT (BeginNavigation makes the target current at once),
             // for every navigation that leaves a folder, Back/Forward included.
-            auto const leaving = pane.current_path;
-            ::FileScoutNative::Domain::BeginNavigation(
-                pane.back_stack, pane.forward_stack, pane.current_path, absolutePath, skipHistoryRecord);
-            if (auto const left = ::FileScoutNative::Domain::FolderToRecordOnLeave(leaving, absolutePath))
+            if (::FileScoutNative::Domain::NavigateAndRecordRecent(
+                    pane.back_stack, pane.forward_stack, pane.current_path, m_recentFolders,
+                    absolutePath, skipHistoryRecord, kRecentFolderCapacity))
             {
-                ::FileScoutNative::Domain::RecordRecentFolder(m_recentFolders, *left, kRecentFolderCapacity);
                 BuildSidebarFavorites();  // refresh recent paths section
             }
         }
