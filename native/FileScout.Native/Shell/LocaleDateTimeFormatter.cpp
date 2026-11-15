@@ -3,8 +3,10 @@
 
 namespace FileScoutNative::Shell
 {
-    LocaleDateTimeFormatter::LocaleDateTimeFormatter(std::optional<std::wstring> localeName)
-        : m_localeName(std::move(localeName))
+    LocaleDateTimeFormatter::LocaleDateTimeFormatter(
+        std::optional<std::wstring> localeName,
+        std::optional<TIME_ZONE_INFORMATION> timeZone)
+        : m_localeName(std::move(localeName)), m_timeZone(timeZone)
     {
     }
 
@@ -28,39 +30,63 @@ namespace FileScoutNative::Shell
         }
     }
 
-    std::optional<std::int64_t> LocaleDateTimeFormatter::LocalOffsetForHour(std::uint64_t const utcTicks)
+    std::optional<std::int64_t> LocaleDateTimeFormatter::ConvertOffset(std::uint64_t const utcTicks) const
     {
+        auto const utcFileTime = ToFileTime(utcTicks);
+        SYSTEMTIME utcTime{};
+        SYSTEMTIME localTime{};
+        FILETIME localFileTime{};
+        if (!FileTimeToSystemTime(&utcFileTime, &utcTime) ||
+            !SystemTimeToTzSpecificLocalTime(m_timeZone ? &*m_timeZone : nullptr, &utcTime, &localTime) ||
+            !SystemTimeToFileTime(&localTime, &localFileTime))
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::int64_t>(ToTicks(localFileTime)) - static_cast<std::int64_t>(utcTicks);
+    }
+
+    std::optional<std::int64_t> LocaleDateTimeFormatter::LocalOffsetAt(std::uint64_t const utcTicks)
+    {
+        constexpr std::uint64_t ticksPerMinute = 60ULL * 10'000'000ULL;
         auto const hour = utcTicks / ticksPerHour;
         if (hour == m_lastHour)
         {
             return m_lastOffset;
         }
-
-        std::int64_t offset = 0;
         if (auto const it = m_hourOffsets.find(hour); it != m_hourOffsets.end())
         {
-            offset = it->second;
+            m_lastHour = hour;
+            m_lastOffset = it->second;
+            return it->second;
         }
-        else
+
+        auto const minute = utcTicks / ticksPerMinute;
+        if (auto const it = m_minuteOffsets.find(minute); it != m_minuteOffsets.end())
         {
-            auto const hourStart = ToFileTime(hour * ticksPerHour);
-            SYSTEMTIME utcTime{};
-            SYSTEMTIME localTime{};
-            FILETIME localFileTime{};
-            if (!FileTimeToSystemTime(&hourStart, &utcTime) ||
-                !SystemTimeToTzSpecificLocalTime(nullptr, &utcTime, &localTime) ||
-                !SystemTimeToFileTime(&localTime, &localFileTime))
-            {
-                return std::nullopt;
-            }
-
-            offset = static_cast<std::int64_t>(ToTicks(localFileTime)) - static_cast<std::int64_t>(hour * ticksPerHour);
-            m_hourOffsets.emplace(hour, offset);
+            return it->second;
         }
 
-        m_lastHour = hour;
-        m_lastOffset = offset;
-        return offset;
+        auto const start = ConvertOffset(hour * ticksPerHour);
+        auto const end = ConvertOffset(hour * ticksPerHour + ticksPerHour - ticksPerMinute);
+        if (!start || !end)
+        {
+            return std::nullopt;
+        }
+        if (*start == *end)
+        {
+            m_hourOffsets.emplace(hour, *start);
+            m_lastHour = hour;
+            m_lastOffset = *start;
+            return *start;
+        }
+
+        // A transition inside this UTC hour: resolve per minute (transitions are whole minutes).
+        auto const exact = ConvertOffset(minute * ticksPerMinute);
+        if (exact)
+        {
+            m_minuteOffsets.emplace(minute, *exact);
+        }
+        return exact;
     }
 
     std::wstring LocaleDateTimeFormatter::FormatFileTime(FILETIME const& utc)
@@ -71,7 +97,7 @@ namespace FileScoutNative::Shell
             return {};
         }
 
-        auto const offset = LocalOffsetForHour(utcTicks);
+        auto const offset = LocalOffsetAt(utcTicks);
         if (!offset)
         {
             return {};

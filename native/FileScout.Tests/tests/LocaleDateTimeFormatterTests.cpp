@@ -24,21 +24,35 @@ namespace
         SystemTimeToFileTime(&st, &ft);
         return ft;
     }
+
+    // What GetDateFormatEx/GetTimeFormatEx give for this locale on this machine, user overrides
+    // included (the formatter keeps them, as Explorer does).
+    std::wstring DirectFormat(wchar_t const* locale, SYSTEMTIME const& local)
+    {
+        wchar_t date[128]{};
+        wchar_t time[128]{};
+        GetDateFormatEx(locale, DATE_SHORTDATE, &local, nullptr, date, 128, nullptr);
+        GetTimeFormatEx(locale, TIME_NOSECONDS, &local, nullptr, time, 128);
+        return std::wstring{ date } + L"  " + time;
+    }
 }
 
 // S-08: the fast enumeration path printed a fixed en-US "M/D/YYYY H:MM AM/PM" whatever the locale.
 TEST(LocaleDateTimeFormatterTests, GreekLocaleIsDayFirst)
 {
     LocaleDateTimeFormatter formatter{ L"el-GR" };
-    auto const text = formatter.FormatLocal(MakeLocal(2026, 3, 4, 13, 5));
-    EXPECT_TRUE(text.starts_with(L"4/3/2026")) << winrt::to_string(text);
-    EXPECT_EQ(text.find(L"PM"), std::wstring::npos) << winrt::to_string(text);
+    auto const local = MakeLocal(2026, 3, 4, 13, 5);
+    // Compared with direct NLS calls so a customised el-GR short date on a developer machine
+    // does not fail the test; a fixed en-US "3/4/2026  1:05 PM" would not match.
+    EXPECT_EQ(formatter.FormatLocal(local), DirectFormat(L"el-GR", local));
+    EXPECT_NE(formatter.FormatLocal(local), L"3/4/2026  1:05 PM");
 }
 
 TEST(LocaleDateTimeFormatterTests, UsLocaleIsMonthFirst)
 {
     LocaleDateTimeFormatter formatter{ L"en-US" };
-    EXPECT_EQ(formatter.FormatLocal(MakeLocal(2026, 3, 4, 13, 5)), L"3/4/2026  1:05 PM");
+    auto const local = MakeLocal(2026, 3, 4, 13, 5);
+    EXPECT_EQ(formatter.FormatLocal(local), DirectFormat(L"en-US", local));
 }
 
 TEST(LocaleDateTimeFormatterTests, CachedResultsMatchUncached)
@@ -139,4 +153,33 @@ TEST(LocaleDateTimeFormatterTests, EnumerateDirectoryUsesUserLocaleFormatter)
     LocaleDateTimeFormatter formatter;
     EXPECT_EQ(items[0].date_modified_str, formatter.FormatFileTime(data.ftLastWriteTime));
     EXPECT_EQ(items[0].date_created_str, formatter.FormatFileTime(data.ftCreationTime));
+}
+
+// A UTC+09:30 zone whose daylight time starts at 02:00 local switches at 16:30 UTC: a file stamped
+// 16:45 UTC must use the new offset, not the one sampled at 16:00.
+TEST(LocaleDateTimeFormatterTests, TransitionInsideAUtcHourUsesTheExactOffset)
+{
+    TIME_ZONE_INFORMATION zone{};
+    zone.Bias = -570;                 // UTC+09:30
+    zone.StandardBias = 0;
+    zone.DaylightBias = -60;
+    zone.StandardDate.wMonth = 4;     // first Sunday of April, 03:00 local
+    zone.StandardDate.wDayOfWeek = 0;
+    zone.StandardDate.wDay = 1;
+    zone.StandardDate.wHour = 3;
+    zone.DaylightDate.wMonth = 10;    // first Sunday of October, 02:00 local
+    zone.DaylightDate.wDayOfWeek = 0;
+    zone.DaylightDate.wDay = 1;
+    zone.DaylightDate.wHour = 2;
+
+    // 2026-10-04 is the first Sunday of October: 02:00 local standard = 2026-10-03 16:30 UTC.
+    LocaleDateTimeFormatter formatter{ L"en-US", zone };
+    for (WORD const minute : { WORD{ 15 }, WORD{ 45 } })
+    {
+        auto const utc = MakeLocal(2026, 10, 3, 16, minute);
+        SYSTEMTIME expectedLocal{};
+        ASSERT_TRUE(SystemTimeToTzSpecificLocalTime(&zone, &utc, &expectedLocal));
+        EXPECT_EQ(formatter.FormatFileTime(ToFileTime(utc)), formatter.FormatLocal(expectedLocal))
+            << "minute " << minute;
+    }
 }
