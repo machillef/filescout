@@ -20,7 +20,7 @@ Windows 11 file explorer built with C++/WinRT + WinUI 3.
 ## Prerequisites
 
 - Windows 11 x64
-- [Windows App Runtime 1.8](https://aka.ms/windowsappsdk) installed
+- [Windows App Runtime 2.x (2.6 or later)](https://aka.ms/windowsappsdk) installed
 - Visual Studio 2022 or Build Tools with **Desktop development with C++** and **Windows 11 SDK**
 
 ## Restore

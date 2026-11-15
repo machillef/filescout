@@ -52,7 +52,7 @@ The current closed beta intentionally keeps a few previously prototyped features
 ### Prerequisites
 
 - Windows 11 x64
-- [Microsoft Windows App Runtime 1.8](https://aka.ms/windowsappsdk) installed separately
+- [Microsoft Windows App Runtime 2.x (2.6 or later)](https://aka.ms/windowsappsdk) installed separately
 - Visual Studio 2022 or Visual Studio Build Tools with:
   - Desktop development with C++
   - Windows 11 SDK (`10.0.22621` or later)
