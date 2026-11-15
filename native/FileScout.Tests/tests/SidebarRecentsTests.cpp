@@ -81,3 +81,39 @@ TEST(SidebarRecents, EmptyPathsInCandidates_Skipped)
     auto const result = SelectRecentPaths(candidates, noExclusions, 5);
     EXPECT_EQ(result.size(), 2u);
 }
+
+// UB-11: recents read only the left pane's back stack. They now come from one window-wide list of
+// folders the user left, in either pane.
+TEST(SidebarRecents, RecordRecentFolder_MergesBothPanesNewestLast)
+{
+    std::vector<std::filesystem::path> recents;
+    RecordRecentFolder(recents, L"C:\\LeftPane\\A", 16);   // left pane navigates away from A
+    RecordRecentFolder(recents, L"D:\\RightPane\\B", 16);  // right pane navigates away from B
+    std::unordered_set<std::wstring> const noExclusions;
+    auto const result = SelectRecentPaths(recents, noExclusions, 5);
+    ASSERT_EQ(result.size(), 2u);
+    EXPECT_EQ(result[0], std::filesystem::path(L"D:\\RightPane\\B"));
+    EXPECT_EQ(result[1], std::filesystem::path(L"C:\\LeftPane\\A"));
+}
+
+TEST(SidebarRecents, RecordRecentFolder_RevisitMovesToNewestWithoutDuplicate)
+{
+    std::vector<std::filesystem::path> recents;
+    RecordRecentFolder(recents, L"C:\\A", 16);
+    RecordRecentFolder(recents, L"C:\\B", 16);
+    RecordRecentFolder(recents, L"c:\\a", 16);
+    ASSERT_EQ(recents.size(), 2u);
+    EXPECT_EQ(recents.back(), std::filesystem::path(L"c:\\a"));
+}
+
+TEST(SidebarRecents, RecordRecentFolder_DropsOldestAtCapacityAndIgnoresEmpty)
+{
+    std::vector<std::filesystem::path> recents;
+    RecordRecentFolder(recents, L"C:\\1", 2);
+    RecordRecentFolder(recents, L"C:\\2", 2);
+    RecordRecentFolder(recents, L"", 2);
+    RecordRecentFolder(recents, L"C:\\3", 2);
+    ASSERT_EQ(recents.size(), 2u);
+    EXPECT_EQ(recents.front(), std::filesystem::path(L"C:\\2"));
+    EXPECT_EQ(recents.back(), std::filesystem::path(L"C:\\3"));
+}
