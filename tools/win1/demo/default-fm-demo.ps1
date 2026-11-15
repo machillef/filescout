@@ -136,10 +136,10 @@ New-Item -ItemType Directory -Force $desktopFolder | Out-Null
 Remove-Item (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\filescout-demo-download*') -ErrorAction SilentlyContinue
 $hashBefore = Export-Touched 'before'
 
-$rec = Start-Recording (Join-Path $Out 'default-fm-demo.mp4')
-$manifestKey = 'HKCU:\Software\FileScout\DefaultFileManager'
 # The demo starts from a clean Explorer state, so any manifest it finds at the end was made by it.
-if (Test-Path $manifestKey) { Stop-Recording $rec; throw "FileScout is already registered ($manifestKey exists); run --restore-explorer first" }
+$manifestKey = 'HKCU:\Software\FileScout\DefaultFileManager'
+if (Test-Path $manifestKey) { throw "FileScout is already registered ($manifestKey exists); run --restore-explorer first" }
+$rec = Start-Recording (Join-Path $Out 'default-fm-demo.mp4')
 try {
 Pause-Ui 1000
 Show-Caption 'FileScout as the default file manager  -  win1, user runetest'
