@@ -301,6 +301,7 @@ namespace winrt::FileScoutNative::implementation
         [[nodiscard]] bool ActivateDisplayedItemByIndex(std::optional<int32_t> itemIndex);
         [[nodiscard]] bool ActivateCurrentSelection();
         [[nodiscard]] bool ShouldTextInputOwnFileShortcut(std::wstring_view commandId);
+        [[nodiscard]] bool FocusIsInEditableControl();
         winrt::fire_and_forget ShowNewFolderDialogAsync();
         winrt::fire_and_forget ShowRenameDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
         winrt::fire_and_forget ShowBatchRenameDialogAsync(

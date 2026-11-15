@@ -15,6 +15,7 @@
 #include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
 #include "Domain/NavigationHistory.h"
+#include "Domain/KeyboardShortcuts.h"
 #include "Domain/NavigationInput.h"
 #include "Domain/RenamePolicy.h"
 #include "Domain/RowIconState.h"
@@ -136,15 +137,6 @@ namespace
         default:
             return false;
         }
-    }
-
-    bool IsTextEditingCommand(std::wstring_view const commandId)
-    {
-        return commandId == L"selectAll" ||
-            commandId == L"copy" ||
-            commandId == L"cut" ||
-            commandId == L"paste" ||
-            commandId == L"delete";
     }
 
     bool HasSystemModifierChord()
@@ -327,8 +319,14 @@ namespace
             return false;
         }
 
-        if (focusedElement.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>() != nullptr ||
-            focusedElement.try_as<winrt::Microsoft::UI::Xaml::Controls::RichEditBox>() != nullptr)
+        auto const isEditable = [](winrt::Windows::Foundation::IInspectable const& element)
+        {
+            return element.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>() != nullptr ||
+                element.try_as<winrt::Microsoft::UI::Xaml::Controls::RichEditBox>() != nullptr ||
+                element.try_as<winrt::Microsoft::UI::Xaml::Controls::PasswordBox>() != nullptr;
+        };
+
+        if (isEditable(focusedElement))
         {
             return true;
         }
@@ -336,8 +334,7 @@ namespace
         auto dependencyObject = focusedElement.try_as<winrt::Microsoft::UI::Xaml::DependencyObject>();
         while (dependencyObject)
         {
-            if (dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::TextBox>() != nullptr ||
-                dependencyObject.try_as<winrt::Microsoft::UI::Xaml::Controls::RichEditBox>() != nullptr)
+            if (isEditable(dependencyObject))
             {
                 return true;
             }
@@ -5512,12 +5509,6 @@ namespace winrt::FileScoutNative::implementation
         rootElement.KeyboardAcceleratorPlacementMode(
             winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorPlacementMode::Hidden);
         auto const& accelerators = rootElement.KeyboardAccelerators();
-        auto const CombineModifiers = [](VKM const left, VKM const right)
-        {
-            using U = std::underlying_type_t<VKM>;
-            return static_cast<VKM>(static_cast<U>(left) | static_cast<U>(right));
-        };
-
         auto const AddAccelerator = [&](VK const key, VKM const modifiers, std::wstring commandId)
         {
             auto accel = KA{};
@@ -5540,21 +5531,14 @@ namespace winrt::FileScoutNative::implementation
             accelerators.Append(accel);
         };
 
-        AddAccelerator(VK::A, VKM::Control, L"selectAll");
-        AddAccelerator(VK::C, VKM::Control, L"copy");
-        AddAccelerator(VK::X, VKM::Control, L"cut");
-        AddAccelerator(VK::V, VKM::Control, L"paste");
-        AddAccelerator(VK::Delete, VKM::None, L"delete");
-        AddAccelerator(VK::F2, VKM::None, L"rename");
-        AddAccelerator(VK::F5, VKM::None, L"refresh");
-        AddAccelerator(VK::Enter, VKM::Menu, L"properties");
-        AddAccelerator(VK::Left, VKM::Menu, L"back");
-        AddAccelerator(VK::Right, VKM::Menu, L"forward");
-        AddAccelerator(VK::N, CombineModifiers(VKM::Control, VKM::Shift), L"newFolder");
-        AddAccelerator(VK::T, VKM::Control, L"newTab");
-        AddAccelerator(VK::W, VKM::Control, L"closeTab");
-        // Ctrl+Tab / Ctrl+Shift+Tab cycle through panes.
-        AddAccelerator(VK::Tab, VKM::Control, L"switchPane");
+        // The single binding of every file shortcut (UB-05); Ctrl+Tab cycles through panes.
+        for (auto const& shortcut : ::FileScoutNative::Domain::kFileShortcuts)
+        {
+            AddAccelerator(
+                static_cast<VK>(shortcut.key),
+                static_cast<VKM>(shortcut.modifiers),
+                std::wstring{ shortcut.command_id });
+        }
 
         // Ctrl+F — focus the dedicated search box.
         {
@@ -5600,11 +5584,17 @@ namespace winrt::FileScoutNative::implementation
 
     bool MainWindow::ShouldTextInputOwnFileShortcut(std::wstring_view const commandId)
     {
-        if (!IsTextEditingCommand(commandId))
+        // Skip the focus walk for window commands; the rule itself is Domain::ShouldTextInputOwnShortcut.
+        if (!::FileScoutNative::Domain::IsFileItemCommand(commandId))
         {
             return false;
         }
 
+        return ::FileScoutNative::Domain::ShouldTextInputOwnShortcut(commandId, FocusIsInEditableControl());
+    }
+
+    bool MainWindow::FocusIsInEditableControl()
+    {
         if (AddressTextBox().Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible)
         {
             return true;
@@ -6148,19 +6138,15 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::FileRowsListView_KeyDown(
         winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
     {
-        if (args.Key() == winrt::Windows::System::VirtualKey::A && GetKeyState(VK_CONTROL) < 0)
-        {
-            SelectAllDisplayedItems();
-            args.Handled(true);
-            return;
-        }
-
-        if (HasSystemModifierChord())
+        // Ctrl+A and the other chords belong to the window accelerators (UB-05).
+        auto const action = ::FileScoutNative::Domain::ResolveListKeyAction(
+            static_cast<std::uint32_t>(args.Key()), HasSystemModifierChord());
+        if (action == ::FileScoutNative::Domain::ListKeyAction::None)
         {
             return;
         }
 
-        if (args.Key() == winrt::Windows::System::VirtualKey::Enter)
+        if (action == ::FileScoutNative::Domain::ListKeyAction::ActivateSelection)
         {
             if (ActivateCurrentSelection())
             {
