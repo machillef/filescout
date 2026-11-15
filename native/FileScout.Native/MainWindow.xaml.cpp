@@ -13,6 +13,7 @@
 #include "Domain/DriveCapacity.h"
 #include "Domain/FileNameValidation.h"
 #include "Domain/NavigationInput.h"
+#include "Domain/RenamePolicy.h"
 #include "Domain/RowIconState.h"
 #include "Domain/ShellItemSort.h"
 #include "Domain/SidebarRecents.h"
@@ -4818,7 +4819,7 @@ namespace winrt::FileScoutNative::implementation
             co_return;
         }
 
-        if (_wcsicmp(newName.c_str(), item.display_name.c_str()) == 0)
+        if (::FileScoutNative::Domain::IsRenameNoOp(newName, item.display_name))
         {
             StatusTextBlock().Text(ToHString(L"Rename skipped: " + item.display_name));
             co_return;

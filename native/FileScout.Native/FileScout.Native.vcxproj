@@ -135,6 +135,7 @@
     <ClInclude Include="Domain\CommandEntry.h" />
     <ClInclude Include="Domain\DriveCapacity.h" />
     <ClInclude Include="Domain\RowFormatting.h" />
+    <ClInclude Include="Domain\RenamePolicy.h" />
     <ClInclude Include="Domain\SidebarRecents.h" />
     <ClInclude Include="Domain\ShellItemRef.h" />
     <ClInclude Include="Domain\ThemeDefinition.h" />
