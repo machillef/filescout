@@ -55,15 +55,18 @@ namespace FileScoutNative::Search
 
     void SearchService::ReapFinishedWorkers()
     {
-        std::erase_if(m_retired_workers, [](Worker& worker)
+        // Join first, then erase with a side-effect-free predicate (erase_if may call it any number of
+        // times and on moved elements).
+        for (auto& worker : m_retired_workers)
         {
-            if (!worker.finished->load())
+            if (worker.finished->load() && worker.thread.joinable())
             {
-                return false;
+                worker.thread.join();
             }
-
-            if (worker.thread.joinable()) worker.thread.join();
-            return true;
+        }
+        std::erase_if(m_retired_workers, [](Worker const& worker)
+        {
+            return worker.finished->load() && !worker.thread.joinable();
         });
     }
 
