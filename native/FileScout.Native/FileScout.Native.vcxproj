@@ -146,6 +146,7 @@
     <ClInclude Include="Shell\ShellInteropService.h" />
     <ClInclude Include="Search\FuzzyMatcher.h" />
     <ClInclude Include="Search\SearchService.h" />
+    <ClInclude Include="Search\SearchLimits.h" />
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />
