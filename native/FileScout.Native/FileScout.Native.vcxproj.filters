@@ -40,6 +40,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Shell\TempStagingCleanup.cpp" />
+    <ClCompile Include="Shell\ShellCommandVerb.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Shell\ShellClipboardService.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -109,6 +112,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shell\TempStagingCleanup.h" />
+    <ClInclude Include="Shell\ShellCommandVerb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Shell\ShellClipboardService.h">
       <Filter>Header Files</Filter>
     </ClInclude>
