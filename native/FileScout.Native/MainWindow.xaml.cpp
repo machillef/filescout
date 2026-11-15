@@ -388,7 +388,7 @@ namespace
     winrt::Microsoft::UI::Xaml::Media::ImageSource BuildIconSource(
         ::FileScoutNative::Domain::IconBitmap const& icon)
     {
-        if (icon.rgba.empty() || icon.width == 0 || icon.height == 0)
+        if (icon.IsEmpty())
         {
             return nullptr;
         }
@@ -406,7 +406,7 @@ namespace
             uint8_t* dest = nullptr;
             winrt::check_hresult(byteAccess->Buffer(&dest));
 
-            auto const& src = icon.rgba;
+            auto const& src = *icon.rgba;
             for (std::size_t i = 0; i + 3 < src.size(); i += 4)
             {
                 uint8_t const r = src[i];
@@ -6537,6 +6537,15 @@ namespace winrt::FileScoutNative::implementation
 
         pane.tab_switching = false;
 
+        // The right pane is hidden in the default single-pane layout. Loading its start folder at
+        // startup doubled the work for nothing (a 100k-entry folder was enumerated, sorted and
+        // turned into rows twice); it now loads the first time dual pane is shown.
+        if (paneIndex == 1 && !m_dualPaneVisible)
+        {
+            m_deferredRightPanePath = startPath;
+            return;
+        }
+
         // Temporarily make this pane active to run LoadDirectory through it.
         auto const savedActivePane = m_activePaneIndex;
         m_activePaneIndex = paneIndex;
@@ -7612,6 +7621,14 @@ namespace winrt::FileScoutNative::implementation
     {
         m_dualPaneVisible = !m_dualPaneVisible;
         ApplyPaneLayoutVisibility();
+        if (m_dualPaneVisible && m_deferredRightPanePath.has_value())
+        {
+            auto const path = *std::exchange(m_deferredRightPanePath, std::nullopt);
+            auto const savedActivePane = m_activePaneIndex;
+            m_activePaneIndex = 1;
+            LoadDirectory(path);
+            m_activePaneIndex = savedActivePane;
+        }
         StatusTextBlock().Text(m_dualPaneVisible
             ? L"Dual pane enabled."
             : L"Single-pane beta layout restored.");

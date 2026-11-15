@@ -197,6 +197,7 @@ namespace winrt::FileScoutNative::implementation
         // Panel visibility state — toggled by togglePreview / toggleDualPane commands.
         bool m_previewPanelVisible{ true };
         bool m_dualPaneVisible{ true };
+        std::optional<std::filesystem::path> m_deferredRightPanePath;
         // S4: letter-jump border flash timer (single-shot, 300 ms).
         winrt::Microsoft::UI::Xaml::DispatcherTimer m_letterJumpTimer{ nullptr };
         std::wstring m_currentThemeId{ L"default-dark" };
