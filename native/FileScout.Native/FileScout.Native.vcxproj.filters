@@ -36,6 +36,9 @@
     <ClCompile Include="Shell\FavoritesService.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Shell\DefaultFileManagerService.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Shell\ShellClipboardService.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -87,6 +90,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shell\FavoritesService.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Shell\DefaultFileManagerService.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shell\ShellClipboardService.h">

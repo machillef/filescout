@@ -124,6 +124,7 @@
   <ItemGroup>
     <ClCompile Include="..\FileScout.Native\Shell\ContextMenuService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\FavoritesService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\DefaultFileManagerService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellClipboardService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellInteropService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellFileOperationService.cpp" />
@@ -165,6 +166,7 @@
     <ClCompile Include="tests\ThemeServiceTests.cpp" />
     <ClCompile Include="tests\Wave1FeatureGateTests.cpp" />
     <ClCompile Include="tests\ScopedTimerTests.cpp" />
+    <ClCompile Include="tests\DefaultFileManagerServiceTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
