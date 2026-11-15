@@ -34,7 +34,8 @@ namespace FileScoutNative::Search
         SearchService(SearchService const&)            = delete;
         SearchService& operator=(SearchService const&) = delete;
 
-        // Signals any running walk to stop (non-blocking), then starts a new walk.
+        // Signals any running walk to stop (non-blocking), then starts a new walk. The old worker is
+        // joined later (next Start or the destructor), never detached.
         // Safe to call from the UI thread.
         void Start(std::wstring root, std::wstring query,
                    ResultCallback on_results, CompleteCallback on_complete,
@@ -65,7 +66,19 @@ namespace FileScoutNative::Search
 
         std::shared_ptr<std::atomic<bool>> m_cancelled_flag;
         std::shared_ptr<std::atomic<uint64_t>> m_generation;
-        std::thread m_thread;
+
+        // Every worker is joined: a restarted walk keeps its old worker here until it has finished
+        // (reaped on the next Start) or the destructor joins it. A detached worker could still be
+        // calling post_fn, which points into the pane, after the service is gone.
+        struct Worker
+        {
+            std::thread thread;
+            std::shared_ptr<std::atomic<bool>> finished;
+        };
+        Worker m_worker;
+        std::vector<Worker> m_retired_workers;
+
+        void ReapFinishedWorkers();
 
         static void WalkDir(
             std::filesystem::path const& dir,

@@ -46,7 +46,25 @@ namespace FileScoutNative::Search
     {
         if (m_cancelled_flag) *m_cancelled_flag = true;
         if (m_generation) ++(*m_generation);
-        if (m_thread.joinable()) m_thread.join();
+        if (m_worker.thread.joinable()) m_worker.thread.join();
+        for (auto& worker : m_retired_workers)
+        {
+            if (worker.thread.joinable()) worker.thread.join();
+        }
+    }
+
+    void SearchService::ReapFinishedWorkers()
+    {
+        std::erase_if(m_retired_workers, [](Worker& worker)
+        {
+            if (!worker.finished->load())
+            {
+                return false;
+            }
+
+            if (worker.thread.joinable()) worker.thread.join();
+            return true;
+        });
     }
 
     void SearchService::Cancel()
@@ -63,10 +81,12 @@ namespace FileScoutNative::Search
         CompleteCallback on_complete,
         PostFn post_fn)
     {
-        // Signal old walk and detach it (safe: old thread owns its shared_ptrs).
+        // Signal the old walk and retire its worker; it is joined once it has finished.
         if (m_cancelled_flag) *m_cancelled_flag = true;
         if (m_generation) ++(*m_generation);
-        if (m_thread.joinable()) m_thread.detach();
+        if (m_worker.thread.joinable()) m_retired_workers.push_back(std::move(m_worker));
+        m_worker = {};
+        ReapFinishedWorkers();
 
         // Fresh cancellation token and shared generation counter for this walk.
         m_cancelled_flag = std::make_shared<std::atomic<bool>>(false);
@@ -90,12 +110,20 @@ namespace FileScoutNative::Search
             return;
         }
 
-        m_thread = std::thread([root_path = std::move(root_path), query = std::move(query),
+        auto finished = std::make_shared<std::atomic<bool>>(false);
+        m_worker.finished = finished;
+        m_worker.thread = std::thread([root_path = std::move(root_path), query = std::move(query),
                                 on_results = std::move(on_results),
                                 on_complete = std::move(on_complete),
                                 post_fn = std::move(post_fn),
-                                cancelled, generation_ptr, generation]() mutable
+                                cancelled, generation_ptr, generation, finished]() mutable
         {
+            struct MarkFinished
+            {
+                std::shared_ptr<std::atomic<bool>> flag;
+                ~MarkFinished() { *flag = true; }
+            } markFinished{ finished };
+
             try
             {
                 std::wstring query_lower(query.size(), L'\0');
