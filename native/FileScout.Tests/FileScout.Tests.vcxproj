@@ -166,6 +166,7 @@
     <ClCompile Include="tests\Wave1FeatureGateTests.cpp" />
     <ClCompile Include="tests\ScopedTimerTests.cpp" />
     <ClCompile Include="tests\BatchRenameInputTests.cpp" />
+    <ClCompile Include="tests\PaneSelectionStateTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
