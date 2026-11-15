@@ -3173,7 +3173,10 @@ namespace winrt::FileScoutNative::implementation
         {
             pane.tabs[tabIndex].items.clear();
             pane.tabs[tabIndex].path = path;
+            // The pending target is a folder, not This PC: a restore must reload it, not the drives.
+            pane.tabs[tabIndex].is_drives_view = false;
         }
+        pane.is_drives_view = false;
         if (pane.active_list_view)
         {
             pane.tab_switching = true;
