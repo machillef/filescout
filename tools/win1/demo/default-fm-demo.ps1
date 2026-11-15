@@ -18,8 +18,12 @@ function Export-Touched([string]$tag) {
     $text = foreach ($k in $touched) {
         "### $k"
         $tmp = Join-Path $env:TEMP "fsdemo-$tag.reg"
-        cmd.exe /c "reg export `"$k`" `"$tmp`" /y >nul 2>&1"
-        if ($LASTEXITCODE -eq 0) { Get-Content $tmp | Select-Object -Skip 1 } else { '(absent)' }
+        # reg export returns 1 for any failure, so check absence separately and stop on real errors.
+        cmd.exe /c "reg query `"$k`" >nul 2>&1"
+        if ($LASTEXITCODE -ne 0) { '(absent)'; continue }
+        $err = cmd.exe /c "reg export `"$k`" `"$tmp`" /y 2>&1"
+        if ($LASTEXITCODE -ne 0) { throw "reg export failed for ${k}: $err" }
+        Get-Content $tmp | Select-Object -Skip 1
     }
     $path = Join-Path $Out "registry-$tag.txt"
     $text | Set-Content $path -Encoding UTF8
@@ -133,6 +137,8 @@ Remove-Item (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\
 $hashBefore = Export-Touched 'before'
 
 $rec = Start-Recording (Join-Path $Out 'default-fm-demo.mp4')
+$enabledHere = $false
+try {
 Pause-Ui 1000
 Show-Caption 'FileScout as the default file manager  -  win1, user runetest'
 Pause-Ui 2500
@@ -144,6 +150,7 @@ $w = Wait-NewFolderWindow $before; Record-Step 'Win+E before' $w 'Explorer'; Pau
 
 # 2. One action inside FileScout
 Use-FileScoutMenu '2. In FileScout: Theme menu > "Make FileScout the default file manager"' 'Make FileScout'
+$enabledHere = $true
 
 # 3. Win+E
 Show-Caption '3. Win+E now opens FileScout'
@@ -182,12 +189,13 @@ if ($open) {
     else { $clicked = 'Open downloads folder'; Click-Element $open }
 }
 Write-Output "[edge] clicked '$clicked'"
-$w = Wait-NewFolderWindow $before; Record-Step 'Edge Open downloads folder' $w 'FileScout'; Pause-Ui 3500; Close-Win $w
+$w = Wait-NewFolderWindow $before; Record-Step "Edge download: $clicked" $w 'FileScout'; Pause-Ui 3500; Close-Win $w
 Get-Process msedge -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $edge.SessionId } | Stop-Process -Force
 Pause-Ui 1000
 
 # 7. Restore from inside FileScout
 Use-FileScoutMenu '7. In FileScout: Theme menu > "Restore Explorer as default file manager"' 'Restore Explorer'
+$enabledHere = $false
 
 # 8. After restore
 Show-Caption '8. After restore: Win+E opens Explorer again'
@@ -201,8 +209,13 @@ $hashAfter = Export-Touched 'after'
 $same = $hashBefore -eq $hashAfter
 Show-Caption ("9. Registry keys FileScout touches, before vs after: {0} (SHA-256 {1}...)" -f ($(if ($same) { 'IDENTICAL' } else { 'DIFFERENT' })), $hashAfter.Substring(0, 12))
 Pause-Ui 5000
-Close-Caption
-Stop-Recording $rec
+}
+finally {
+    # A failed step must not leave FileScout registered or the recorder running.
+    if ($enabledHere) { try { & $Exe --restore-explorer | Out-Null } catch { Write-Output "[error] restore failed: $_" } }
+    try { Close-Caption } catch { }
+    try { Stop-Recording $rec } catch { Write-Output "[error] recorder stop failed: $_" }
+}
 
 [ordered]@{ steps = $steps; registryBefore = $hashBefore; registryAfter = $hashAfter; registryIdentical = $same } |
     ConvertTo-Json -Depth 4 | Set-Content (Join-Path $Out 'default-fm-demo.json') -Encoding UTF8

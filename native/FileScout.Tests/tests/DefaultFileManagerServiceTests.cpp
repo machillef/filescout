@@ -319,6 +319,36 @@ TEST_F(DefaultFileManagerRegistry, MissingFolderExploreVerbIsPartiallyDefault)
     EXPECT_EQ(service.GetStatus(), DefaultFileManagerStatus::PartiallyDefault);
 }
 
+TEST_F(DefaultFileManagerRegistry, NonEmptyDelegateExecuteIsNotDefault)
+{
+    // A COM delegate wins over the command string, so the explore verb would still open Explorer.
+    auto service = Service();
+    ASSERT_TRUE(service.SetAsDefault());
+    Write(m_classes + L"\\Folder\\shell\\explore\\command", L"DelegateExecute", L"{11dbb47c-a525-400b-9e80-a54615a090c0}");
+
+    EXPECT_EQ(service.GetStatus(), DefaultFileManagerStatus::PartiallyDefault);
+}
+
+TEST_F(DefaultFileManagerRegistry, OlderManifestIsExtendedSoRestoreRemovesEverything)
+{
+    // A manifest written by an older build covers only the Directory default verb.
+    auto const before = Dump(m_classes);
+    HKEY key{};
+    ASSERT_EQ(::RegCreateKeyExW(HKEY_CURRENT_USER, m_manifest.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr), ERROR_SUCCESS);
+    std::wstring const blob = std::wstring{ L"K|Directory" } + L'\0' + L"K|Directory\\shell" + L'\0' +
+        L"V|Directory\\shell||0|" + L'\0' + L'\0';
+    ::RegSetValueExW(key, L"Entries", 0, REG_MULTI_SZ, reinterpret_cast<BYTE const*>(blob.data()),
+        static_cast<DWORD>(blob.size() * sizeof(wchar_t)));
+    ::RegCloseKey(key);
+    Write(m_classes + L"\\Directory\\shell", nullptr, L"FileScout");
+
+    auto service = Service();
+    ASSERT_TRUE(service.SetAsDefault());
+    ASSERT_TRUE(service.RestoreDefault());
+
+    EXPECT_EQ(Dump(m_classes), before);
+}
+
 TEST_F(DefaultFileManagerRegistry, RestoreKeepsAnotherAppsOpenVerb)
 {
     Write(m_classes + L"\\Directory\\shell\\open\\command", nullptr, L"\"C:\\Other\\other.exe\" \"%1\"");

@@ -1905,16 +1905,35 @@ namespace winrt::FileScoutNative::implementation
         // System integration lives in the same menu until the new chrome gets a settings surface.
         flyout.Items().Append(winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator{});
         {
-            bool const isDefault = m_defaultFileManager.GetStatus() ==
-                ::FileScoutNative::Shell::DefaultFileManagerStatus::FullyDefault;
+            // Label and action are refreshed each time the menu opens: another process (or the
+            // --restore-explorer switch) may have changed the registration since it was built.
             auto item = winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem{};
-            item.Text(isDefault ? L"Restore Explorer as default file manager"
-                                : L"Make FileScout the default file manager");
             winrt::Microsoft::UI::Xaml::Controls::FontIcon icon;
-            icon.Glyph(isDefault ? L"\uE7A7" : L"\uE8B7");
             item.Icon(icon);
             winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(item, L"DefaultFileManagerMenuItem");
-            item.Click([this, isDefault](auto const&, auto const&) { SetDefaultFileManager(!isDefault); });
+            // Weak references: the flyout owns both the item and this handler.
+            auto const refresh = [this, weakItem = winrt::make_weak(item), weakIcon = winrt::make_weak(icon)]()
+            {
+                auto const item = weakItem.get();
+                auto const icon = weakIcon.get();
+                if (!item || !icon)
+                {
+                    return;
+                }
+                bool const isDefault = m_defaultFileManager.GetStatus() ==
+                    ::FileScoutNative::Shell::DefaultFileManagerStatus::FullyDefault;
+                item.Text(isDefault ? L"Restore Explorer as default file manager"
+                                    : L"Make FileScout the default file manager");
+                icon.Glyph(isDefault ? L"\uE7A7" : L"\uE8B7");
+            };
+            refresh();
+            flyout.Opening([refresh](auto const&, auto const&) { refresh(); });
+            item.Click([this](auto const&, auto const&)
+                {
+                    bool const isDefault = m_defaultFileManager.GetStatus() ==
+                        ::FileScoutNative::Shell::DefaultFileManagerStatus::FullyDefault;
+                    SetDefaultFileManager(!isDefault);
+                });
             flyout.Items().Append(item);
         }
 

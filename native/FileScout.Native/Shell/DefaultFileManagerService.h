@@ -93,6 +93,8 @@ namespace FileScoutNative::Shell
         [[nodiscard]] std::filesystem::path const& ExecutablePath() const noexcept { return m_exePath; }
 
     private:
+        [[nodiscard]] bool CommandRunsExecutable(std::wstring const& commandKey) const;
+
         std::wstring m_classesRoot;
         std::wstring m_manifestKey;
         std::filesystem::path m_exePath;

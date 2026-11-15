@@ -331,6 +331,16 @@ namespace FileScoutNative::Shell
     {
     }
 
+    // A verb runs our command only when its DelegateExecute is present and empty: a non-empty one
+    // (Explorer's COM delegate) wins over the command string.
+    bool DefaultFileManagerService::CommandRunsExecutable(std::wstring const& commandKey) const
+    {
+        auto const command = ReadString(commandKey, L"");
+        auto const delegate = ReadString(commandKey, L"DelegateExecute");
+        return command.has_value() && detail::ValuePointsToExecutable(*command, m_exePath) &&
+            delegate.has_value() && delegate->empty();
+    }
+
     DefaultFileManagerStatus DefaultFileManagerService::GetStatus() const
     {
         std::wstring const verb{ detail::k_verbName };
@@ -342,8 +352,8 @@ namespace FileScoutNative::Shell
             {
                 for (std::wstring const explicitVerb : { L"open", L"explore" })
                 {
-                    auto const value = ReadString(Join(m_classesRoot, cls + L"\\shell\\" + explicitVerb + L"\\command"), L"");
-                    if (!value.has_value() || !detail::ValuePointsToExecutable(*value, m_exePath))
+                    auto const key = Join(m_classesRoot, cls + L"\\shell\\" + explicitVerb + L"\\command");
+                    if (!CommandRunsExecutable(key))
                     {
                         return false;
                     }
@@ -360,8 +370,7 @@ namespace FileScoutNative::Shell
         auto const delegate = ReadString(winEKey, L"DelegateExecute");
         bool const winE = winECommand.has_value() && detail::ValuePointsToExecutable(*winECommand, m_exePath) &&
             delegate.has_value() && delegate->empty();
-        auto const folderExplore = ReadString(Join(m_classesRoot, L"Folder\\shell\\explore\\command"), L"");
-        bool const folderVerbs = folderExplore.has_value() && detail::ValuePointsToExecutable(*folderExplore, m_exePath);
+        bool const folderVerbs = CommandRunsExecutable(Join(m_classesRoot, L"Folder\\shell\\explore\\command"));
         return detail::DeriveStatus(verbIsDefault(L"Drive") && folderVerbs, verbIsDefault(L"Directory"), winE);
     }
 
@@ -373,13 +382,28 @@ namespace FileScoutNative::Shell
         }
         auto const values = detail::BuildDefaultValues(m_exePath);
 
-        // Record prior state only once, so a second Set (e.g. after moving the exe) cannot overwrite
-        // the original Explorer state with FileScout's own values.
-        if (ReadManifest(m_manifestKey).empty())
+        // Prior state is recorded once per value: entries already in the manifest are kept (a second
+        // Set must not overwrite the original Explorer state with FileScout's own values), and values
+        // or keys a newer build writes that an older manifest does not cover are appended.
         {
-            std::vector<std::wstring> manifest;
+            auto manifest = ReadManifest(m_manifestKey);
+            auto const originalSize = manifest.size();
             std::unordered_set<std::wstring> recordedKeys;
             std::unordered_set<std::wstring> recordedValues;
+            for (auto const& line : manifest)
+            {
+                if (auto const entry = detail::DecodeManifestEntry(line))
+                {
+                    if (entry->isKey)
+                    {
+                        recordedKeys.insert(entry->subKey);
+                    }
+                    else
+                    {
+                        recordedValues.insert(entry->subKey + L"|" + entry->valueName);
+                    }
+                }
+            }
             for (auto const& spec : values)
             {
                 // Each missing path component below the classes root is a key FileScout creates.
@@ -401,7 +425,7 @@ namespace FileScoutNative::Shell
                         { false, spec.subKey, spec.valueName, old.has_value(), old.value_or(L"") }));
                 }
             }
-            if (!WriteManifest(m_manifestKey, manifest))
+            if (manifest.size() != originalSize && !WriteManifest(m_manifestKey, manifest))
             {
                 return false;
             }

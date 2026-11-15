@@ -189,7 +189,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR cmdLine, int)
     if (launchPath.has_value() && FileScoutNative::detail::ShouldDelegateToExplorer(launchPath->native()))
     {
         TraceLog(L"[launch] delegating shell namespace path to Explorer: " + launchPath->wstring());
-        ::ShellExecuteW(nullptr, nullptr, L"explorer.exe", (L"\"" + launchPath->wstring() + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+        // Absolute path: a bare "explorer.exe" is searched in the working directory first (CWE-426).
+        wchar_t windowsDir[MAX_PATH]{};
+        ::GetWindowsDirectoryW(windowsDir, MAX_PATH);
+        auto const explorer = std::filesystem::path{ windowsDir } / L"explorer.exe";
+        ::ShellExecuteW(nullptr, nullptr, explorer.c_str(), (L"\"" + launchPath->wstring() + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
         return EXIT_SUCCESS;
     }
 
