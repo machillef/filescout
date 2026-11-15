@@ -174,4 +174,17 @@ namespace FileScoutNative::Domain
     {
         return left.size() == right.size() && CompareIgnoreCase(left, right) == 0;
     }
+
+    // The letter a name is grouped under: folded (so final sigma groups with sigma) then upper-cased
+    // with the same invariant tables the name sort uses; '#' for names not starting with a letter
+    // or digit.
+    [[nodiscard]] inline wchar_t NameGroupInitial(std::wstring_view const name) noexcept
+    {
+        if (name.empty())
+        {
+            return L'#';
+        }
+        wchar_t const upper = UpperChar(FoldChar(name.front()));
+        return ::IsCharAlphaNumericW(upper) ? upper : L'#';
+    }
 }

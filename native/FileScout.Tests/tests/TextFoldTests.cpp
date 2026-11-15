@@ -92,3 +92,15 @@ TEST(TextFold, SymbolVariantsFoldToTheLetterUsersType)
     EXPECT_EQ(FoldChar(L'\u212A'), L'k');        // Kelvin sign
     EXPECT_EQ(FoldChar(L'\u017F'), L's');        // long s
 }
+
+// Group headers use the same folding as the name sort, so Greek case variants share one header.
+TEST(TextFold, NameGroupInitialMatchesTheSortFolding)
+{
+    using FileScoutNative::Domain::NameGroupInitial;
+    EXPECT_EQ(NameGroupInitial(L"\u0391a"), L'\u0391');  // Αa
+    EXPECT_EQ(NameGroupInitial(L"\u03B1b"), L'\u0391');  // αb
+    EXPECT_EQ(NameGroupInitial(L"\u03C2x"), L'\u03A3');  // ςx groups under Σ
+    EXPECT_EQ(NameGroupInitial(L"7z"), L'7');
+    EXPECT_EQ(NameGroupInitial(L"_tmp"), L'#');
+    EXPECT_EQ(NameGroupInitial(L""), L'#');
+}

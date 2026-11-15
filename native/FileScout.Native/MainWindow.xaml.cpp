@@ -1513,13 +1513,7 @@ namespace
             return prefix + L"#";
         }
 
-        wchar_t ch = static_cast<wchar_t>(::towupper(item.display_name.front()));
-        if (::iswalnum(ch))
-        {
-            return prefix + std::wstring{ 1, ch };
-        }
-
-        return prefix + L"#";
+        return prefix + std::wstring{ 1, ::FileScoutNative::Domain::NameGroupInitial(item.display_name) };
     }
 
     std::wstring BuildSizeGroupLabel(::FileScoutNative::Domain::ShellItemRef const& item)
