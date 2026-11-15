@@ -2995,10 +2995,23 @@ namespace winrt::FileScoutNative::implementation
         const auto hwnd = GetWindowHandle();
         const UINT dpi = GetDpiForWindow(hwnd);
         const float scale = static_cast<float>(dpi) / 96.0f;
-        const int width = static_cast<int>(1520 * scale);
-        const int height = static_cast<int>(920 * scale);
-
-        SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
+        int width = static_cast<int>(1520 * scale);
+        int height = static_cast<int>(920 * scale);
+        // Never larger than the monitor's work area: it was 1520x920 on win1's 1280x800 screen, so
+        // the title bar buttons and the theme menu were off screen. Centred in the work area.
+        MONITORINFO monitor{ sizeof(monitor) };
+        if (::GetMonitorInfoW(::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor))
+        {
+            auto const& work = monitor.rcWork;
+            width = (std::min)(width, static_cast<int>((work.right - work.left) * 0.94));
+            height = (std::min)(height, static_cast<int>((work.bottom - work.top) * 0.94));
+            SetWindowPos(hwnd, nullptr, work.left + ((work.right - work.left) - width) / 2,
+                work.top + ((work.bottom - work.top) - height) / 2, width, height, SWP_NOZORDER);
+        }
+        else
+        {
+            SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
+        }
 
         static constexpr UINT_PTR navigationWindowSubclassId = 0x46534E56;
         SetWindowSubclass(
@@ -4995,8 +5008,7 @@ namespace winrt::FileScoutNative::implementation
 
         auto previewErrorText = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
         previewErrorText.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::WrapWholeWords);
-        previewErrorText.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-            winrt::Windows::UI::Color{ 0xFF, 0xC4, 0x2B, 0x1C }));
+        previewErrorText.Foreground(LookupBrush(L"SystemFillColorCriticalBrush"));
         previewErrorText.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
 
         auto previewRows = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
@@ -6720,6 +6732,16 @@ namespace winrt::FileScoutNative::implementation
         auto const activeBrush = LookupBrush(L"AccentFillColorDefaultBrush");
         auto const inactiveBrush = LookupBrush(L"CardStrokeColorDefaultBrush");
 
+        // With one pane there is nothing to tell apart: a neutral hairline, no accent frame.
+        if (!m_dualPaneVisible)
+        {
+            LeftPaneBorder().BorderBrush(inactiveBrush);
+            LeftPaneBorder().BorderThickness({ 1, 1, 1, 1 });
+            RightPaneBorder().BorderBrush(inactiveBrush);
+            RightPaneBorder().BorderThickness({ 1, 1, 1, 1 });
+            return;
+        }
+
         if (m_activePaneIndex == 0)
         {
             LeftPaneBorder().BorderBrush(activeBrush);
@@ -6917,8 +6939,7 @@ namespace winrt::FileScoutNative::implementation
 
             if (isActive)
             {
-                btn.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-                    winrt::Windows::UI::Color{ 0xFF, 0x00, 0x78, 0xD4 }));
+                btn.Foreground(LookupBrush(L"AccentTextFillColorPrimaryBrush"));
             }
 
             try
@@ -6958,8 +6979,7 @@ namespace winrt::FileScoutNative::implementation
                 : winrt::Microsoft::UI::Text::FontWeights::Normal());
             if (isActive)
             {
-                btn.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-                    winrt::Windows::UI::Color{ 0xFF, 0x00, 0x78, 0xD4 }));
+                btn.Foreground(LookupBrush(L"AccentTextFillColorPrimaryBrush"));
             }
             try
             {
@@ -7736,6 +7756,7 @@ namespace winrt::FileScoutNative::implementation
     {
         m_dualPaneVisible = !m_dualPaneVisible;
         ApplyPaneLayoutVisibility();
+        UpdateActivePaneIndicator();
         if (m_dualPaneVisible && m_deferredRightPanePath.has_value())
         {
             auto const path = *std::exchange(m_deferredRightPanePath, std::nullopt);

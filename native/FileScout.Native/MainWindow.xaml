@@ -20,8 +20,8 @@
             <Style x:Key="ListRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Margin" Value="0,0,18,0" />
-                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="Margin" Value="0,0,8,0" />
+                <Setter Property="MinHeight" Value="32" />
             </Style>
             <Style x:Key="GroupRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -29,14 +29,15 @@
                 <Setter Property="Margin" Value="0,0,28,4" />
                 <Setter Property="MinHeight" Value="0" />
             </Style>
+            <!-- New look (docs/overhaul/look.md): compact Fluent chrome, subtle 32 px controls. -->
             <Style x:Key="ChromeToolbarButtonStyle" TargetType="Button">
-                <Setter Property="MinHeight" Value="34" />
-                <Setter Property="MinWidth" Value="34" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="MinWidth" Value="32" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="CornerRadius" Value="9" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-                <Setter Property="Background" Value="{ThemeResource LayerFillColorAltBrush}" />
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorTransparentBrush}" />
                 <Setter Property="HorizontalAlignment" Value="Left" />
             </Style>
             <Style x:Key="ChromePrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource ChromeToolbarButtonStyle}">
@@ -44,15 +45,15 @@
                 <Setter Property="Background" Value="{ThemeResource LayerFillColorAltBrush}" />
             </Style>
             <Style x:Key="ChromeAddressTextBoxStyle" TargetType="TextBox">
-                <Setter Property="MinHeight" Value="40" />
-                <Setter Property="Padding" Value="14,0,14,0" />
-                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="Padding" Value="10,5,10,0" />
+                <Setter Property="CornerRadius" Value="4" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="Background" Value="{ThemeResource LayerFillColorAltBrush}" />
             </Style>
             <Style x:Key="ChromeInlineAddressTextBoxStyle" TargetType="TextBox">
-                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="MinHeight" Value="32" />
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="Margin" Value="0" />
                 <Setter Property="CornerRadius" Value="0" />
@@ -62,13 +63,13 @@
                 <Setter Property="VerticalContentAlignment" Value="Center" />
             </Style>
             <Style x:Key="ChromeDropDownButtonStyle" TargetType="DropDownButton">
-                <Setter Property="MinHeight" Value="40" />
-                <Setter Property="MinWidth" Value="156" />
-                <Setter Property="Padding" Value="12,0,12,0" />
-                <Setter Property="CornerRadius" Value="12" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-                <Setter Property="Background" Value="{ThemeResource LayerFillColorAltBrush}" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Padding" Value="10,0,8,0" />
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorTransparentBrush}" />
                 <Setter Property="HorizontalAlignment" Value="Right" />
             </Style>
 
@@ -233,36 +234,27 @@
                                        Opacity="{x:Bind CutOpacity, Mode=OneWay}" />
                                 <TextBlock Grid.Column="1"
                                            Text="{x:Bind Name}"
-                                           FontSize="12.5"
-                                           FontWeight="SemiBold"
+                                           FontSize="13"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
-                                <Border Grid.Column="2"
-                                        HorizontalAlignment="Left"
-                                        Padding="6,2"
-                                        CornerRadius="6"
-                                        Background="{ThemeResource LayerFillColorAltBrush}"
-                                        Opacity="0.88">
-                                    <TextBlock Text="{x:Bind TypeLabel}"
-                                               FontSize="11.5"
-                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                               VerticalAlignment="Center"
-                                               TextTrimming="CharacterEllipsis" />
-                                </Border>
+                                <TextBlock Grid.Column="2"
+                                           Text="{x:Bind TypeLabel}"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="3"
                                            Text="{x:Bind SizeText}"
                                            FontSize="12"
-                                           FontWeight="SemiBold"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                           Opacity="0.78"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           HorizontalTextAlignment="Right"
+                                           Margin="0,0,16,0"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="4"
                                            Text="{x:Bind DateText}"
-                                           FontSize="12.5"
-                                           FontWeight="SemiBold"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                           Opacity="0.82"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                             </Grid>
@@ -420,8 +412,9 @@
             </Grid.ColumnDefinitions>
 
             <Grid Grid.Column="1" Padding="0,0,0,8">
-                <Grid Padding="16,10,16,14"
-                      RowSpacing="12">
+                <Grid x:Name="ChromeGrid"
+                      Padding="12,6,12,6"
+                      RowSpacing="6">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -455,20 +448,9 @@
                                            Opacity="0.8" />
                             </Border>
                         </StackPanel>
-
-                        <TextBlock x:Name="ActiveLocationTextBlock"
-                                   Grid.Column="1"
-                                   Text="LOCATION"
-                                   HorizontalAlignment="Left"
-                                   VerticalAlignment="Center"
-                                   FontSize="9"
-                                   FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   CharacterSpacing="140"
-                                   Opacity="0.76" />
                     </Grid>
 
-                    <Grid Grid.Row="1" ColumnSpacing="12">
+                    <Grid Grid.Row="1" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
@@ -515,9 +497,9 @@
                         <Grid Grid.Column="1">
                             <!-- Breadcrumb bar — default view; tap to reveal address TextBox -->
                             <Border x:Name="BreadcrumbBarBorder"
-                                    MinHeight="40"
-                                    Padding="12,0,12,0"
-                                    CornerRadius="12"
+                                    MinHeight="32"
+                                    Padding="8,0,8,0"
+                                    CornerRadius="4"
                                     BorderThickness="1"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     Background="{ThemeResource LayerFillColorAltBrush}"
@@ -596,19 +578,17 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="1" Padding="20,4,20,12" ColumnSpacing="14">
+        <Grid x:Name="ContentGrid" Grid.Row="1" Padding="6,0,8,4" ColumnSpacing="6">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="SidebarColumn" Width="260" />
+                <ColumnDefinition x:Name="SidebarColumn" Width="232" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition x:Name="RightPaneColumn" Width="*" />
             </Grid.ColumnDefinitions>
 
             <Border x:Name="SidebarBorder"
-                    Padding="12,14,12,12"
-                    CornerRadius="14"
-                    BorderThickness="1"
-                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                    Padding="2,4,6,4"
+                    BorderThickness="0"
+                    Background="Transparent">
                 <ScrollViewer VerticalScrollBarVisibility="Visible"
                                VerticalScrollMode="Auto">
                     <StackPanel Spacing="10">
@@ -699,10 +679,10 @@
             <!-- Left pane — active indicator applied as the accent border -->
             <Border Grid.Column="1"
                     x:Name="LeftPaneBorder"
-                    CornerRadius="14"
+                    CornerRadius="8"
                     BorderThickness="1"
                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                    Background="{ThemeResource LayerFillColorDefaultBrush}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -733,10 +713,10 @@
             <!-- Right pane — inactive by default -->
             <Border Grid.Column="2"
                     x:Name="RightPaneBorder"
-                    CornerRadius="14"
+                    CornerRadius="8"
                     BorderThickness="1"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                    Background="{ThemeResource LayerFillColorDefaultBrush}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -765,17 +745,13 @@
             </Border>
         </Grid>
 
-        <Border Grid.Row="2"
-                Padding="18,8"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+        <Border x:Name="StatusBarBorder"
+                Grid.Row="2"
+                Padding="14,2,14,6"
+                Background="Transparent">
             <StackPanel Orientation="Horizontal"
                         Spacing="6"
                         VerticalAlignment="Center">
-                <TextBlock x:Name="StatusIconTextBlock"
-                           FontFamily="Segoe Fluent Icons"
-                           FontSize="12"
-                           VerticalAlignment="Center"
-                           Opacity="0.72" />
                 <TextBlock x:Name="StatusTextBlock"
                            Text="Bootstrapping shell-backed directory view..."
                            VerticalAlignment="Center"
@@ -783,7 +759,7 @@
             </StackPanel>
         </Border>
 
-        <!-- Command palette overlay stays collapsed while the feature is outside the closed beta. -->
+        <!-- Command palette overlay: shown by Ctrl+P (the palette feature gate is on). -->
         <Grid x:Name="CommandPaletteOverlay"
               Grid.RowSpan="3"
               Background="#80000000"
