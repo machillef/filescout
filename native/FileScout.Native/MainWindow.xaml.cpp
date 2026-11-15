@@ -544,7 +544,7 @@ namespace
 
     bool IsCanceledFileOperation(::FileScoutNative::Shell::FileOperationException const& error)
     {
-        return error.Error().detail == L"Windows canceled the file operation.";
+        return error.IsCanceled();
     }
 
     std::wstring BuildRenameFailureStatus(
