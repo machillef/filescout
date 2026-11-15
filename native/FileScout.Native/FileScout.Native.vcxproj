@@ -134,6 +134,7 @@
     <ClInclude Include="Domain\FavoriteEntry.h" />
     <ClInclude Include="Domain\CommandEntry.h" />
     <ClInclude Include="Domain\DriveCapacity.h" />
+    <ClInclude Include="Domain\WorkerCount.h" />
     <ClInclude Include="Domain\RowFormatting.h" />
     <ClInclude Include="Domain\RenamePolicy.h" />
     <ClInclude Include="Domain\SidebarRecents.h" />

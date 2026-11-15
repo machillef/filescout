@@ -8,6 +8,7 @@
 #include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
+#include "Domain/WorkerCount.h"
 #include "Domain/AddressNavigation.h"
 #include "Domain/BatchRenameInput.h"
 #include "Domain/DragDropPlanning.h"
@@ -3560,9 +3561,8 @@ namespace winrt::FileScoutNative::implementation
         auto const itemCount = items.size();
         if (itemCount > 0)
         {
-            auto const workerCount = (std::min)(
-                static_cast<size_t>(std::thread::hardware_concurrency()),
-                static_cast<size_t>(8));
+            auto const workerCount = ::FileScoutNative::Domain::ComputeIconWorkerCount(
+                std::thread::hardware_concurrency(), itemCount);
             auto const chunkSize = (itemCount + workerCount - 1) / workerCount;
 
             std::vector<std::future<void>> futures;
@@ -3654,9 +3654,8 @@ namespace winrt::FileScoutNative::implementation
 
         if (itemCount > 0 && !(cancelToken && cancelToken->load(std::memory_order_relaxed)))
         {
-            auto const workerCount = (std::min)(
-                static_cast<size_t>(std::thread::hardware_concurrency()),
-                static_cast<size_t>(8));
+            auto const workerCount = ::FileScoutNative::Domain::ComputeIconWorkerCount(
+                std::thread::hardware_concurrency(), itemCount);
             auto const chunkSize = (itemCount + workerCount - 1) / workerCount;
 
             std::vector<std::future<void>> futures;
