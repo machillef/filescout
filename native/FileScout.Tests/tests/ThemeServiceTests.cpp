@@ -243,8 +243,12 @@ TEST_F(ThemeServiceFixture, SaveThemeId_LongLocalAppDataIsNotReplacedByARelative
 
     EXPECT_NO_THROW(ThemeService::SaveThemeId(L"tokyo-night"));
 
-    // The fixture's current directory is tempRoot: a relative fallback would land here.
+    // The fixture's current directory is tempRoot: a relative or current-directory fallback would
+    // land here, so neither location may exist, and the file must be under the long LOCALAPPDATA.
     EXPECT_FALSE(std::filesystem::exists(tempRoot / L"FileScoutNative" / L"theme.txt"));
+    EXPECT_FALSE(std::filesystem::exists(tempRoot / L"theme.txt"));
+    EXPECT_TRUE(std::filesystem::exists(
+        std::filesystem::path{ L"\\\\?\\" + (longRoot / L"FileScoutNative" / L"theme.txt").wstring() }));
     EXPECT_EQ(ThemeService::LoadSavedThemeId(), L"tokyo-night");
 
     std::error_code ec;

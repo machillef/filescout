@@ -145,7 +145,7 @@ namespace FileScoutNative::Domain
             }
 
             std::error_code ec;
-            return std::filesystem::current_path(ec) / L"theme.txt";
+            return WithLongPathPrefix(std::filesystem::current_path(ec) / L"theme.txt");
         }
 
         // create_directories without exceptions, one CreateDirectoryW per missing level so a
