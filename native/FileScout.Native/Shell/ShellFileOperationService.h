@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -13,6 +14,9 @@ namespace FileScoutNative::Shell
         std::wstring action;
         std::wstring path;
         std::wstring detail;
+        // True when the user (or a shell confirmation) aborted the operation. Callers test this,
+        // never the localised detail text.
+        bool canceled = false;
     };
 
     class FileOperationException final : public std::runtime_error
@@ -21,12 +25,23 @@ namespace FileScoutNative::Shell
         explicit FileOperationException(FileOperationError error);
 
         [[nodiscard]] FileOperationError const& Error() const noexcept;
+        [[nodiscard]] bool IsCanceled() const noexcept;
 
     private:
         static std::string BuildMessage(FileOperationError const& error);
 
         FileOperationError m_error;
     };
+
+    // Maps the result of IFileOperation::PerformOperations plus GetAnyOperationsAborted to an
+    // error, or nullopt on success. HRESULT_FROM_WIN32(ERROR_CANCELLED), COPYENGINE_E_USER_CANCELLED,
+    // or the abort flag with a success HRESULT is a canceled outcome; any other failure HRESULT is
+    // a failure even when the abort flag is set.
+    [[nodiscard]] std::optional<FileOperationError> ClassifyFileOperationOutcome(
+        HRESULT performResult,
+        bool anyOperationsAborted,
+        std::wstring_view action,
+        std::wstring_view path);
 
     struct RenameRequest
     {

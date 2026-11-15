@@ -2,6 +2,8 @@
 #include "ShellFileOperationService.h"
 #include "PropertiesLaunchSpec.h"
 
+#include <sherrors.h>
+
 namespace FileScoutNative::Shell
 {
     FileOperationException::FileOperationException(FileOperationError error)
@@ -13,6 +15,11 @@ namespace FileScoutNative::Shell
     FileOperationError const& FileOperationException::Error() const noexcept
     {
         return m_error;
+    }
+
+    bool FileOperationException::IsCanceled() const noexcept
+    {
+        return m_error.canceled;
     }
 
     std::string FileOperationException::BuildMessage(FileOperationError const& error)
@@ -36,6 +43,11 @@ namespace FileScoutNative::Shell
     namespace
     {
         constexpr std::wstring_view canceledFileOperationDetail = L"Windows canceled the file operation.";
+
+        [[nodiscard]] bool IsCanceledHResult(HRESULT const result) noexcept
+        {
+            return result == HRESULT_FROM_WIN32(ERROR_CANCELLED) || result == COPYENGINE_E_USER_CANCELLED;
+        }
 
         // Closed beta policy: keep the shell backend non-interactive and surface all outcomes
         // in FileScout's own dark-themed UI instead of letting Explorer show separate dialogs.
@@ -64,11 +76,36 @@ namespace FileScoutNative::Shell
 
             return detail;
         }
+    }
 
-        [[nodiscard]] bool IsCanceledFileOperation(std::wstring_view const detail)
+    std::optional<FileOperationError> ClassifyFileOperationOutcome(
+        HRESULT const performResult,
+        bool const anyOperationsAborted,
+        std::wstring_view const action,
+        std::wstring_view const path)
+    {
+        // With FOF_NOERRORUI a failing item also sets the aborted flag, so a failure HRESULT wins:
+        // a refused rename must not be reported as "canceled".
+        if (FAILED(performResult) && !IsCanceledHResult(performResult))
         {
-            return detail == canceledFileOperationDetail;
+            return FileOperationError{
+                .action = std::wstring{ action },
+                .path = std::wstring{ path },
+                .detail = BuildHResultDetail(winrt::hresult_error{ performResult }),
+            };
         }
+
+        if (anyOperationsAborted || IsCanceledHResult(performResult))
+        {
+            return FileOperationError{
+                .action = std::wstring{ action },
+                .path = std::wstring{ path },
+                .detail = std::wstring{ canceledFileOperationDetail },
+                .canceled = true,
+            };
+        }
+
+        return std::nullopt;
     }
 
     void ShellFileOperationService::OpenPath(HWND const ownerWindow, std::filesystem::path const& path) const
@@ -453,16 +490,26 @@ namespace FileScoutNative::Shell
 
     void ShellFileOperationService::PerformFileOperation(IFileOperation* const fileOperation) const
     {
-        winrt::check_hresult(fileOperation->PerformOperations());
+        HRESULT const performResult = fileOperation->PerformOperations();
 
         BOOL operationsAborted = FALSE;
-        winrt::check_hresult(fileOperation->GetAnyOperationsAborted(&operationsAborted));
-        if (operationsAborted)
+        HRESULT const abortQueryResult = fileOperation->GetAnyOperationsAborted(&operationsAborted);
+        if (FAILED(abortQueryResult))
         {
-            ThrowFileOperationFailure(FileOperationError{
-                .action = L"File operation",
-                .detail = L"Windows canceled the file operation.",
-            });
+            operationsAborted = FALSE;
         }
+
+        if (auto error = ClassifyFileOperationOutcome(
+                performResult, operationsAborted != FALSE, L"File operation", L"");
+            error.has_value() && error->canceled)
+        {
+            ThrowFileOperationFailure(std::move(*error));
+        }
+
+        // Other failures keep flowing to the callers' hresult_error handlers, which add the action.
+        winrt::check_hresult(performResult);
+        // A success code from PerformOperations does not prove everything completed; if the abort
+        // status itself cannot be read, the outcome is unknown, so report it instead of success.
+        winrt::check_hresult(abortQueryResult);
     }
 }
