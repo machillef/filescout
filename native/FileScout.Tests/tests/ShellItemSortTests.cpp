@@ -49,3 +49,76 @@ TEST(ShellItemSort, DescendingComparator_RemainsFalseForEqualItems)
     EXPECT_EQ(comparison, 0);
     EXPECT_FALSE(comparison > 0);
 }
+
+// D-08: rows whose sort keys tie (same size, names equal ignoring case) must come out in the
+// same order however they went in, so a refresh or re-sort does not shuffle them.
+namespace
+{
+    std::vector<ShellItemRef> MakeTiedFiles()
+    {
+        std::vector<ShellItemRef> items;
+        std::wstring const names[] = { L"Same.txt", L"same.txt", L"SAME.txt" };
+        for (int index = 0; index < 120; ++index)
+        {
+            ShellItemRef item;
+            item.display_name = names[index % 3];
+            item.path = std::filesystem::path{ L"C:\\d" + std::to_wstring(index) } / item.display_name;
+            item.parsing_name = item.path.wstring();
+            item.kind_label = L"Text Document";
+            item.size_available = true;
+            item.size_bytes = 4096;
+            items.push_back(std::move(item));
+        }
+        return items;
+    }
+
+    std::vector<std::wstring> SortedPaths(
+        std::vector<ShellItemRef> items,
+        ShellItemSortColumn const column,
+        ShellItemSortDirection const direction)
+    {
+        SortShellItems(items, column, direction);
+        std::vector<std::wstring> paths;
+        for (auto const& item : items)
+        {
+            paths.push_back(item.path.wstring());
+        }
+        return paths;
+    }
+}
+
+TEST(ShellItemSort, TiedKeys_GiveTheSameOrderWhateverTheInputOrder)
+{
+    auto const forward = MakeTiedFiles();
+    auto reversed = forward;
+    std::reverse(reversed.begin(), reversed.end());
+
+    for (auto const column : { ShellItemSortColumn::Name, ShellItemSortColumn::Type,
+                               ShellItemSortColumn::Size, ShellItemSortColumn::DateModified })
+    {
+        for (auto const direction : { ShellItemSortDirection::Ascending, ShellItemSortDirection::Descending })
+        {
+            EXPECT_EQ(SortedPaths(forward, column, direction), SortedPaths(reversed, column, direction))
+                << "column " << static_cast<int>(column) << " direction " << static_cast<int>(direction);
+        }
+    }
+}
+
+TEST(ShellItemSort, TiedCaseInsensitiveNames_BreakTiesOrdinally)
+{
+    std::vector<ShellItemRef> items;
+    for (auto const* name : { L"same.txt", L"SAME.txt", L"Same.txt" })
+    {
+        ShellItemRef item;
+        item.display_name = name;
+        item.path = std::filesystem::path{ L"C:\\x" } / name;
+        items.push_back(std::move(item));
+    }
+
+    SortShellItems(items, ShellItemSortColumn::Name, ShellItemSortDirection::Ascending);
+
+    ASSERT_EQ(items.size(), 3u);
+    EXPECT_EQ(items[0].display_name, L"SAME.txt");
+    EXPECT_EQ(items[1].display_name, L"Same.txt");
+    EXPECT_EQ(items[2].display_name, L"same.txt");
+}
