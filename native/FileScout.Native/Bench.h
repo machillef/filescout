@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -97,6 +98,7 @@ namespace FileScoutNative::Bench
         void Mark(std::wstring_view name)
         {
             if (!Enabled()) { return; }
+            std::lock_guard lock{ m_mutex };   // marks come from the UI thread and the load worker
             for (auto const& [existing, _] : m_report.marks)
             {
                 if (existing == name) { return; }   // first occurrence wins
@@ -106,6 +108,7 @@ namespace FileScoutNative::Bench
 
         [[nodiscard]] bool HasMark(std::wstring_view name) const
         {
+            std::lock_guard lock{ m_mutex };
             return std::any_of(m_report.marks.begin(), m_report.marks.end(),
                 [&](auto const& mark) { return mark.first == name; });
         }
@@ -118,7 +121,11 @@ namespace FileScoutNative::Bench
         void Write() const
         {
             if (!Enabled()) { return; }
-            auto const json = m_report.ToJson();
+            std::string json;
+            {
+                std::lock_guard lock{ m_mutex };
+                json = m_report.ToJson();
+            }
             FILE* file = nullptr;
             if (_wfopen_s(&file, m_outPath.c_str(), L"wb") == 0 && file != nullptr)
             {
@@ -156,5 +163,6 @@ namespace FileScoutNative::Bench
         std::wstring m_targetPath;
         unsigned long long m_creationTicks = 0;
         Report m_report;
+        mutable std::mutex m_mutex;
     };
 }

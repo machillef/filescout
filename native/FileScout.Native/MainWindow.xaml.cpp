@@ -22,6 +22,7 @@
 #include "Search/SearchPresentation.h"
 #include "TraceHelper.h"
 #include "Bench.h"
+#include "Domain/ParallelFor.h"
 
 #if __has_include("MainWindow.g.cpp")
 #include "MainWindow.g.cpp"
@@ -1668,6 +1669,54 @@ namespace
         }
     }
 
+    // Runs `action` on the UI thread once the frame after now has been presented: Rendering fires
+    // before a frame's layout and render, so the second callback means the first one's frame is
+    // on screen. A minimised window renders no frames, so a 250 ms timer runs it anyway.
+    template <typename Action>
+    void RunAfterFramePresented(Action&& action)
+    {
+        struct State
+        {
+            std::decay_t<Action> action;
+            int frames = 0;
+            bool done = false;
+            winrt::event_token token{};
+            winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer timer{ nullptr };
+        };
+        auto state = std::make_shared<State>(State{ std::forward<Action>(action) });
+        auto run = [state]()
+        {
+            if (state->done)
+            {
+                return;
+            }
+            state->done = true;
+            winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(state->token);
+            // Break the state -> timer -> Tick handler -> state cycle and release the action's
+            // captures (a 100k-row load captures ~70 MB) as soon as it has run.
+            if (state->timer)
+            {
+                state->timer.Stop();
+                state->timer = nullptr;
+            }
+            auto action = std::move(state->action);
+            action();
+        };
+        state->token = winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(
+            [state, run](auto&&, auto&&)
+            {
+                if (++state->frames >= 2)
+                {
+                    run();
+                }
+            });
+        state->timer = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread().CreateTimer();
+        state->timer.Interval(std::chrono::milliseconds(250));
+        state->timer.IsRepeating(false);
+        state->timer.Tick([run](auto&&, auto&&) { run(); });
+        state->timer.Start();
+    }
+
     // ---- Bench mode (FILESCOUT_BENCH_OUT); measurement only, see Bench.h ----
 
     // Marks `name` once `frames` more frames have been rendered. Two frames after a publish means the
@@ -3256,30 +3305,40 @@ namespace winrt::FileScoutNative::implementation
                 // Enumerate all items on the background thread, then post to the UI thread in
                 // two dispatches so the first visible rows appear quickly without a rows.Clear()
                 // (CollectionChange::Reset) on the finalize path.
+                bool const benchLoad = paneIndex == 0 && BenchTargets(absolute);
+                if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_enumerate_start"); }
                 auto items = m_shellInterop.EnumerateDirectory(absolute, show_hidden_files);
                 timing.enumeration_end_tick = ::GetTickCount64();
+                if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_enumerated"); }
 
                 // L1: Sort and pre-build all ViewModels on the background thread.
                 // MakeFileRowViewModel sets only hstring fields + bool — no WinUI/STA constraints.
                 // The prebuilt objects are handed to the UI thread via lambda capture; after
                 // handoff they are never accessed from the background thread again.
                 SortItems(items, sort_column, sort_direction);
-                std::vector<winrt::FileScoutNative::FileRowViewModel> prebuilt;
-                prebuilt.reserve(items.size());
-                for (auto const& item : items)
-                {
-                    auto vm = MakeFileRowViewModel(item);
-                    if (!show_file_extensions && !item.is_folder)
+                if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_sorted"); }
+                // View models are agile C++/WinRT objects, so they can be built on several threads
+                // (~330 ms on one thread for 100k rows on win1).
+                std::vector<winrt::FileScoutNative::FileRowViewModel> prebuilt(items.size(), nullptr);
+                ::FileScoutNative::Domain::ParallelForRanges(items.size(), [&](std::size_t begin, std::size_t end)
                     {
-                        auto impl = vm.as<winrt::FileScoutNative::implementation::FileRowViewModel>();
-                        auto const dotPos = item.display_name.rfind(L'.');
-                        if (dotPos != std::wstring_view::npos && dotPos > 0)
+                        for (auto i = begin; i < end; ++i)
                         {
-                            impl->SetName(item.display_name.substr(0, dotPos));
+                            auto const& item = items[i];
+                            auto vm = MakeFileRowViewModel(item);
+                            if (!show_file_extensions && !item.is_folder)
+                            {
+                                auto impl = vm.as<winrt::FileScoutNative::implementation::FileRowViewModel>();
+                                auto const dotPos = item.display_name.rfind(L'.');
+                                if (dotPos != std::wstring_view::npos && dotPos > 0)
+                                {
+                                    impl->SetName(item.display_name.substr(0, dotPos));
+                                }
+                            }
+                            prebuilt[i] = std::move(vm);
                         }
-                    }
-                    prebuilt.push_back(vm);
-                }
+                    });
+                if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_rows_built"); }
 
                 m_dispatcherQueue.TryEnqueue(
                     [this, lifetime, paneIndex, tabIndex, generation,
@@ -3379,10 +3438,11 @@ namespace winrt::FileScoutNative::implementation
                             return;
                         }
 
-                        // Large folder — stage the remaining rows in a second dispatch so
-                        // the UI thread can process the first-batch render before blocking.
+                        // Large folder — stage the remaining rows after the first batch has been
+                        // presented. A plain second TryEnqueue ran before the next frame, so the
+                        // first rows only appeared together with all 100k (measured on win1).
                         pane.last_load_timing = timing;
-                        m_dispatcherQueue.TryEnqueue(
+                        RunAfterFramePresented(
                             [this, lifetime, paneIndex, tabIndex, generation, absolute, selectAfter,
                              items = std::move(items),
                              prebuilt = std::move(prebuilt),
