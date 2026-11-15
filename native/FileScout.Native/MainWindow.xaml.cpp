@@ -2765,8 +2765,11 @@ namespace winrt::FileScoutNative::implementation
                 co_return;
             }
 
-            m_shellFileOperationService.CopyItemsFromPaths(
-                GetWindowHandle(), sourcePaths, destinationPath, isMove);
+            auto const owner = GetWindowHandle();
+            co_await OnShellThread([this, owner, sourcePaths, destinationPath, isMove]
+                {
+                    m_shellFileOperationService.CopyItemsFromPaths(owner, sourcePaths, destinationPath, isMove);
+                });
             LoadDirectory(destinationPath);
 
             StatusTextBlock().Text(ToHString(
@@ -4552,27 +4555,7 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"paste")
         {
-            try
-            {
-                auto const outcome = m_shellClipboardService.PasteInto(
-                    GetWindowHandle(), ActivePane().current_path);
-                if (outcome.succeeded)
-                {
-                    m_cutItemPaths.clear();
-                    LoadDirectory(ActivePane().current_path);
-                    StatusTextBlock().Text(ToHString(BuildPasteSuccessStatus(outcome)));
-                }
-                else
-                {
-                    StatusTextBlock().Text(ToHString(BuildPasteFailureStatus(outcome)));
-                }
-            }
-            catch (std::exception const& error)
-            {
-                StatusTextBlock().Text(ToHString(
-                    L"Couldn't paste into " + ActivePane().current_path.wstring() + L". " +
-                    winrt::to_hstring(error.what()).c_str()));
-            }
+            PasteIntoAsync(ActivePane().current_path);
             return;
         }
 
@@ -4751,6 +4734,36 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
+    winrt::fire_and_forget MainWindow::PasteIntoAsync(std::filesystem::path destination)
+    {
+        auto lifetime = get_strong();
+        StatusTextBlock().Text(ToHString(L"Pasting into " + destination.wstring() + L"..."));
+        try
+        {
+            auto const owner = GetWindowHandle();
+            auto const outcome = co_await OnShellThread([this, owner, destination]
+                {
+                    return m_shellClipboardService.PasteInto(owner, destination);
+                });
+            if (outcome.succeeded)
+            {
+                m_cutItemPaths.clear();
+                LoadDirectory(destination);
+                StatusTextBlock().Text(ToHString(BuildPasteSuccessStatus(outcome)));
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(BuildPasteFailureStatus(outcome)));
+            }
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't paste into " + destination.wstring() + L". " +
+                winrt::to_hstring(error.what()).c_str()));
+        }
+    }
+
     winrt::fire_and_forget MainWindow::ShowNewFolderDialogAsync()
     {
         auto lifetime = get_strong();
@@ -4781,10 +4794,12 @@ namespace winrt::FileScoutNative::implementation
 
         try
         {
-            auto const createdPath = m_shellFileOperationService.CreateFolder(
-                GetWindowHandle(),
-                ActivePane().current_path,
-                folderName);
+            auto const owner = GetWindowHandle();
+            auto const parent = ActivePane().current_path;
+            auto const createdPath = co_await OnShellThread([this, owner, parent, folderName]
+                {
+                    return m_shellFileOperationService.CreateFolder(owner, parent, folderName);
+                });
             LoadDirectory(ActivePane().current_path, createdPath);
             StatusTextBlock().Text(ToHString(L"Created folder: " + createdPath.filename().wstring()));
         }
@@ -4831,10 +4846,12 @@ namespace winrt::FileScoutNative::implementation
 
         try
         {
-            auto const renamedPath = m_shellFileOperationService.RenameItem(
-                GetWindowHandle(),
-                item.path,
-                newName);
+            auto const owner = GetWindowHandle();
+            auto const source = item.path;
+            auto const renamedPath = co_await OnShellThread([this, owner, source, newName]
+                {
+                    return m_shellFileOperationService.RenameItem(owner, source, newName);
+                });
             LoadDirectory(ActivePane().current_path, renamedPath);
             StatusTextBlock().Text(ToHString(L"Renamed to " + renamedPath.filename().wstring()));
         }
@@ -5305,9 +5322,12 @@ namespace winrt::FileScoutNative::implementation
 
         try
         {
-            auto const renamedPaths = m_shellFileOperationService.RenameItems(
-                GetWindowHandle(),
-                std::span<::FileScoutNative::Shell::RenameRequest const>{ requests.data(), requests.size() });
+            auto const owner = GetWindowHandle();
+            auto const renamedPaths = co_await OnShellThread([this, owner, requests]
+                {
+                    return m_shellFileOperationService.RenameItems(
+                        owner, std::span<::FileScoutNative::Shell::RenameRequest const>{ requests.data(), requests.size() });
+                });
             std::optional<std::filesystem::path> selectAfter;
             if (!renamedPaths.empty())
             {
@@ -5387,12 +5407,11 @@ namespace winrt::FileScoutNative::implementation
         SearchProgressForPane(activePaneIndex).Visibility(
             winrt::Microsoft::UI::Xaml::Visibility::Visible);
 
-        // Run IFileOperation::PerformOperations on a background thread so the UI stays
-        // responsive. IFileOperation runs as CLSCTX_LOCAL_SERVER (out-of-process via
-        // Explorer), so cross-apartment calls are safe. Post UI updates back via
-        // TryEnqueue since Microsoft::UI::Dispatching::DispatcherQueue does not have
-        // a winrt::resume_foreground overload.
-        co_await winrt::resume_background();
+        // Continue on the shell STA (S-03): IFileOperation is created CLSCTX_INPROC_SERVER, so it
+        // needs a real single-threaded apartment, which thread-pool threads do not have. The UI
+        // stays responsive; results are posted back with TryEnqueue below.
+        co_await ::FileScoutNative::Shell::RunOnShellThread(
+            m_shellWorker, [](std::function<void()> continuation) { continuation(); }, [] {});
 
         bool success = true;
         bool canceled = false;

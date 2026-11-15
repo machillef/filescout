@@ -16,6 +16,7 @@
 #include "Shell\ShellOverflowMenuService.h"
 #include "Shell\CommandRegistry.h"
 #include "Shell\DefaultFileManagerService.h"
+#include "Shell\ShellStaWorker.h"
 #include "Shell\ShellInteropService.h"
 #include "Search\SearchService.h"
 #include "Domain\FileRowViewModel.h"
@@ -214,6 +215,21 @@ namespace winrt::FileScoutNative::implementation
         ::FileScoutNative::Shell::DefaultFileManagerService m_defaultFileManager;
         ::FileScoutNative::Shell::ShellClipboardService m_shellClipboardService;
         ::FileScoutNative::Shell::ShellFileOperationService m_shellFileOperationService;
+        // S-03: IFileOperation work runs here, never on the UI thread. Declared after the services its
+        // tasks use, so it is destroyed (and joins) first.
+        ::FileScoutNative::Shell::ShellStaWorker m_shellWorker;
+
+        // co_await OnShellThread(fn): fn runs on the shell STA, the coroutine resumes on the UI thread.
+        template <typename Fn>
+        auto OnShellThread(Fn fn)
+        {
+            auto resume = [queue = m_dispatcherQueue](std::function<void()> continuation)
+            {
+                queue.TryEnqueue([continuation = std::move(continuation)] { continuation(); });
+            };
+            return ::FileScoutNative::Shell::RunOnShellThread(m_shellWorker, std::move(resume), std::move(fn));
+        }
+        winrt::fire_and_forget PasteIntoAsync(std::filesystem::path destination);
         ::FileScoutNative::Shell::ShellOverflowMenuService m_shellOverflowMenuService;
         ::FileScoutNative::Shell::ShellInteropService m_shellInterop;
         // UB-10: the sidebar is rebuilt on navigation; the drives (with free space) are read once

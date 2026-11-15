@@ -125,6 +125,7 @@
   <ItemGroup>
     <ClCompile Include="..\FileScout.Native\Shell\ContextMenuService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\FavoritesService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\ShellStaWorker.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\DefaultFileManagerService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\TempStagingCleanup.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellCommandVerb.cpp" />

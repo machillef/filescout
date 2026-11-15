@@ -147,6 +147,7 @@
     <ClInclude Include="Shell\CommandRegistry.h" />
     <ClInclude Include="Shell\ContextMenuService.h" />
     <ClInclude Include="Shell\FavoritesService.h" />
+    <ClInclude Include="Shell\ShellStaWorker.h" />
     <ClInclude Include="Shell\DefaultFileManagerService.h" />
     <ClInclude Include="Shell\TempStagingCleanup.h" />
     <ClInclude Include="Shell\ShellCommandVerb.h" />
@@ -182,6 +183,7 @@
     <ClCompile Include="Shell\CommandRegistry.cpp" />
     <ClCompile Include="Shell\ContextMenuService.cpp" />
     <ClCompile Include="Shell\FavoritesService.cpp" />
+    <ClCompile Include="Shell\ShellStaWorker.cpp" />
     <ClCompile Include="Shell\DefaultFileManagerService.cpp" />
     <ClCompile Include="Shell\TempStagingCleanup.cpp" />
     <ClCompile Include="Shell\ShellCommandVerb.cpp" />

@@ -36,6 +36,7 @@
     <ClCompile Include="Shell\FavoritesService.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Shell\ShellStaWorker.cpp" />
     <ClCompile Include="Shell\DefaultFileManagerService.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -98,6 +99,7 @@
     <ClInclude Include="Domain\RowFormatting.h" />
     <ClInclude Include="Domain\RenamePolicy.h" />
     <ClInclude Include="Domain\NavigationHistory.h" />
+    <ClInclude Include="Domain\KeyboardShortcuts.h" />
     <ClInclude Include="Domain\SidebarCache.h" />
     <ClInclude Include="Domain\SidebarRecents.h" />
     <ClInclude Include="Domain\ShellItemRef.h">
@@ -112,6 +114,7 @@
     <ClInclude Include="Shell\FavoritesService.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Shell\ShellStaWorker.h" />
     <ClInclude Include="Shell\DefaultFileManagerService.h">
       <Filter>Header Files</Filter>
     </ClInclude>
