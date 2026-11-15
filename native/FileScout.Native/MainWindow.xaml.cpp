@@ -1513,7 +1513,8 @@ namespace
             return prefix + L"#";
         }
 
-        return prefix + std::wstring{ 1, ::FileScoutNative::Domain::NameGroupInitial(item.display_name) };
+        // std::wstring(count, ch): braces would pick the initializer-list constructor (two characters).
+        return prefix + std::wstring(1, ::FileScoutNative::Domain::NameGroupInitial(item.display_name));
     }
 
     std::wstring BuildSizeGroupLabel(::FileScoutNative::Domain::ShellItemRef const& item)

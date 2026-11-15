@@ -185,6 +185,6 @@ namespace FileScoutNative::Domain
             return L'#';
         }
         wchar_t const upper = UpperChar(FoldChar(name.front()));
-        return ::IsCharAlphaNumericW(upper) ? upper : L'#';
+        return IsLetterOrDigit(upper) ? upper : L'#';
     }
 }
