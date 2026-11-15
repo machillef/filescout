@@ -2,6 +2,7 @@
 #include "App.xaml.h"
 #include "Domain/ThemeService.h"
 #include "MainWindow.xaml.h"
+#include "Shell/TempStagingCleanup.h"
 #include "TraceHelper.h"
 
 #include <fstream>
@@ -136,6 +137,22 @@ namespace winrt::FileScoutNative::implementation
             TraceLog(L"App::OnLaunched: Activate...");
             m_window.Activate();
             TraceLog(L"App::OnLaunched: Activate done");
+
+            // Drag staging and archive-open copies stay in %TEMP% while drop targets or opened apps
+            // may still use them; sweep the ones older than a day, off the UI thread.
+            std::thread([]
+            {
+                try
+                {
+                    auto const deleted = ::FileScoutNative::Shell::CleanupStaleStagingDirectories(
+                        std::filesystem::temp_directory_path(),
+                        std::filesystem::file_time_type::clock::now());
+                    TraceLog(L"Temp staging cleanup: deleted " + std::to_wstring(deleted) + L" dir(s)");
+                }
+                catch (...)
+                {
+                }
+            }).detach();
         }
         catch (winrt::hresult_error const& error)
         {

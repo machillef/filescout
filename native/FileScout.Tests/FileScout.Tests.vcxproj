@@ -126,6 +126,7 @@
     <ClCompile Include="..\FileScout.Native\Shell\ContextMenuService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\FavoritesService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\DefaultFileManagerService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\TempStagingCleanup.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellClipboardService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellInteropService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellFileOperationService.cpp" />
@@ -176,6 +177,7 @@
     <ClCompile Include="tests\WorkerCountTests.cpp" />
     <ClCompile Include="tests\PaneSelectionStateTests.cpp" />
     <ClCompile Include="tests\NavigationHistoryTests.cpp" />
+    <ClCompile Include="tests\TempStagingCleanupTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

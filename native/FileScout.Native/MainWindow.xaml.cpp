@@ -24,6 +24,7 @@
 #include "Domain/Wave1FeatureGate.h"
 #include "Search/SearchFilter.h"
 #include "Search/SearchPresentation.h"
+#include "Shell/TempStagingCleanup.h"
 #include "TraceHelper.h"
 #include "Bench.h"
 #include "Domain/ParallelFor.h"
@@ -226,9 +227,7 @@ namespace
 
     std::filesystem::path StageDragFileForExternalTargets(std::filesystem::path const& sourcePath)
     {
-        auto stageRoot = std::filesystem::temp_directory_path() /
-            L"FileScout" /
-            L"DragStage" /
+        auto stageRoot = ::FileScoutNative::Shell::DragStagingRoot(std::filesystem::temp_directory_path()) /
             CreateDragStagingToken();
         std::filesystem::create_directories(stageRoot);
 
@@ -1419,9 +1418,7 @@ namespace
             std::to_wstring(GetCurrentProcessId()) + L"-" +
             std::to_wstring(GetCurrentThreadId());
 
-        return std::filesystem::temp_directory_path() /
-               L"FileScoutNative" /
-               L"ArchiveOpen" /
+        return ::FileScoutNative::Shell::ArchiveOpenRoot(std::filesystem::temp_directory_path()) /
                SanitizePathComponent(archiveName.empty() ? L"archive.zip" : archiveName) /
                sessionId;
     }
