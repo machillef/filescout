@@ -140,6 +140,7 @@
     <ClInclude Include="Shell\CommandRegistry.h" />
     <ClInclude Include="Shell\ContextMenuService.h" />
     <ClInclude Include="Shell\FavoritesService.h" />
+    <ClInclude Include="Shell\DefaultFileManagerService.h" />
     <ClInclude Include="Shell\ShellClipboardService.h" />
     <ClInclude Include="Shell\ShellFileOperationService.h" />
     <ClInclude Include="Shell\ShellOverflowMenuService.h" />
@@ -169,6 +170,7 @@
     <ClCompile Include="Shell\CommandRegistry.cpp" />
     <ClCompile Include="Shell\ContextMenuService.cpp" />
     <ClCompile Include="Shell\FavoritesService.cpp" />
+    <ClCompile Include="Shell\DefaultFileManagerService.cpp" />
     <ClCompile Include="Shell\ShellClipboardService.cpp" />
     <ClCompile Include="Shell\ShellFileOperationService.cpp" />
     <ClCompile Include="Shell\ShellOverflowMenuService.cpp" />
