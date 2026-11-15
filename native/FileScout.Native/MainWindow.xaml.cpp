@@ -3166,6 +3166,14 @@ namespace winrt::FileScoutNative::implementation
         pane.items.clear();
         pane.selection.Clear();
         pane.tab_rows[tabIndex].Clear();
+        // The tab's cached listing belongs to the folder being left; drop it now that current_path
+        // already names the pending target, so a sort or tab switch before the listing arrives
+        // cannot pair the new path with the old folder's items (RestoreActiveTab reloads an empty cache).
+        if (tabIndex >= 0 && tabIndex < static_cast<int32_t>(pane.tabs.size()))
+        {
+            pane.tabs[tabIndex].items.clear();
+            pane.tabs[tabIndex].path = path;
+        }
         if (pane.active_list_view)
         {
             pane.tab_switching = true;
