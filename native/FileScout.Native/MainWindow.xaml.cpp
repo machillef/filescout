@@ -3127,17 +3127,19 @@ namespace winrt::FileScoutNative::implementation
 
         // Record current path in back-stack unless this is a history navigation.
         {
-            auto const backDepth = pane.back_stack.size();
+            // Recents list the folder being LEFT (BeginNavigation makes the target current at once),
+            // for every navigation that leaves a folder, Back/Forward included.
+            auto const leaving = pane.current_path;
             ::FileScoutNative::Domain::BeginNavigation(
                 pane.back_stack, pane.forward_stack, pane.current_path, absolutePath, skipHistoryRecord);
-            if (pane.back_stack.size() != backDepth)
+            bool const leftAFolder = !leaving.empty() &&
+                !::FileScoutNative::Domain::PathsEqualIgnoringCase(
+                    ::FileScoutNative::Domain::NormalizeFolderForCompare(leaving),
+                    ::FileScoutNative::Domain::NormalizeFolderForCompare(absolutePath));
+            // The Recycle Bin already has its own sidebar row.
+            if (leftAFolder && !::FileScoutNative::Domain::IsRecycleBinLocation(leaving))
             {
-                // The Recycle Bin already has its own sidebar row.
-                if (!::FileScoutNative::Domain::IsRecycleBinLocation(pane.current_path))
-                {
-                    ::FileScoutNative::Domain::RecordRecentFolder(
-                        m_recentFolders, pane.current_path, kRecentFolderCapacity);
-                }
+                ::FileScoutNative::Domain::RecordRecentFolder(m_recentFolders, leaving, kRecentFolderCapacity);
                 BuildSidebarFavorites();  // refresh recent paths section
             }
         }
