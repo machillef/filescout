@@ -2310,6 +2310,7 @@ namespace winrt::FileScoutNative::implementation
 
         if (query.empty())
         {
+            pane.pending_filter.Clear();
             // Leaving search — restore the list if we were filtering.
             if (pane.search_mode == SearchMode::Filter)
             {
@@ -2324,7 +2325,13 @@ namespace winrt::FileScoutNative::implementation
         // Transition into Filter mode on first character.
         if (pane.search_mode == SearchMode::None)
         {
-            if (pane.awaiting_final_batch) return; // Snapshot would be incomplete.
+            // The snapshot would be incomplete during a load: keep the query for the final publish
+            // and say so, instead of dropping the keystrokes (UA-05).
+            if (!pane.pending_filter.OnQueryChanged(query, pane.awaiting_final_batch))
+            {
+                StatusTextBlock().Text(ToHString(::FileScoutNative::Domain::BuildPendingFilterStatus(query)));
+                return;
+            }
             pane.search_mode = SearchMode::Filter;
             auto const tabIndex = pane.active_tab_index;
             pane.search_snapshot = pane.tabs[tabIndex].items;
@@ -2348,6 +2355,19 @@ namespace winrt::FileScoutNative::implementation
 
         pane.filtered_items = filteredItems;
         ApplyPaneStateToRows(pane, filteredItems, rows, m_iconSourceCache);
+    }
+
+    void MainWindow::ApplyPendingFilter(int32_t const paneIndex)
+    {
+        auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
+        if (!pane.pending_filter.TakeOnFinalPublish().has_value() || paneIndex != m_activePaneIndex)
+        {
+            return;
+        }
+
+        // The search box shows the active pane's query; rerun the normal filter path on what it
+        // holds now, with the load finished.
+        SearchTextBox_TextChanged(nullptr, nullptr);
     }
 
     void MainWindow::FileRowsListView_SelectionChanged(
@@ -3321,6 +3341,7 @@ namespace winrt::FileScoutNative::implementation
                         timing.final_publish_tick = timing.first_batch_publish_tick;
                         pane.last_load_timing = timing;
                         TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                        ApplyPendingFilter(paneIndex);
                         if (selectAfter.has_value())
                             SelectItemByPath(*selectAfter);
                     });
@@ -3397,6 +3418,7 @@ namespace winrt::FileScoutNative::implementation
                         timing.final_publish_tick = timing.first_batch_publish_tick;
                         pane.last_load_timing = timing;
                         TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                        ApplyPendingFilter(paneIndex);
                         if (selectAfter.has_value())
                             SelectItemByPath(*selectAfter);
                     });
@@ -3528,6 +3550,7 @@ namespace winrt::FileScoutNative::implementation
                             timing.final_publish_tick = timing.first_batch_publish_tick;
                             pane.last_load_timing = timing;
                             TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                            ApplyPendingFilter(paneIndex);
                             if (selectAfter.has_value())
                                 SelectItemByPath(*selectAfter);
                             // P4: backfill real per-extension icons after rows appear.
@@ -3570,6 +3593,7 @@ namespace winrt::FileScoutNative::implementation
                                 timing.final_publish_tick = ::GetTickCount64();
                                 pane.last_load_timing = timing;
                                 TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                                ApplyPendingFilter(paneIndex);
                                 if (paneIndex == 0 && BenchTargets(absolute))
                                 {
                                     BenchOnFullList(paneIndex, totalItems);

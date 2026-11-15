@@ -6,6 +6,7 @@
 #include "Domain\ContextMenuAnchor.h"
 #include "Domain\ContextMenuModel.h"
 #include "Domain\PaneSelectionState.h"
+#include "Domain\PendingFilter.h"
 #include "Domain\ShellItemRef.h"
 #include "Domain\DriveCapacity.h"
 #include "Domain\SidebarCache.h"
@@ -82,6 +83,7 @@ namespace winrt::FileScoutNative::implementation
         // Set to true while a staged final-batch publish is still pending. Cleared by
         // RebuildAllTabRowsForPane so any mid-load sort/group/view-mode change cancels the append.
         bool awaiting_final_batch{ false };
+        ::FileScoutNative::Domain::PendingFilter pending_filter;  // UA-05 filter typed during a load
         ::FileScoutNative::Domain::TypeAheadBuffer type_ahead;  // UB-18 list type-ahead
         // Set to true when the user interacts with the pane after the first batch appears.
         // Prevents the final-batch publish from overwriting live selection/focus state.
@@ -362,6 +364,7 @@ namespace winrt::FileScoutNative::implementation
         void HideAddressTextBox();
         void UpdateSearchPlaceholder(std::filesystem::path const& path);
         // R18c: keyboard type-ahead in file list.
+        void ApplyPendingFilter(int32_t paneIndex);
         void FileRowsListView_KeyDown(
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args);
         void FileRowsListView_CharacterReceived(
