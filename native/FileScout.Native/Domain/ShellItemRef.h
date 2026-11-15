@@ -2,11 +2,15 @@
 
 namespace FileScoutNative::Domain
 {
+    // Pixels are shared: a 100k-item folder holds one bitmap per icon cache entry, not one per row.
+    // Copying a ShellItemRef (the list keeps several copies) copies a pointer, not 1-4 KB of pixels.
     struct IconBitmap
     {
         uint32_t width{ 0 };
         uint32_t height{ 0 };
-        std::vector<uint8_t> rgba;
+        std::shared_ptr<std::vector<uint8_t> const> rgba;
+
+        [[nodiscard]] bool IsEmpty() const noexcept { return !rgba || rgba->empty() || width == 0 || height == 0; }
     };
 
     struct ShellItemRef

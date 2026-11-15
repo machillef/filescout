@@ -231,7 +231,7 @@ namespace FileScoutNative::Shell
             return FileScoutNative::Domain::IconBitmap{
                 width,
                 height,
-                std::move(pixels),
+                std::make_shared<std::vector<uint8_t> const>(std::move(pixels)),
             };
         }
 
@@ -380,7 +380,7 @@ namespace FileScoutNative::Shell
         // literal-path extraction yields an empty bitmap, fall back to the extension-based lookup
         // (SHGFI_USEFILEATTRIBUTES) so the item still shows at least the generic type icon.
         auto icon = ExtractShellIconBitmap(lookupName, fileAttributes, useLiteralPath).value_or(FileScoutNative::Domain::IconBitmap{});
-        if (icon.rgba.empty() && useLiteralPath && !isFolder)
+        if (icon.IsEmpty() && useLiteralPath && !isFolder)
         {
             auto const ext = path.extension().wstring();
             auto const fallbackName = ext.empty() ? std::wstring{ L"file" } : L"file" + ext;
@@ -587,7 +587,10 @@ namespace FileScoutNative::Shell
         // extension-based archive detection, eliminating all per-item shell calls.
         auto const searchPattern = (path / L"*").wstring();
         WIN32_FIND_DATAW findData{};
-        HANDLE const findHandle = FindFirstFileW(searchPattern.c_str(), &findData);
+        // FindExInfoBasic skips the 8.3 short name and FIND_FIRST_EX_LARGE_FETCH asks for bigger
+        // directory buffers per kernel call: fewer round trips on 100k-entry folders.
+        HANDLE const findHandle = FindFirstFileExW(searchPattern.c_str(), FindExInfoBasic, &findData,
+            FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
         if (findHandle == INVALID_HANDLE_VALUE)
         {
             if (CanEnumerateShellNamespace(path))
@@ -910,7 +913,7 @@ namespace FileScoutNative::Shell
         TraceLog(L"[icon-cache] MISS: " + path.wstring());
         auto icon = ExtractShellIconBitmap(path.wstring(), FILE_ATTRIBUTE_NORMAL, /*useLiteralPath=*/true)
             .value_or(FileScoutNative::Domain::IconBitmap{});
-        if (icon.rgba.empty())
+        if (icon.IsEmpty())
         {
             icon = GetIconForItem(path, /*isFolder=*/true);
         }
