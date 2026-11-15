@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "Domain/ParallelFor.h"
 #include "ShellInteropService.h"
 #include "Domain/IconCacheKey.h"
 #include "TraceHelper.h"
@@ -600,7 +601,9 @@ namespace FileScoutNative::Shell
             return {};
         }
 
-        std::vector<FileScoutNative::Domain::ShellItemRef> items;
+        // Phase 1 (sequential, I/O): collect the raw records. Phase 2 (CPU): build the items in
+        // parallel ranges; on win1 building 100k items took ~400 ms on one thread.
+        std::vector<WIN32_FIND_DATAW> records;
         do
         {
             if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0)
@@ -613,11 +616,24 @@ namespace FileScoutNative::Shell
                 continue;
             }
 
-            items.push_back(BuildFastShellItemRef(findData, path));
+            records.push_back(findData);
         }
         while (FindNextFileW(findHandle, &findData));
 
         FindClose(findHandle);
+
+        // Warm the two icon buckets once so the parallel builders only read the cache.
+        (void)GetIconForItem(std::filesystem::path{ L"folder" }, true);
+        (void)GetIconForItem(std::filesystem::path{ L"file" }, false);
+
+        std::vector<FileScoutNative::Domain::ShellItemRef> items(records.size());
+        ::FileScoutNative::Domain::ParallelForRanges(records.size(), [&](std::size_t begin, std::size_t end)
+            {
+                for (auto i = begin; i < end; ++i)
+                {
+                    items[i] = BuildFastShellItemRef(records[i], path);
+                }
+            });
         // NOTE: Sorting is intentionally omitted here — callers apply the user-selected
         // sort column and direction after enumeration.
         return items;
