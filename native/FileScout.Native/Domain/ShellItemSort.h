@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ShellItemRef.h"
+#include "TextFold.h"
 
 namespace FileScoutNative::Domain
 {
@@ -22,7 +23,7 @@ namespace FileScoutNative::Domain
     {
         inline int CompareCaseInsensitive(std::wstring const& left, std::wstring const& right)
         {
-            return _wcsicmp(left.c_str(), right.c_str());
+            return CompareIgnoreCase(left, right);
         }
 
         inline int CompareOrdinal(std::wstring const& left, std::wstring const& right)

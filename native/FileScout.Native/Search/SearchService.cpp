@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Search/SearchService.h"
 #include "Search/FuzzyMatcher.h"
+#include "Domain/TextFold.h"
 #include "TraceHelper.h"
 
 #include <algorithm>
@@ -98,8 +99,7 @@ namespace FileScoutNative::Search
         {
             try
             {
-                std::wstring query_lower(query.size(), L'\0');
-                std::transform(query.begin(), query.end(), query_lower.begin(), ::towlower);
+                std::wstring const query_lower = ::FileScoutNative::Domain::FoldCase(query);
 
                 std::vector<std::pair<int, std::wstring>> heap;
                 heap.reserve(k_heap_cap + 1);

@@ -20,6 +20,9 @@ TEST(TextFold, FoldsGreekAndLatin)
     EXPECT_EQ(0, CompareIgnoreCase(L"\u0391\u03C1\u03C7\u03B5\u03AF\u03BF", L"\u03B1\u03A1\u03A7\u0395\u038A\u039F"));
     EXPECT_TRUE(EqualsIgnoreCase(L"\u03A6\u0391\u039A\u0395\u039B\u039F\u03A3", L"\u03C6\u03B1\u03BA\u03B5\u03BB\u03BF\u03C2"));
     EXPECT_LT(CompareIgnoreCase(L"\u03B1\u03B2\u03B3", L"\u03C9\u03BC\u03AD\u03B3\u03B1"), 0);
+    // Final sigma: folded for comparisons, kept by the lowercase rename.
+    EXPECT_EQ(FoldCase(L"\u03C2"), FoldCase(L"\u03A3"));
+    EXPECT_EQ(L"\u03C2", LowerCase(L"\u03C2"));
 }
 
 TEST(TextFold, FuzzyQueryMatchesGreekNameInEitherCase)
