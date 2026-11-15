@@ -32,11 +32,14 @@ foreach ($file in Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Force) {
     $target = Join-Path $destRoot $relative
     if (Test-Path -LiteralPath $target -PathType Leaf) {
         $existing = Get-Item -LiteralPath $target -Force
-        if ($existing.Length -eq $file.Length -and $existing.LastWriteTimeUtc -eq $file.LastWriteTimeUtc) { continue }
+        # Always compare content when the sizes match: equal size and time do not prove equal content
+        # (an edit that keeps the size and mtime, or a copy whose re-timestamp failed last time).
         if ($existing.Length -eq $file.Length -and
             (Get-FileHash -LiteralPath $target).Hash -eq (Get-FileHash -LiteralPath $file.FullName).Hash) {
-            $existing.LastWriteTimeUtc = $file.LastWriteTimeUtc
-            $retimed++
+            if ($existing.LastWriteTimeUtc -ne $file.LastWriteTimeUtc) {
+                $existing.LastWriteTimeUtc = $file.LastWriteTimeUtc
+                $retimed++
+            }
             continue
         }
     }
