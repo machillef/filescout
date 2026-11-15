@@ -834,17 +834,7 @@ namespace
         return text + L".";
     }
 
-    struct SidebarDriveUsage
-    {
-        std::filesystem::path path;
-        std::wstring display_name;
-        std::uint32_t drive_type{ 0 };
-        bool has_usage{ false };
-        std::uintmax_t free_bytes{ 0 };
-        std::uintmax_t total_bytes{ 0 };
-        double used_ratio{ 0.0 };
-        ::FileScoutNative::Domain::IconBitmap icon;
-    };
+    using ::FileScoutNative::Domain::SidebarDriveUsage;
 
     std::vector<SidebarDriveUsage> BuildSidebarDriveUsage(
         ::FileScoutNative::Shell::ShellInteropService& shellInterop)
@@ -3001,6 +2991,16 @@ namespace winrt::FileScoutNative::implementation
         UINT_PTR const,
         DWORD_PTR const refData)
     {
+        if (::FileScoutNative::Domain::IsDriveListChange(message, static_cast<std::uintptr_t>(wParam)))
+        {
+            if (auto* const self = reinterpret_cast<MainWindow*>(refData))
+            {
+                self->m_sidebarDrives.Invalidate();
+                self->UpdateThisPCSection();
+            }
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
         auto const command = ::FileScoutNative::Domain::ResolveNavigationInputCommand(
             message,
             wParam,
@@ -4388,6 +4388,7 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"refresh")
         {
+            RefreshSidebarCaches();
             LoadDirectory(ActivePane().current_path);
             return;
         }
@@ -7267,7 +7268,7 @@ namespace winrt::FileScoutNative::implementation
                     btn,
                     winrt::box_value(ToHString(entry.path.wstring())));
                 ScopedTimer iconTimer{ L"GetItemIcon: " + entry.path.wstring() };
-                entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
+                entryIcon = SidebarIcon(entry.path);
             }
 
             auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
@@ -7371,7 +7372,7 @@ namespace winrt::FileScoutNative::implementation
                 rowGrid.ColumnSpacing(8);
 
                 ScopedTimer recentIconTimer{ L"GetItemIcon(recent): " + recentPath.wstring() };
-                auto const entryIcon = m_shellInterop.GetItemIcon(recentPath, true);
+                auto const entryIcon = SidebarIcon(recentPath);
                 auto iconTile = BuildSidebarTile(
                     BuildSidebarGlyph(entryIcon, L"folder"),
                     20.0);
@@ -7448,7 +7449,7 @@ namespace winrt::FileScoutNative::implementation
             rowGrid.ColumnSpacing(8);
 
             ScopedTimer iconTimer{ L"GetItemIcon(bookmark): " + entry.path.wstring() };
-            auto const entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
+            auto const entryIcon = SidebarIcon(entry.path);
             auto iconTile = BuildSidebarTile(
                 BuildSidebarGlyph(entryIcon, L"folder"),
                 20.0);
@@ -7521,6 +7522,20 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
+    ::FileScoutNative::Domain::IconBitmap MainWindow::SidebarIcon(std::filesystem::path const& path)
+    {
+        return m_sidebarIcons.Get(
+            ::FileScoutNative::Domain::SidebarPathKey(path),
+            [&](std::wstring const&) { return m_shellInterop.GetItemIcon(path, true); });
+    }
+
+    void MainWindow::RefreshSidebarCaches()
+    {
+        m_sidebarDrives.Invalidate();
+        m_sidebarIcons.Clear();
+        BuildSidebarFavorites();
+    }
+
     void MainWindow::UpdateThisPCSection()
     {
         ScopedTimer totalTimer{ L"UpdateThisPCSection" };
@@ -7528,7 +7543,7 @@ namespace winrt::FileScoutNative::implementation
         panel.Children().Clear();
 
         auto const& activePane = ActivePane();
-        auto const drives = BuildSidebarDriveUsage(m_shellInterop);
+        auto const& drives = m_sidebarDrives.Get([this] { return BuildSidebarDriveUsage(m_shellInterop); });
         for (auto const& drive : drives)
         {
             auto button = winrt::Microsoft::UI::Xaml::Controls::Button{};
