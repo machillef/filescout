@@ -74,3 +74,36 @@ TEST(ShellCommandVerbTests, BlocksClipboardVerbsCaseInsensitively)
     EXPECT_FALSE(IsBlockedShellVerb(L"copyto"));
     EXPECT_FALSE(IsBlockedShellVerb(L""));
 }
+
+namespace
+{
+    // A handler that truncates to the buffer and still returns S_OK.
+    struct TruncatingVerbMenu : winrt::implements<TruncatingVerbMenu, IContextMenu>
+    {
+        std::wstring verb;
+        explicit TruncatingVerbMenu(std::wstring value) : verb(std::move(value)) {}
+
+        HRESULT __stdcall QueryContextMenu(HMENU, UINT, UINT, UINT, UINT) noexcept override { return E_NOTIMPL; }
+        HRESULT __stdcall InvokeCommand(CMINVOKECOMMANDINFO*) noexcept override { return E_NOTIMPL; }
+        HRESULT __stdcall GetCommandString(UINT_PTR, UINT flags, UINT*, CHAR* name, UINT cchMax) noexcept override
+        {
+            if (flags != GCS_VERBW || cchMax == 0)
+            {
+                return E_INVALIDARG;
+            }
+            auto* const out = reinterpret_cast<wchar_t*>(name);
+            auto const count = (std::min)(verb.size(), static_cast<std::size_t>(cchMax - 1));
+            std::copy_n(verb.begin(), count, out);
+            out[count] = L'\0';
+            return S_OK;
+        }
+    };
+}
+
+TEST(ShellCommandVerbTests, RetriesWhenAHandlerTruncatesSilently)
+{
+    std::wstring const longVerb(300, L'v');
+    auto const menu = winrt::make_self<TruncatingVerbMenu>(longVerb);
+
+    EXPECT_EQ(FileScoutNative::Shell::ReadShellCommandVerb(menu.get(), 0), longVerb);
+}

@@ -25,7 +25,14 @@ namespace FileScoutNative::Shell
                 return {};
             }
 
-            buffer.resize(wcsnlen(buffer.c_str(), buffer.size()));
+            auto const length = wcsnlen(buffer.c_str(), buffer.size());
+            // A handler may truncate to the buffer and still return S_OK: a full buffer means "try
+            // bigger" (Microsoft's sample checks the length the same way).
+            if (length + 1 >= buffer.size() && capacity * 4 <= maxVerbLength)
+            {
+                continue;
+            }
+            buffer.resize(length);
             return buffer;
         }
 
