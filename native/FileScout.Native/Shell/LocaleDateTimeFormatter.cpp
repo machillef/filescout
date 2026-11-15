@@ -47,7 +47,6 @@ namespace FileScoutNative::Shell
 
     std::optional<std::int64_t> LocaleDateTimeFormatter::LocalOffsetAt(std::uint64_t const utcTicks)
     {
-        constexpr std::uint64_t ticksPerMinute = 60ULL * 10'000'000ULL;
         auto const hour = utcTicks / ticksPerHour;
         if (hour == m_lastHour)
         {
@@ -60,14 +59,8 @@ namespace FileScoutNative::Shell
             return it->second;
         }
 
-        auto const minute = utcTicks / ticksPerMinute;
-        if (auto const it = m_minuteOffsets.find(minute); it != m_minuteOffsets.end())
-        {
-            return it->second;
-        }
-
         auto const start = ConvertOffset(hour * ticksPerHour);
-        auto const end = ConvertOffset(hour * ticksPerHour + ticksPerHour - ticksPerMinute);
+        auto const end = ConvertOffset(hour * ticksPerHour + ticksPerHour - 1);
         if (!start || !end)
         {
             return std::nullopt;
@@ -80,13 +73,9 @@ namespace FileScoutNative::Shell
             return *start;
         }
 
-        // A transition inside this UTC hour: resolve per minute (transitions are whole minutes).
-        auto const exact = ConvertOffset(minute * ticksPerMinute);
-        if (exact)
-        {
-            m_minuteOffsets.emplace(minute, *exact);
-        }
-        return exact;
+        // A transition inside this UTC hour (twice a year): convert this timestamp exactly. No
+        // finer cache, because transition times may carry seconds and milliseconds.
+        return ConvertOffset(utcTicks);
     }
 
     std::wstring LocaleDateTimeFormatter::FormatFileTime(FILETIME const& utc)

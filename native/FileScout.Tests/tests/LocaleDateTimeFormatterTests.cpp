@@ -45,7 +45,10 @@ TEST(LocaleDateTimeFormatterTests, GreekLocaleIsDayFirst)
     // Compared with direct NLS calls so a customised el-GR short date on a developer machine
     // does not fail the test; a fixed en-US "3/4/2026  1:05 PM" would not match.
     EXPECT_EQ(formatter.FormatLocal(local), DirectFormat(L"el-GR", local));
-    EXPECT_NE(formatter.FormatLocal(local), L"3/4/2026  1:05 PM");
+    if (DirectFormat(L"el-GR", local) != L"3/4/2026  1:05 PM")
+    {
+        EXPECT_NE(formatter.FormatLocal(local), L"3/4/2026  1:05 PM");
+    }
 }
 
 TEST(LocaleDateTimeFormatterTests, UsLocaleIsMonthFirst)
@@ -181,5 +184,36 @@ TEST(LocaleDateTimeFormatterTests, TransitionInsideAUtcHourUsesTheExactOffset)
         ASSERT_TRUE(SystemTimeToTzSpecificLocalTime(&zone, &utc, &expectedLocal));
         EXPECT_EQ(formatter.FormatFileTime(ToFileTime(utc)), formatter.FormatLocal(expectedLocal))
             << "minute " << minute;
+    }
+}
+
+// Transition times may carry seconds: a switch at 01:59:30 local must not be missed by the hourly
+// cache. Every probe matches a direct conversion on both sides of it.
+TEST(LocaleDateTimeFormatterTests, SubMinuteTransitionMatchesDirectConversion)
+{
+    TIME_ZONE_INFORMATION zone{};
+    zone.Bias = -60;                  // UTC+01:00
+    zone.DaylightBias = -60;
+    zone.StandardDate.wMonth = 10;
+    zone.StandardDate.wDayOfWeek = 0;
+    zone.StandardDate.wDay = 5;
+    zone.StandardDate.wHour = 3;
+    zone.DaylightDate.wMonth = 3;     // last Sunday of March, 01:59:30 local
+    zone.DaylightDate.wDayOfWeek = 0;
+    zone.DaylightDate.wDay = 5;
+    zone.DaylightDate.wHour = 1;
+    zone.DaylightDate.wMinute = 59;
+    zone.DaylightDate.wSecond = 30;
+
+    // 2026-03-29 is the last Sunday of March: 01:59:30 local standard = 00:59:30 UTC.
+    LocaleDateTimeFormatter formatter{ L"en-US", zone };
+    for (WORD const second : { WORD{ 0 }, WORD{ 29 }, WORD{ 31 }, WORD{ 59 } })
+    {
+        auto utc = MakeLocal(2026, 3, 29, 0, 59);
+        utc.wSecond = second;
+        SYSTEMTIME expectedLocal{};
+        ASSERT_TRUE(SystemTimeToTzSpecificLocalTime(&zone, &utc, &expectedLocal));
+        EXPECT_EQ(formatter.FormatFileTime(ToFileTime(utc)), formatter.FormatLocal(expectedLocal))
+            << "second " << second;
     }
 }

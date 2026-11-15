@@ -31,8 +31,8 @@ namespace FileScoutNative::Shell
         std::wstring const& DateText(SYSTEMTIME const& local);
         std::wstring const& TimeText(SYSTEMTIME const& local);
         // UTC -> local offset (100 ns ticks) at utcTicks. Cached per UTC hour when the offset is the
-        // same at both ends of the hour (one transition at most per hour); an hour that contains a
-        // transition (e.g. a UTC+09:30 zone switching at :30) is cached per minute instead.
+        // same at the first and last tick of the hour; an hour that contains a transition (e.g. a
+        // UTC+09:30 zone switching at :30, or one with seconds) is converted per timestamp.
         [[nodiscard]] std::optional<std::int64_t> LocalOffsetAt(std::uint64_t utcTicks);
         [[nodiscard]] std::optional<std::int64_t> ConvertOffset(std::uint64_t utcTicks) const;
 
@@ -41,7 +41,6 @@ namespace FileScoutNative::Shell
         std::array<std::optional<std::wstring>, 24 * 60> m_times;
         std::optional<TIME_ZONE_INFORMATION> m_timeZone;
         std::unordered_map<std::uint64_t, std::int64_t> m_hourOffsets;
-        std::unordered_map<std::uint64_t, std::int64_t> m_minuteOffsets;
         std::uint64_t m_lastHour = ~std::uint64_t{ 0 };
         std::int64_t m_lastOffset = 0;
     };
