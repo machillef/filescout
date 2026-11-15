@@ -191,7 +191,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR cmdLine, int)
         TraceLog(L"[launch] delegating shell namespace path to Explorer: " + launchPath->wstring());
         // Absolute path: a bare "explorer.exe" is searched in the working directory first (CWE-426).
         wchar_t windowsDir[MAX_PATH]{};
-        ::GetWindowsDirectoryW(windowsDir, MAX_PATH);
+        UINT const length = ::GetWindowsDirectoryW(windowsDir, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH)
+        {
+            TraceLog(L"[launch] GetWindowsDirectoryW failed; not launching Explorer");
+            return EXIT_FAILURE;
+        }
         auto const explorer = std::filesystem::path{ windowsDir } / L"explorer.exe";
         ::ShellExecuteW(nullptr, nullptr, explorer.c_str(), (L"\"" + launchPath->wstring() + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
         return EXIT_SUCCESS;
