@@ -128,6 +128,7 @@
     <ClCompile Include="..\FileScout.Native\Shell\DefaultFileManagerService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\TempStagingCleanup.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellCommandVerb.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\LocaleDateTimeFormatter.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellClipboardService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellInteropService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellFileOperationService.cpp" />

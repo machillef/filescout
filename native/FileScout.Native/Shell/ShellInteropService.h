@@ -1,6 +1,7 @@
 #pragma once
 
 #include "..\Domain\ShellItemRef.h"
+#include "LocaleDateTimeFormatter.h"
 
 namespace FileScoutNative::Shell
 {
@@ -38,7 +39,8 @@ namespace FileScoutNative::Shell
         // S7 will backfill real per-extension icons asynchronously.
         [[nodiscard]] FileScoutNative::Domain::ShellItemRef BuildFastShellItemRef(
             WIN32_FIND_DATAW const& findData,
-            std::filesystem::path const& dirPath) const;
+            std::filesystem::path const& dirPath,
+            LocaleDateTimeFormatter& dateFormatter) const;
         [[nodiscard]] FileScoutNative::Domain::IconBitmap GetIconForItem(
             std::filesystem::path const& path,
             bool isFolder) const;

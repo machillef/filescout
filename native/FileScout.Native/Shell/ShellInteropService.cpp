@@ -266,25 +266,6 @@ namespace FileScoutNative::Shell
             return result;
         }
 
-        std::optional<std::wstring> FormatShellDateTime(FILETIME const& ft)
-        {
-            SYSTEMTIME utc{};
-            SYSTEMTIME local{};
-            if (!FileTimeToSystemTime(&ft, &utc) ||
-                !SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
-            {
-                return std::nullopt;
-            }
-
-            wchar_t dateBuf[64]{};
-            wchar_t timeBuf[64]{};
-            GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE,
-                            &local, nullptr, dateBuf, 64, nullptr);
-            GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS,
-                            &local, nullptr, timeBuf, 64);
-            return std::wstring{ dateBuf } + L"  " + std::wstring{ timeBuf };
-        }
-
         std::filesystem::file_time_type FileTimeToChrono(FILETIME const& ft)
         {
             ULARGE_INTEGER ticks{};
@@ -293,33 +274,6 @@ namespace FileScoutNative::Shell
             return std::filesystem::file_time_type{
                 std::filesystem::file_time_type::duration{
                     static_cast<std::filesystem::file_time_type::rep>(ticks.QuadPart) } };
-        }
-
-        // Fast local date/time formatter for the enumeration hot path.
-        // Uses FileTimeToLocalFileTime (arithmetic, no DST lookup) + FileTimeToSystemTime +
-        // swprintf_s, replacing the slow SystemTimeToTzSpecificLocalTime + GetDateFormatEx +
-        // GetTimeFormatEx path. Saves ~3 NLS/timezone calls per date per item.
-        // Format: M/D/YYYY  H:MM AM/PM  (matches en-US DATE_SHORTDATE + TIME_NOSECONDS).
-        std::wstring FastFormatFileTime(FILETIME const& ft)
-        {
-            if (ft.dwLowDateTime == 0 && ft.dwHighDateTime == 0)
-            {
-                return L"";
-            }
-            FILETIME local{};
-            SYSTEMTIME st{};
-            if (!FileTimeToLocalFileTime(&ft, &local) || !FileTimeToSystemTime(&local, &st))
-            {
-                return L"";
-            }
-            bool const pm = st.wHour >= 12;
-            unsigned const hour12 = st.wHour % 12;
-            wchar_t buf[32]{};
-            swprintf_s(buf, L"%u/%u/%04u  %u:%02u %s",
-                st.wMonth, st.wDay, st.wYear,
-                hour12 == 0u ? 12u : hour12, st.wMinute,
-                pm ? L"PM" : L"AM");
-            return buf;
         }
     }
 
@@ -401,7 +355,8 @@ namespace FileScoutNative::Shell
     // Archive detection: extension-based heuristic; no CanEnumerateShellNamespace call.
     FileScoutNative::Domain::ShellItemRef ShellInteropService::BuildFastShellItemRef(
         WIN32_FIND_DATAW const& findData,
-        std::filesystem::path const& dirPath) const
+        std::filesystem::path const& dirPath,
+        LocaleDateTimeFormatter& dateFormatter) const
     {
         FileScoutNative::Domain::ShellItemRef item;
         item.display_name = findData.cFileName;
@@ -427,20 +382,19 @@ namespace FileScoutNative::Shell
             item.size_available = true;
         }
 
-        // Date modified from WIN32_FIND_DATA — fast path: no SystemTimeToTzSpecificLocalTime
-        // or NLS calls; FastFormatFileTime uses FileTimeToLocalFileTime + swprintf_s.
+        // Date modified from WIN32_FIND_DATA, formatted in the user's locale (cached per day/minute).
         if (findData.ftLastWriteTime.dwLowDateTime != 0 || findData.ftLastWriteTime.dwHighDateTime != 0)
         {
             item.date_modified = FileTimeToChrono(findData.ftLastWriteTime);
             item.date_modified_available = true;
-            item.date_modified_str = FastFormatFileTime(findData.ftLastWriteTime);
+            item.date_modified_str = dateFormatter.FormatFileTime(findData.ftLastWriteTime);
         }
 
         // Date created from WIN32_FIND_DATA — fast path (same approach).
         if (findData.ftCreationTime.dwLowDateTime != 0 || findData.ftCreationTime.dwHighDateTime != 0)
         {
             item.date_created_available = true;
-            item.date_created_str = FastFormatFileTime(findData.ftCreationTime);
+            item.date_created_str = dateFormatter.FormatFileTime(findData.ftCreationTime);
         }
 
         // Archive detection: extension-based, no shell call.
@@ -525,9 +479,11 @@ namespace FileScoutNative::Shell
         std::vector<FileScoutNative::Domain::ShellItemRef> items(records.size());
         ::FileScoutNative::Domain::ParallelForRanges(records.size(), [&](std::size_t begin, std::size_t end)
             {
+                // The formatter caches per day/minute and is not thread-safe: one per range.
+                LocaleDateTimeFormatter dateFormatter;
                 for (auto i = begin; i < end; ++i)
                 {
-                    items[i] = BuildFastShellItemRef(records[i], path);
+                    items[i] = BuildFastShellItemRef(records[i], path, dateFormatter);
                 }
             });
         // NOTE: Sorting is intentionally omitted here — callers apply the user-selected
@@ -544,6 +500,7 @@ namespace FileScoutNative::Shell
             throw std::runtime_error("Unsupported shell namespace path.");
         }
 
+        LocaleDateTimeFormatter dateFormatter;
         HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         bool const shouldUninitialize = SUCCEEDED(initHr);
 
@@ -614,7 +571,7 @@ namespace FileScoutNative::Shell
                     {
                         item.date_modified_available = true;
                         item.date_modified = FileTimeToChrono(modified);
-                        item.date_modified_str = FormatShellDateTime(modified).value_or(L"");
+                        item.date_modified_str = dateFormatter.FormatFileTime(modified);
                     }
                 }
 
@@ -702,6 +659,7 @@ namespace FileScoutNative::Shell
 
     std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateRecycleBin() const
     {
+        LocaleDateTimeFormatter dateFormatter;
         HRESULT const initHr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         bool const shouldUninitialize = SUCCEEDED(initHr);
 
@@ -770,7 +728,7 @@ namespace FileScoutNative::Shell
                     {
                         item.date_modified_available = true;
                         item.date_modified = FileTimeToChrono(deletedTime);
-                        item.date_modified_str = FormatShellDateTime(deletedTime).value_or(L"");
+                        item.date_modified_str = dateFormatter.FormatFileTime(deletedTime);
                     }
                 }
 
