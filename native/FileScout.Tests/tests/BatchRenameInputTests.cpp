@@ -1,6 +1,7 @@
 #include "pch.h"
 #include <gtest/gtest.h>
 #include "Domain/BatchRenameInput.h"
+#include "Domain/BatchRenamePlan.h"
 
 using namespace FileScoutNative::Domain;
 
@@ -37,4 +38,27 @@ TEST(BatchRenameInput, ParsePositiveInteger_RejectsZeroEmptyAndJunk)
     EXPECT_FALSE(ParseBatchRenamePositiveInteger(L"1 2").has_value());
     EXPECT_FALSE(ParseBatchRenamePositiveInteger(L"0x10").has_value());
     EXPECT_FALSE(ParseBatchRenamePositiveInteger(L"\x0661").has_value()); // Arabic-Indic digit one
+}
+
+// D-21: one mapping from the dialog's case combo index to the transform. The dialog opens on
+// Title Case (index 2), and an unknown index (-1 = nothing selected, or out of range) falls back
+// to the same Title Case the domain applies for an unknown transform.
+
+TEST(BatchRenameInput, CaseTransformFromIndex_MapsKnownIndices)
+{
+    EXPECT_EQ(BatchRenameCaseTransform::Lowercase, BatchRenameCaseTransformFromIndex(0));
+    EXPECT_EQ(BatchRenameCaseTransform::Uppercase, BatchRenameCaseTransformFromIndex(1));
+    EXPECT_EQ(BatchRenameCaseTransform::TitleCase, BatchRenameCaseTransformFromIndex(2));
+}
+
+TEST(BatchRenameInput, CaseTransformFromIndex_UnknownIndexMatchesDomainDefault)
+{
+    EXPECT_EQ(BatchRenameCaseTransform::TitleCase, BatchRenameCaseTransformFromIndex(-1));
+    EXPECT_EQ(BatchRenameCaseTransform::TitleCase, BatchRenameCaseTransformFromIndex(3));
+
+    // The plan builder treats an out-of-range transform the same way.
+    EXPECT_EQ(
+        detail::ApplyCaseTransform(L"my report", BatchRenameCaseTransformFromIndex(-1)),
+        detail::ApplyCaseTransform(L"my report", static_cast<BatchRenameCaseTransform>(99)));
+    EXPECT_EQ(L"My Report", detail::ApplyCaseTransform(L"my report", BatchRenameCaseTransformFromIndex(-1)));
 }
