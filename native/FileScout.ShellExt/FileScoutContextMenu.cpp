@@ -6,7 +6,7 @@
 // then falls back to the DLL's own directory.
 namespace
 {
-    constexpr wchar_t kClsidString[] = L"{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}";
+    constexpr auto const& kClsidString = FileScoutShellExt::ClsidString;
     constexpr wchar_t kInstallPathKey[] = L"Software\\FileScout";
     constexpr wchar_t kInstallPathValue[] = L"InstallPath";
 
@@ -21,9 +21,10 @@ namespace
             return {};
         }
 
-        wchar_t modulePath[MAX_PATH]{};
-        auto const length = GetModuleFileNameW(module, modulePath, MAX_PATH);
-        return length == 0 ? std::wstring{} : std::wstring{ modulePath, length };
+        return FileScoutShellExt::ReadGrowingString([module](wchar_t* buffer, DWORD capacity)
+        {
+            return GetModuleFileNameW(module, buffer, capacity);
+        });
     }
 
     std::wstring BuildDefaultFileScoutPath()
@@ -36,18 +37,17 @@ static std::wstring GetFileScoutPath()
 {
     auto const fallbackPath = BuildDefaultFileScoutPath();
 
-    HKEY hKey{};
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kInstallPathKey, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    DWORD size = 0;
+    if (RegGetValueW(HKEY_CURRENT_USER, kInstallPathKey, kInstallPathValue, RRF_RT_REG_SZ,
+            nullptr, nullptr, &size) == ERROR_SUCCESS && size > sizeof(wchar_t))
     {
-        wchar_t path[MAX_PATH]{};
-        DWORD size = sizeof(path);
-        if (RegQueryValueExW(hKey, kInstallPathValue, nullptr, nullptr,
-            reinterpret_cast<LPBYTE>(path), &size) == ERROR_SUCCESS)
+        std::wstring path(size / sizeof(wchar_t), L'\0');
+        if (RegGetValueW(HKEY_CURRENT_USER, kInstallPathKey, kInstallPathValue, RRF_RT_REG_SZ,
+                nullptr, path.data(), &size) == ERROR_SUCCESS)
         {
-            RegCloseKey(hKey);
+            path.resize(wcsnlen(path.c_str(), path.size()));
             return FileScoutShellExt::ResolveFileScoutPath(path, fallbackPath);
         }
-        RegCloseKey(hKey);
     }
 
     return fallbackPath;
@@ -130,10 +130,17 @@ IFACEMETHODIMP FileScoutContextMenu::Initialize(
 
     for (UINT i = 0; i < count; ++i)
     {
-        wchar_t path[MAX_PATH]{};
-        if (DragQueryFileW(hDrop, i, path, MAX_PATH) > 0)
+        auto const length = DragQueryFileW(hDrop, i, nullptr, 0);
+        if (length == 0)
         {
-            m_selectedPaths.push_back(path);
+            continue;
+        }
+
+        std::wstring path(length + 1, L'\0');
+        if (DragQueryFileW(hDrop, i, path.data(), length + 1) > 0)
+        {
+            path.resize(length);
+            m_selectedPaths.push_back(std::move(path));
         }
     }
 
