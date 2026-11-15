@@ -27,7 +27,9 @@ case "$cmd" in
     ssh_q "Remove-Item -Recurse -Force '$stage' -ea 0; New-Item -ItemType Directory -Force '$stage','$dest' | Out-Null"
     (cd "$dir" && git ls-files -co --exclude-standard -z | tar --null -cf - -T -) | \
       ssh_q "tar -xf - -C '$stage'"
-    ssh_q "robocopy '$stage' '$dest' /MIR /XD packages bin obj x64 'Generated Files' .vs /XF build-*.log /NFL /NDL /NJH /NJS /NP | Out-Null; if (\$LASTEXITCODE -ge 8) { exit 1 }; Remove-Item -Recurse -Force '$stage'; 'synced $dest'"
+    # tar keeps the Linux mtimes; a file edited before the last win1 build can then look older than
+    # its .obj and MSBuild skips it. Every file robocopy actually copies gets "now" as its mtime.
+    ssh_q "\$copied = robocopy '$stage' '$dest' /MIR /XD packages bin obj x64 'Generated Files' .vs /XF build-*.log /FP /NDL /NJH /NJS /NP /NC /NS; if (\$LASTEXITCODE -ge 8) { exit 1 }; \$now = Get-Date; \$n = 0; foreach (\$line in \$copied) { \$f = \$line.Trim(); if (\$f.StartsWith('$stage', [StringComparison]::OrdinalIgnoreCase)) { \$f = '$dest' + \$f.Substring('$stage'.Length) }; if (\$f -and (Test-Path -LiteralPath \$f -PathType Leaf)) { (Get-Item -LiteralPath \$f).LastWriteTime = \$now; \$n++ } }; Remove-Item -Recurse -Force '$stage'; \"synced $dest (\$n files updated)\""
     # Branches cut before tools/win1 existed still build with the current helper scripts.
     ssh_q "New-Item -ItemType Directory -Force '$dest\\tools\\win1' | Out-Null"
     scp -q "$(dirname "$0")/build.ps1" "$HOST:$(echo "$dest" | tr '\\' '/')/tools/win1/build.ps1"
