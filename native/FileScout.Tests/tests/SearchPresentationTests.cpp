@@ -69,3 +69,12 @@ TEST(SearchPresentation, BuildOpenTargetUsesParentFolderAndSelectedPath)
     EXPECT_EQ(target->folder_path, expectedFolder);
     EXPECT_EQ(target->select_path, expectedSelect);
 }
+
+// D-12: one constant for the 200-result limit, used by the filter, the walk and the status text.
+TEST(SearchPresentation, CompleteStatusNamesTheSharedResultLimit)
+{
+    EXPECT_EQ(
+        L"Showing top " + std::to_wstring(k_max_search_results) +
+            L" matches - refine your query to narrow results",
+        BuildSearchCompleteStatus(5, L"C:\\Root", true));
+}
