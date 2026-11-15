@@ -493,7 +493,8 @@ namespace FileScoutNative::Shell
         HRESULT const performResult = fileOperation->PerformOperations();
 
         BOOL operationsAborted = FALSE;
-        if (FAILED(fileOperation->GetAnyOperationsAborted(&operationsAborted)))
+        HRESULT const abortQueryResult = fileOperation->GetAnyOperationsAborted(&operationsAborted);
+        if (FAILED(abortQueryResult))
         {
             operationsAborted = FALSE;
         }
@@ -507,5 +508,8 @@ namespace FileScoutNative::Shell
 
         // Other failures keep flowing to the callers' hresult_error handlers, which add the action.
         winrt::check_hresult(performResult);
+        // A success code from PerformOperations does not prove everything completed; if the abort
+        // status itself cannot be read, the outcome is unknown, so report it instead of success.
+        winrt::check_hresult(abortQueryResult);
     }
 }
