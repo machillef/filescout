@@ -7628,6 +7628,15 @@ namespace winrt::FileScoutNative::implementation
             m_activePaneIndex = 1;
             LoadDirectory(path);
             m_activePaneIndex = savedActivePane;
+            // LoadDirectory updated the shared toolbar for pane 1 while it was active; show the
+            // active pane's location and history again.
+            auto const& active = ActivePane();
+            if (!active.current_path.empty())
+            {
+                UpdateBreadcrumbs(active.current_path);
+                UpdateSearchPlaceholder(active.current_path);
+            }
+            UpdateNavButtons();
         }
         StatusTextBlock().Text(m_dualPaneVisible
             ? L"Dual pane enabled."
