@@ -182,6 +182,7 @@
     <ClCompile Include="tests\ShellCommandVerbTests.cpp" />
     <ClCompile Include="tests\KeyboardShortcutsTests.cpp" />
     <ClCompile Include="tests\TextFoldTests.cpp" />
+    <ClCompile Include="tests\LocaleDateTimeFormatterTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
