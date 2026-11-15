@@ -11,14 +11,20 @@
       hide a copied-but-not-yet-built edit from an older .obj)
   Destination files that no longer exist in the stage are deleted (mirror), except build outputs.
 #>
-param([Parameter(Mandatory)] [string] $Stage, [Parameter(Mandatory)] [string] $Dest)
+param(
+    [Parameter(Mandatory)] [string] $Stage,
+    [Parameter(Mandatory)] [string] $Dest,
+    # Recovery: stamp every synced file with now (forces MSBuild to rebuild everything). Use it for a
+    # worktree synced by an older sync version, which could leave new content with an old time.
+    [switch] $Restamp
+)
 $ErrorActionPreference = 'Stop'
 $excludeDirs = @('packages', 'bin', 'obj', 'x64', 'Generated Files', '.vs')
 $stageRoot = (Resolve-Path -LiteralPath $Stage).Path.TrimEnd('\')
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $destRoot = (Resolve-Path -LiteralPath $Dest).Path.TrimEnd('\')
 $now = Get-Date
-$copied = 0; $removed = 0
+$copied = 0; $removed = 0; $restamped = 0
 
 function Test-Excluded([string]$relative) {
     foreach ($part in $relative.Split('\')) { if ($excludeDirs -contains $part) { return $true } }
@@ -50,6 +56,7 @@ foreach ($file in Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Force) {
         $existing = Get-Item -LiteralPath $target -Force
         # Always compare content when the sizes match: equal size and time do not prove equal content
         # (an edit that keeps the size and mtime, or a copy whose re-timestamp failed last time).
+        if ($Restamp) { $existing.LastWriteTime = $now; $restamped++; continue }
         if ($existing.Length -eq $file.Length -and
             (Get-FileHash -LiteralPath $target).Hash -eq (Get-FileHash -LiteralPath $file.FullName).Hash) {
             # Same content: leave the destination time alone. Moving it back to the (older) Linux
@@ -83,4 +90,4 @@ while ($queue.Count -gt 0) {
         }
     }
 }
-"synced $destRoot (copied $copied, removed $removed)"
+"synced $destRoot (copied $copied, removed $removed, restamped $restamped)"

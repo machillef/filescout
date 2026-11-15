@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Drive the win1 Windows test VM from ubuntu-containers: mirror a checkout, build, test, run GUI.
 #
-#   tools/win1/win1.sh sync  <name> [dir]          mirror git-visible files of dir (default: repo root)
+#   tools/win1/win1.sh sync  <name> [dir] [--restamp]  mirror git-visible files of dir (default: repo root);
+#                                                   --restamp stamps every file now (full rebuild)
 #                                                   to C:\fsdev\wt\<name> (build outputs are kept)
 #   tools/win1/win1.sh build <name> [Debug|Release] [--test [gtest-filter]]
 #   tools/win1/win1.sh ps    '<pwsh command>'      run a command over ssh (session 0, Administrator)
@@ -22,7 +23,7 @@ ssh_q() { ssh -o ConnectTimeout=15 -o ServerAliveInterval=30 -o LogLevel=ERROR "
 cmd=${1:-}; shift || true
 case "$cmd" in
   sync)
-    name=$1; dir=${2:-$(git rev-parse --show-toplevel)}
+    name=$1; dir=${2:-$(git rev-parse --show-toplevel)}; restamp=""; [[ ${3:-} == --restamp ]] && restamp="-Restamp"
     stage="C:\\fsdev\\stage\\$name"; dest="$WT_ROOT\\$name"
     ssh_q "Remove-Item -Recurse -Force '$stage' -ea 0; New-Item -ItemType Directory -Force '$stage','$dest' | Out-Null"
     (cd "$dir" && git ls-files -co --exclude-standard -z | tar --null -cf - -T -) | \
@@ -30,7 +31,7 @@ case "$cmd" in
     # Content-based mirror (Sync-Stage.ps1): changed files get "now" so MSBuild rebuilds them,
     # unchanged ones keep a stable time so the next sync does not copy them again.
     scp -q "$(dirname "$0")/Sync-Stage.ps1" "$HOST:C:/fsdev/tools/Sync-Stage.ps1"
-    ssh_q "pwsh -NoProfile -File C:\\fsdev\\tools\\Sync-Stage.ps1 -Stage '$stage' -Dest '$dest'; if (\$LASTEXITCODE) { exit 1 }; Remove-Item -Recurse -Force '$stage'"
+    ssh_q "pwsh -NoProfile -File C:\\fsdev\\tools\\Sync-Stage.ps1 -Stage '$stage' -Dest '$dest' $restamp; if (\$LASTEXITCODE) { exit 1 }; Remove-Item -Recurse -Force '$stage'"
     # Branches cut before tools/win1 existed still build with the current helper scripts.
     ssh_q "New-Item -ItemType Directory -Force '$dest\\tools\\win1' | Out-Null"
     scp -q "$(dirname "$0")/build.ps1" "$HOST:$(echo "$dest" | tr '\\' '/')/tools/win1/build.ps1"
