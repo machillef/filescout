@@ -212,7 +212,13 @@ Pause-Ui 5000
 }
 finally {
     # A failed step must not leave FileScout registered or the recorder running.
-    if ($enabledHere) { try { & $Exe --restore-explorer | Out-Null } catch { Write-Output "[error] restore failed: $_" } }
+    if ($enabledHere) {
+        try {
+            $p = Start-Process $Exe -ArgumentList '--restore-explorer' -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Write-Output "[error] --restore-explorer exited with $($p.ExitCode)" }
+        }
+        catch { Write-Output "[error] restore failed: $_" }
+    }
     try { Close-Caption } catch { }
     try { Stop-Recording $rec } catch { Write-Output "[error] recorder stop failed: $_" }
 }

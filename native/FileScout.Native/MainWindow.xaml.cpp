@@ -1912,7 +1912,10 @@ namespace winrt::FileScoutNative::implementation
             item.Icon(icon);
             winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(item, L"DefaultFileManagerMenuItem");
             // Weak references: the flyout owns both the item and this handler.
-            auto const refresh = [this, weakItem = winrt::make_weak(item), weakIcon = winrt::make_weak(icon)]()
+            // The click performs the action the label showed when the menu opened, even if another
+            // process changed the registration in between.
+            auto const shownMakeDefault = std::make_shared<bool>(true);
+            auto const refresh = [this, shownMakeDefault, weakItem = winrt::make_weak(item), weakIcon = winrt::make_weak(icon)]()
             {
                 auto const item = weakItem.get();
                 auto const icon = weakIcon.get();
@@ -1922,17 +1925,16 @@ namespace winrt::FileScoutNative::implementation
                 }
                 bool const isDefault = m_defaultFileManager.GetStatus() ==
                     ::FileScoutNative::Shell::DefaultFileManagerStatus::FullyDefault;
+                *shownMakeDefault = !isDefault;
                 item.Text(isDefault ? L"Restore Explorer as default file manager"
                                     : L"Make FileScout the default file manager");
                 icon.Glyph(isDefault ? L"\uE7A7" : L"\uE8B7");
             };
             refresh();
             flyout.Opening([refresh](auto const&, auto const&) { refresh(); });
-            item.Click([this](auto const&, auto const&)
+            item.Click([this, shownMakeDefault](auto const&, auto const&)
                 {
-                    bool const isDefault = m_defaultFileManager.GetStatus() ==
-                        ::FileScoutNative::Shell::DefaultFileManagerStatus::FullyDefault;
-                    SetDefaultFileManager(!isDefault);
+                    SetDefaultFileManager(*shownMakeDefault);
                 });
             flyout.Items().Append(item);
         }
