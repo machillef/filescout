@@ -33,8 +33,6 @@ namespace FileScoutNative::Shell
             std::filesystem::path const& path) const;
 
     private:
-        [[nodiscard]] FileScoutNative::Domain::ShellItemRef BuildShellItemRef(
-            std::filesystem::directory_entry const& entry) const;
         // S6: fast path — builds a ShellItemRef from WIN32_FIND_DATAW without any shell calls.
         // Icon is set to a two-bucket fallback (folder or generic file).
         // S7 will backfill real per-extension icons asynchronously.
