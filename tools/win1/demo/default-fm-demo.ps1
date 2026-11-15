@@ -138,7 +138,8 @@ $hashBefore = Export-Touched 'before'
 
 $rec = Start-Recording (Join-Path $Out 'default-fm-demo.mp4')
 $manifestKey = 'HKCU:\Software\FileScout\DefaultFileManager'
-$registeredBefore = Test-Path $manifestKey
+# The demo starts from a clean Explorer state, so any manifest it finds at the end was made by it.
+if (Test-Path $manifestKey) { Stop-Recording $rec; throw "FileScout is already registered ($manifestKey exists); run --restore-explorer first" }
 try {
 Pause-Ui 1000
 Show-Caption 'FileScout as the default file manager  -  win1, user runetest'
@@ -212,7 +213,9 @@ Pause-Ui 5000
 finally {
     # A failed step must not leave FileScout registered or the recorder running. The registry, not
     # a flag set after a step returns, says whether this run left FileScout registered.
-    if (-not $registeredBefore -and (Test-Path $manifestKey)) {
+    $leftRegistered = $false
+    try { $leftRegistered = Test-Path $manifestKey } catch { Write-Output "[error] registry check failed: $_" }
+    if ($leftRegistered) {
         try {
             $p = Start-Process $Exe -ArgumentList '--restore-explorer' -Wait -PassThru
             if ($p.ExitCode -ne 0) { Write-Output "[error] --restore-explorer exited with $($p.ExitCode)" }
