@@ -3124,10 +3124,11 @@ namespace winrt::FileScoutNative::implementation
 
         // Record current path in back-stack unless this is a history navigation.
         {
-            auto const backDepth = pane.back_stack.size();
-            ::FileScoutNative::Domain::BeginNavigation(
-                pane.back_stack, pane.forward_stack, pane.current_path, absolutePath, skipHistoryRecord);
-            if (pane.back_stack.size() != backDepth)
+            // Recents list the folder being LEFT (BeginNavigation makes the target current at once),
+            // for every navigation that leaves a folder, Back/Forward included.
+            if (::FileScoutNative::Domain::NavigateAndRecordRecent(
+                    pane.back_stack, pane.forward_stack, pane.current_path, m_recentFolders,
+                    absolutePath, skipHistoryRecord, kRecentFolderCapacity))
             {
                 BuildSidebarFavorites();  // refresh recent paths section
             }
@@ -7352,9 +7353,9 @@ namespace winrt::FileScoutNative::implementation
             panel.Children().Append(btn);
         }
 
-        // Recent paths: last 5 navigated folders not already shown above.
+        // Recent paths: last 5 folders left in either pane, not already shown above.
         auto const recents = ::FileScoutNative::Domain::SelectRecentPaths(
-            m_panes[0].back_stack, shownPathKeys, 5);
+            m_recentFolders, shownPathKeys, 5);
 
         if (!recents.empty())
         {
@@ -7645,8 +7646,21 @@ namespace winrt::FileScoutNative::implementation
             SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
 
             auto& pane = ActivePane();
+            // This PC has no path; the folder being left still belongs in the recents. The sidebar is
+            // rebuilt only after the pane state below says "This PC", so it highlights the right row.
+            bool recentsChanged = false;
+            if (auto const left = ::FileScoutNative::Domain::FolderToRecordOnLeave(pane.current_path, std::filesystem::path{}))
+            {
+                ::FileScoutNative::Domain::RecordRecentFolder(m_recentFolders, *left, kRecentFolderCapacity);
+                recentsChanged = true;
+            }
             pane.current_path = std::filesystem::path{};
             pane.is_drives_view = true;
+            pane.is_archive_view = false;
+            if (recentsChanged)
+            {
+                BuildSidebarFavorites();
+            }
             pane.is_archive_view = false;
             pane.items = items;
             pane.selection.Clear();

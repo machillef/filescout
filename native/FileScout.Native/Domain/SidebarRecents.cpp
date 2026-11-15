@@ -34,4 +34,19 @@ namespace FileScoutNative::Domain
         }
         return results;
     }
+
+    void RecordRecentFolder(
+        std::vector<std::filesystem::path>& recents,
+        std::filesystem::path const& folder,
+        std::size_t const capacity)
+    {
+        if (folder.empty() || capacity == 0)
+            return;
+
+        auto const key = SidebarPathKey(folder);
+        std::erase_if(recents, [&](std::filesystem::path const& entry) { return SidebarPathKey(entry) == key; });
+        recents.push_back(folder);
+        if (recents.size() > capacity)
+            recents.erase(recents.begin(), recents.begin() + static_cast<std::ptrdiff_t>(recents.size() - capacity));
+    }
 }

@@ -1,8 +1,11 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string_view>
 #include <vector>
+
+#include "SidebarRecents.h"
 
 namespace FileScoutNative::Domain
 {
@@ -74,5 +77,42 @@ namespace FileScoutNative::Domain
             RecordNavigation(backStack, forwardStack, current, target);
         }
         current = target;
+    }
+
+    // The folder a navigation from `leaving` to `target` adds to the recents: the folder actually
+    // left (Back/Forward included), never the target, nothing for a reload of the same folder or a
+    // first load, and never the Recycle Bin (it has its own sidebar row).
+    [[nodiscard]] inline std::optional<std::filesystem::path> FolderToRecordOnLeave(
+        std::filesystem::path const& leaving,
+        std::filesystem::path const& target)
+    {
+        if (leaving.empty() || IsRecycleBinLocation(leaving) ||
+            PathsEqualIgnoringCase(NormalizeFolderForCompare(leaving), NormalizeFolderForCompare(target)))
+        {
+            return std::nullopt;
+        }
+        return leaving;
+    }
+
+    // The whole navigation step LoadDirectory performs on history and recents: capture the folder
+    // being left, start the navigation (history + pending current folder), then add the folder left
+    // to the recents. Returns true when the recents changed.
+    inline bool NavigateAndRecordRecent(
+        std::vector<std::filesystem::path>& backStack,
+        std::vector<std::filesystem::path>& forwardStack,
+        std::filesystem::path& current,
+        std::vector<std::filesystem::path>& recents,
+        std::filesystem::path const& target,
+        bool const isHistoryStep,
+        std::size_t const recentCapacity)
+    {
+        auto const leaving = current;
+        BeginNavigation(backStack, forwardStack, current, target, isHistoryStep);
+        if (auto const left = FolderToRecordOnLeave(leaving, target))
+        {
+            RecordRecentFolder(recents, *left, recentCapacity);
+            return true;
+        }
+        return false;
     }
 }
