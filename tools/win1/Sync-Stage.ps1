@@ -56,9 +56,9 @@ foreach ($file in Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Force) {
         $existing = Get-Item -LiteralPath $target -Force
         # Always compare content when the sizes match: equal size and time do not prove equal content
         # (an edit that keeps the size and mtime, or a copy whose re-timestamp failed last time).
-        if ($Restamp) { $existing.LastWriteTime = $now; $restamped++; continue }
         if ($existing.Length -eq $file.Length -and
             (Get-FileHash -LiteralPath $target).Hash -eq (Get-FileHash -LiteralPath $file.FullName).Hash) {
+            if ($Restamp) { $existing.LastWriteTime = $now; $restamped++ }
             # Same content: leave the destination time alone. Moving it back to the (older) Linux
             # time could hide an edit that was copied but not yet built from an older .obj.
             continue
