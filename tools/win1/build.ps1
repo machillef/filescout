@@ -37,9 +37,18 @@ $log = Join-Path $Root "build-$Configuration.log"
 $cmdLine = "call `"$devCmd`" -arch=x64 -no_logo && msbuild `"$sln`" /t:$Target /restore " +
     "/p:RestorePackagesConfig=true /p:Configuration=$Configuration /p:Platform=x64 /m /nologo /v:minimal " +
     "/flp:LogFile=`"$log`";Verbosity=normal"
+# win1 has 8 GB RAM: two concurrent WinUI builds exhaust the commit limit (C1076/C3859 PCH errors).
+# A machine-wide mutex serialises CI and local builds.
+$mutex = [Threading.Mutex]::new($false, 'Global\FileScoutBuild')
+try { [void]$mutex.WaitOne() } catch [Threading.AbandonedMutexException] { }
 $sw = [Diagnostics.Stopwatch]::StartNew()
-& cmd.exe /d /c $cmdLine
-$buildExit = $LASTEXITCODE
+try {
+    & cmd.exe /d /c $cmdLine
+    $buildExit = $LASTEXITCODE
+}
+finally {
+    $mutex.ReleaseMutex()
+}
 Write-Host ("[build] exit={0} in {1:n0}s, log {2}" -f $buildExit, $sw.Elapsed.TotalSeconds, $log)
 if ($buildExit -ne 0) { exit $buildExit }
 
