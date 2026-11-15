@@ -1951,6 +1951,43 @@ namespace winrt::FileScoutNative::implementation
             flyout.Items().Append(item);
         }
 
+        // System integration lives in the same menu until the new chrome gets a settings surface.
+        flyout.Items().Append(winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator{});
+        {
+            // Label and action are refreshed each time the menu opens: another process (or the
+            // --restore-explorer switch) may have changed the registration since it was built.
+            auto item = winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem{};
+            winrt::Microsoft::UI::Xaml::Controls::FontIcon icon;
+            item.Icon(icon);
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(item, L"DefaultFileManagerMenuItem");
+            // Weak references: the flyout owns both the item and this handler.
+            // The click performs the action the label showed when the menu opened, even if another
+            // process changed the registration in between.
+            auto const shownMakeDefault = std::make_shared<bool>(true);
+            auto const refresh = [this, shownMakeDefault, weakItem = winrt::make_weak(item), weakIcon = winrt::make_weak(icon)]()
+            {
+                auto const item = weakItem.get();
+                auto const icon = weakIcon.get();
+                if (!item || !icon)
+                {
+                    return;
+                }
+                bool const isDefault = m_defaultFileManager.GetStatus() ==
+                    ::FileScoutNative::Shell::DefaultFileManagerStatus::FullyDefault;
+                *shownMakeDefault = !isDefault;
+                item.Text(isDefault ? L"Restore Explorer as default file manager"
+                                    : L"Make FileScout the default file manager");
+                icon.Glyph(isDefault ? L"\uE7A7" : L"\uE8B7");
+            };
+            refresh();
+            flyout.Opening([refresh](auto const&, auto const&) { refresh(); });
+            item.Click([this, shownMakeDefault](auto const&, auto const&)
+                {
+                    SetDefaultFileManager(*shownMakeDefault);
+                });
+            flyout.Items().Append(item);
+        }
+
         ThemeDropDownButton().Flyout(flyout);
         UpdateTitleBarInteractiveRegions();
     }
@@ -1973,6 +2010,18 @@ namespace winrt::FileScoutNative::implementation
         {
             StatusTextBlock().Text(L"Theme change failed.");
         }
+    }
+
+    void MainWindow::SetDefaultFileManager(bool const makeDefault)
+    {
+        bool const ok = makeDefault ? m_defaultFileManager.SetAsDefault() : m_defaultFileManager.RestoreDefault();
+        TraceLog(std::wstring{ L"[default-fm] " } + (makeDefault ? L"set" : L"restore") + (ok ? L" ok" : L" FAILED"));
+        StatusTextBlock().Text(
+            !ok ? (makeDefault ? L"Could not make FileScout the default file manager."
+                               : L"Could not restore Explorer as the default file manager.")
+                : (makeDefault ? L"FileScout now opens folders, drives and Win+E."
+                               : L"Explorer is the default file manager again."));
+        RefreshThemeDropDown();
     }
 
     void MainWindow::RefreshThemeSensitiveChrome()
@@ -4687,6 +4736,12 @@ namespace winrt::FileScoutNative::implementation
         if (commandId == L"toggleExtensions")
         {
             ToggleExtensions(m_activePaneIndex);
+            return;
+        }
+
+        if (commandId == L"setDefaultFileManager" || commandId == L"restoreExplorer")
+        {
+            SetDefaultFileManager(commandId == L"setDefaultFileManager");
             return;
         }
     }

@@ -42,6 +42,9 @@ namespace FileScoutNative::Shell
             // View toggles
             { L"toggleHiddenFiles",  L"Toggle Hidden Files",      L"",  L"View" },
             { L"toggleExtensions",   L"Toggle File Extensions",   L"",  L"View" },
+            // System integration
+            { L"setDefaultFileManager", L"Make FileScout the Default File Manager", L"", L"System" },
+            { L"restoreExplorer",       L"Restore Explorer as Default File Manager", L"", L"System" },
         };
     }
 

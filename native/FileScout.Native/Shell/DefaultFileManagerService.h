@@ -12,7 +12,10 @@ namespace FileScoutNative::Shell
     //
     // Mechanism (no admin, no signature): per-user shell verbs under HKCU\Software\Classes.
     //   Directory\shell  (default) = FileScout, Directory\shell\FileScout\command = "<exe>" "%1"
+    //   Directory\shell\open|explore\command = "<exe>" "%1" (explicit verbs: ShellExecute "open",
+    //     Edge's "Open downloads folder" uses "explore")
     //   Drive\shell      the same for drive roots
+    //   Folder\shell\explore\command  (Edge's "Open downloads folder" forces the Folder class)
     //   CLSID\{52205fd8-...}\shell\opennewwindow\command = "<exe>" with DelegateExecute = ""
     //     (the Win+E handler; an empty DelegateExecute makes the shell run the command instead
     //     of Explorer's COM delegate)
@@ -90,6 +93,8 @@ namespace FileScoutNative::Shell
         [[nodiscard]] std::filesystem::path const& ExecutablePath() const noexcept { return m_exePath; }
 
     private:
+        [[nodiscard]] bool CommandRunsExecutable(std::wstring const& commandKey) const;
+
         std::wstring m_classesRoot;
         std::wstring m_manifestKey;
         std::filesystem::path m_exePath;

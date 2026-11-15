@@ -246,16 +246,31 @@ namespace FileScoutNative::Shell
         {
             std::wstring const verb{ k_verbName };
             std::wstring const winEKey = L"CLSID\\" + std::wstring{ k_winEClsid } + L"\\shell\\opennewwindow\\command";
-            return {
-                { L"Directory\\shell\\" + verb, L"", L"Open in FileScout" },
-                { L"Directory\\shell\\" + verb + L"\\command", L"", BuildFolderCommandValue(exePath) },
-                { L"Directory\\shell", L"", verb },
-                { L"Drive\\shell\\" + verb, L"", L"Open in FileScout" },
-                { L"Drive\\shell\\" + verb + L"\\command", L"", BuildFolderCommandValue(exePath) },
-                { L"Drive\\shell", L"", verb },
-                { winEKey, L"", BuildWinECommandValue(exePath) },
-                { winEKey, L"DelegateExecute", L"" },
-            };
+            std::vector<RegistryValueSpec> values;
+            for (std::wstring const cls : { L"Directory", L"Drive" })
+            {
+                values.push_back({ cls + L"\\shell\\" + verb, L"", L"Open in FileScout" });
+                values.push_back({ cls + L"\\shell\\" + verb + L"\\command", L"", BuildFolderCommandValue(exePath) });
+                values.push_back({ cls + L"\\shell", L"", verb });
+                // Explicit verbs: many apps call ShellExecute(L"open", folder) and Chromium/Edge's
+                // "Open downloads folder" uses L"explore"; without these, both resolve to
+                // Explorer's Folder\shell verbs. The empty DelegateExecute makes the shell run the
+                // command instead of a COM delegate inherited from HKLM.
+                for (std::wstring const explicitVerb : { L"open", L"explore" })
+                {
+                    auto const key = cls + L"\\shell\\" + explicitVerb + L"\\command";
+                    values.push_back({ key, L"", BuildFolderCommandValue(exePath) });
+                    values.push_back({ key, L"DelegateExecute", L"" });
+                }
+            }
+            // Edge's "Open downloads folder" forces the Folder class with the explore verb (traced on
+            // win1: Folder\shell\explore received C:\Users\<user>\Downloads). Folder also covers
+            // virtual folders; FileScout hands "::{CLSID}" paths back to Explorer (main.cpp).
+            values.push_back({ L"Folder\\shell\\explore\\command", L"", BuildFolderCommandValue(exePath) });
+            values.push_back({ L"Folder\\shell\\explore\\command", L"DelegateExecute", L"" });
+            values.push_back({ winEKey, L"", BuildWinECommandValue(exePath) });
+            values.push_back({ winEKey, L"DelegateExecute", L"" });
+            return values;
         }
 
         std::wstring EncodeManifestEntry(ManifestEntry const& entry)
@@ -316,6 +331,16 @@ namespace FileScoutNative::Shell
     {
     }
 
+    // A verb runs our command only when its DelegateExecute is present and empty: a non-empty one
+    // (Explorer's COM delegate) wins over the command string.
+    bool DefaultFileManagerService::CommandRunsExecutable(std::wstring const& commandKey) const
+    {
+        auto const command = ReadString(commandKey, L"");
+        auto const delegate = ReadString(commandKey, L"DelegateExecute");
+        return command.has_value() && detail::ValuePointsToExecutable(*command, m_exePath) &&
+            delegate.has_value() && delegate->empty();
+    }
+
     DefaultFileManagerStatus DefaultFileManagerService::GetStatus() const
     {
         std::wstring const verb{ detail::k_verbName };
@@ -323,8 +348,21 @@ namespace FileScoutNative::Shell
         {
             auto const defaultVerb = ReadString(Join(m_classesRoot, cls + L"\\shell"), L"");
             auto const command = ReadString(Join(m_classesRoot, cls + L"\\shell\\" + verb + L"\\command"), L"");
+            auto const explicitVerbsPointHere = [&]
+            {
+                for (std::wstring const explicitVerb : { L"open", L"explore" })
+                {
+                    auto const key = Join(m_classesRoot, cls + L"\\shell\\" + explicitVerb + L"\\command");
+                    if (!CommandRunsExecutable(key))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            };
             return defaultVerb.has_value() && FoldCase(*defaultVerb) == FoldCase(verb) &&
-                command.has_value() && detail::ValuePointsToExecutable(*command, m_exePath);
+                command.has_value() && detail::ValuePointsToExecutable(*command, m_exePath) &&
+                explicitVerbsPointHere();
         };
         std::wstring const winEKey = Join(m_classesRoot,
             L"CLSID\\" + std::wstring{ detail::k_winEClsid } + L"\\shell\\opennewwindow\\command");
@@ -332,7 +370,8 @@ namespace FileScoutNative::Shell
         auto const delegate = ReadString(winEKey, L"DelegateExecute");
         bool const winE = winECommand.has_value() && detail::ValuePointsToExecutable(*winECommand, m_exePath) &&
             delegate.has_value() && delegate->empty();
-        return detail::DeriveStatus(verbIsDefault(L"Drive"), verbIsDefault(L"Directory"), winE);
+        bool const folderVerbs = CommandRunsExecutable(Join(m_classesRoot, L"Folder\\shell\\explore\\command"));
+        return detail::DeriveStatus(verbIsDefault(L"Drive") && folderVerbs, verbIsDefault(L"Directory"), winE);
     }
 
     bool DefaultFileManagerService::SetAsDefault()
@@ -343,13 +382,28 @@ namespace FileScoutNative::Shell
         }
         auto const values = detail::BuildDefaultValues(m_exePath);
 
-        // Record prior state only once, so a second Set (e.g. after moving the exe) cannot overwrite
-        // the original Explorer state with FileScout's own values.
-        if (ReadManifest(m_manifestKey).empty())
+        // Prior state is recorded once per value: entries already in the manifest are kept (a second
+        // Set must not overwrite the original Explorer state with FileScout's own values), and values
+        // or keys a newer build writes that an older manifest does not cover are appended.
         {
-            std::vector<std::wstring> manifest;
+            auto manifest = ReadManifest(m_manifestKey);
+            auto const originalSize = manifest.size();
             std::unordered_set<std::wstring> recordedKeys;
             std::unordered_set<std::wstring> recordedValues;
+            for (auto const& line : manifest)
+            {
+                if (auto const entry = detail::DecodeManifestEntry(line))
+                {
+                    if (entry->isKey)
+                    {
+                        recordedKeys.insert(entry->subKey);
+                    }
+                    else
+                    {
+                        recordedValues.insert(entry->subKey + L"|" + entry->valueName);
+                    }
+                }
+            }
             for (auto const& spec : values)
             {
                 // Each missing path component below the classes root is a key FileScout creates.
@@ -371,7 +425,7 @@ namespace FileScoutNative::Shell
                         { false, spec.subKey, spec.valueName, old.has_value(), old.value_or(L"") }));
                 }
             }
-            if (!WriteManifest(m_manifestKey, manifest))
+            if (manifest.size() != originalSize && !WriteManifest(m_manifestKey, manifest))
             {
                 return false;
             }
