@@ -31,7 +31,16 @@ foreach ($file in Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Force) {
     $staged[$relative] = $true
     $target = Join-Path $destRoot $relative
     # A directory where the stage now has a file (or a file where it now has a directory) is replaced.
-    if (Test-Path -LiteralPath $target -PathType Container) { Remove-Item -LiteralPath $target -Recurse -Force }
+    if (Test-Path -LiteralPath $target -PathType Container) {
+        # Refuse rather than delete build outputs or follow a junction inside the clashing directory.
+        $item = Get-Item -LiteralPath $target -Force
+        $protected = ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            @(Get-ChildItem -LiteralPath $target -Recurse -Directory -Force -Attributes !ReparsePoint -ErrorAction Stop |
+                Where-Object { $excludeDirs -contains $_.Name }).Count -gt 0 -or
+            @(Get-ChildItem -LiteralPath $target -Recurse -Force -Attributes ReparsePoint -ErrorAction Stop).Count -gt 0
+        if ($protected) { throw "sync refused: '$target' is now a file in the stage but the directory holds build outputs or a junction" }
+        Remove-Item -LiteralPath $target -Recurse -Force
+    }
     $parent = Split-Path $target
     while ($parent.Length -gt $destRoot.Length) {
         if (Test-Path -LiteralPath $parent -PathType Leaf) { Remove-Item -LiteralPath $parent -Force; break }
