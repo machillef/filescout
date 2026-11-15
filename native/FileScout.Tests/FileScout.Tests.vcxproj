@@ -172,6 +172,7 @@
     <ClCompile Include="tests\RenamePolicyTests.cpp" />
     <ClCompile Include="tests\NavigationHistoryTests.cpp" />
     <ClCompile Include="tests\KeyboardShortcutsTests.cpp" />
+    <ClCompile Include="tests\TypeAheadTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
