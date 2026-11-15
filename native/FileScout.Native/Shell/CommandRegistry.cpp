@@ -48,6 +48,20 @@ namespace FileScoutNative::Shell
         };
     }
 
+    std::vector<::FileScoutNative::Domain::CommandEntry> RankCommandsByScore(
+        std::vector<std::pair<int, ::FileScoutNative::Domain::CommandEntry>> scored)
+    {
+        std::stable_sort(scored.begin(), scored.end(),
+            [](auto const& a, auto const& b) { return a.first > b.first; });
+
+        std::vector<::FileScoutNative::Domain::CommandEntry> result;
+        result.reserve(scored.size());
+        for (auto& [score, cmd] : scored)
+            result.push_back(std::move(cmd));
+
+        return result;
+    }
+
     std::vector<::FileScoutNative::Domain::CommandEntry>
     CommandRegistry::Filter(std::wstring_view query) const
     {
@@ -66,15 +80,7 @@ namespace FileScoutNative::Shell
                 scored.emplace_back(score, cmd);
         }
 
-        std::sort(scored.begin(), scored.end(),
-            [](auto const& a, auto const& b) { return a.first > b.first; });
-
-        std::vector<::FileScoutNative::Domain::CommandEntry> result;
-        result.reserve(scored.size());
-        for (auto& [score, cmd] : scored)
-            result.push_back(std::move(cmd));
-
-        return result;
+        return RankCommandsByScore(std::move(scored));
     }
 
     std::vector<::FileScoutNative::Domain::CommandEntry> const& CommandRegistry::All() const
