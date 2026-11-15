@@ -21,6 +21,9 @@ param(
     [string] $Out = 'C:\fsdev\gui-out\bench'
 )
 $ErrorActionPreference = 'Stop'
+# powershell -File passes 'a,b' as one string; accept both forms.
+$Names = @($Names | ForEach-Object { $_ -split ',' })
+$Exes = @($Exes | ForEach-Object { $_ -split ',' })
 New-Item -ItemType Directory -Force $Out | Out-Null
 $lock = $null
 while (-not $lock) {
