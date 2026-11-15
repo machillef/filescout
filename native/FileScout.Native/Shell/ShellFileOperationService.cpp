@@ -135,9 +135,11 @@ namespace FileScoutNative::Shell
                 return S_OK;
             }
             HRESULT __stdcall PreNewItem(DWORD, IShellItem*, LPCWSTR) noexcept override { return S_OK; }
-            HRESULT __stdcall PostNewItem(DWORD, IShellItem* folder, LPCWSTR, LPCWSTR, DWORD, HRESULT result, IShellItem*) noexcept override
+            HRESULT __stdcall PostNewItem(DWORD, IShellItem*, LPCWSTR, LPCWSTR, DWORD, HRESULT result, IShellItem*) noexcept override
             {
-                Record(result, nullptr, folder);
+                // The item argument is the destination folder, not the item that failed; record no
+                // path so the caller's requested target path is reported.
+                Record(result, nullptr, nullptr);
                 return S_OK;
             }
             HRESULT __stdcall UpdateProgress(UINT, UINT) noexcept override { return S_OK; }
@@ -574,7 +576,9 @@ namespace FileScoutNative::Shell
     {
         auto const sink = winrt::make_self<ItemFailureSink>();
         DWORD cookie = 0;
-        bool const advised = SUCCEEDED(fileOperation->Advise(sink.get(), &cookie));
+        // Without the sink, refused items would be reported as success or "canceled"; do not run.
+        winrt::check_hresult(fileOperation->Advise(sink.get(), &cookie));
+        bool const advised = true;
 
         HRESULT performResult = fileOperation->PerformOperations();
 
