@@ -50,3 +50,48 @@ TEST(NavigationHistory, RecycleBinLocation_IsRecognisedRawOrAbsolutised)
     EXPECT_FALSE(IsRecycleBinLocation(L"C:\\Users\\Docs"));
     EXPECT_FALSE(IsRecycleBinLocation(path{}));
 }
+
+TEST(NavigationHistory, TrailingSeparatorOnTheSameFolder_ChangesNeitherStack)
+{
+    std::vector<std::filesystem::path> back{ L"C:\\A" };
+    std::vector<std::filesystem::path> forward{ L"C:\\F" };
+
+    FileScoutNative::Domain::RecordNavigation(back, forward, L"C:\\Users\\Docs", L"C:\\Users\\Docs\\");
+
+    EXPECT_EQ(back, (std::vector<std::filesystem::path>{ L"C:\\A" }));
+    EXPECT_EQ(forward, (std::vector<std::filesystem::path>{ L"C:\\F" }));
+}
+
+TEST(NavigationHistory, RootIsNotTrimmed)
+{
+    EXPECT_EQ(FileScoutNative::Domain::NormalizeFolderForCompare(L"C:\\"), std::filesystem::path{ L"C:\\" });
+    EXPECT_EQ(FileScoutNative::Domain::NormalizeFolderForCompare(L"C:\\Users\\"), std::filesystem::path{ L"C:\\Users" });
+}
+
+// Recycle Bin opened from A, then folder B chosen before the bin's listing arrived: Back from B
+// must return to the Recycle Bin, not to A.
+TEST(NavigationHistory, NavigationBeforeThePreviousLoadFinishes_RecordsThePendingTarget)
+{
+    std::vector<std::filesystem::path> back;
+    std::vector<std::filesystem::path> forward;
+    std::filesystem::path current{ L"C:\\A" };
+    std::filesystem::path const recycleBin{ L"shell:RecycleBinFolder" };
+
+    FileScoutNative::Domain::BeginNavigation(back, forward, current, recycleBin, false);
+    FileScoutNative::Domain::BeginNavigation(back, forward, current, L"C:\\B", false);
+
+    EXPECT_EQ(back, (std::vector<std::filesystem::path>{ L"C:\\A", recycleBin }));
+    EXPECT_EQ(current, std::filesystem::path{ L"C:\\B" });
+}
+
+TEST(NavigationHistory, HistoryStep_MovesWithoutRecording)
+{
+    std::vector<std::filesystem::path> back{ L"C:\\A" };
+    std::vector<std::filesystem::path> forward;
+    std::filesystem::path current{ L"C:\\B" };
+
+    FileScoutNative::Domain::BeginNavigation(back, forward, current, L"C:\\A", true);
+
+    EXPECT_EQ(back.size(), 1u);
+    EXPECT_EQ(current, std::filesystem::path{ L"C:\\A" });
+}

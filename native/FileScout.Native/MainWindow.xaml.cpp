@@ -3126,11 +3126,10 @@ namespace winrt::FileScoutNative::implementation
         auto& pane = ActivePane();
 
         // Record current path in back-stack unless this is a history navigation.
-        if (!skipHistoryRecord)
         {
             auto const backDepth = pane.back_stack.size();
-            ::FileScoutNative::Domain::RecordNavigation(
-                pane.back_stack, pane.forward_stack, pane.current_path, absolutePath);
+            ::FileScoutNative::Domain::BeginNavigation(
+                pane.back_stack, pane.forward_stack, pane.current_path, absolutePath, skipHistoryRecord);
             if (pane.back_stack.size() != backDepth)
             {
                 BuildSidebarFavorites();  // refresh recent paths section
