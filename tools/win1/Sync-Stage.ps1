@@ -7,8 +7,8 @@
   look older than its .obj, so MSBuild skipped it; stamping every copied file with "now" made the next
   sync see a time mismatch for the same files again. Rule used here:
     - content differs (or file is new): copy and stamp with now  -> MSBuild rebuilds it
-    - content equal, only the time differs: give the destination the source time -> nothing rebuilds,
-      and the next sync sees the pair as equal
+    - content equal: nothing is touched (the destination time is never moved backwards, which could
+      hide a copied-but-not-yet-built edit from an older .obj)
   Destination files that no longer exist in the stage are deleted (mirror), except build outputs.
 #>
 param([Parameter(Mandatory)] [string] $Stage, [Parameter(Mandatory)] [string] $Dest)
@@ -18,7 +18,7 @@ $stageRoot = (Resolve-Path -LiteralPath $Stage).Path.TrimEnd('\')
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $destRoot = (Resolve-Path -LiteralPath $Dest).Path.TrimEnd('\')
 $now = Get-Date
-$copied = 0; $retimed = 0; $removed = 0
+$copied = 0; $removed = 0
 
 function Test-Excluded([string]$relative) {
     foreach ($part in $relative.Split('\')) { if ($excludeDirs -contains $part) { return $true } }
@@ -30,16 +30,21 @@ foreach ($file in Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Force) {
     $relative = $file.FullName.Substring($stageRoot.Length + 1)
     $staged[$relative] = $true
     $target = Join-Path $destRoot $relative
+    # A directory where the stage now has a file (or a file where it now has a directory) is replaced.
+    if (Test-Path -LiteralPath $target -PathType Container) { Remove-Item -LiteralPath $target -Recurse -Force }
+    $parent = Split-Path $target
+    while ($parent.Length -gt $destRoot.Length) {
+        if (Test-Path -LiteralPath $parent -PathType Leaf) { Remove-Item -LiteralPath $parent -Force; break }
+        $parent = Split-Path $parent
+    }
     if (Test-Path -LiteralPath $target -PathType Leaf) {
         $existing = Get-Item -LiteralPath $target -Force
         # Always compare content when the sizes match: equal size and time do not prove equal content
         # (an edit that keeps the size and mtime, or a copy whose re-timestamp failed last time).
         if ($existing.Length -eq $file.Length -and
             (Get-FileHash -LiteralPath $target).Hash -eq (Get-FileHash -LiteralPath $file.FullName).Hash) {
-            if ($existing.LastWriteTimeUtc -ne $file.LastWriteTimeUtc) {
-                $existing.LastWriteTimeUtc = $file.LastWriteTimeUtc
-                $retimed++
-            }
+            # Same content: leave the destination time alone. Moving it back to the (older) Linux
+            # time could hide an edit that was copied but not yet built from an older .obj.
             continue
         }
     }
@@ -68,4 +73,4 @@ while ($queue.Count -gt 0) {
         }
     }
 }
-"synced $destRoot (copied $copied, re-timed $retimed, removed $removed)"
+"synced $destRoot (copied $copied, removed $removed)"
