@@ -37,6 +37,7 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Shell\DefaultFileManagerService.cpp">
+    <ClCompile Include="Shell\TempStagingCleanup.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Shell\ShellClipboardService.cpp">
@@ -93,6 +94,7 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shell\DefaultFileManagerService.h">
+    <ClInclude Include="Shell\TempStagingCleanup.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shell\ShellClipboardService.h">
