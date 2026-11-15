@@ -42,3 +42,17 @@ Newest last. Each entry: date, decision, why, alternatives rejected.
   no way to report when its first rows or full list were rendered. The first perf PR adds a `--bench`
   mode that only records timings; it changes no behaviour, and its build is the "before" binary.
   Cold start, private memory and idle CPU are measured from outside the process for both.
+- **2026-11-15 — Stack versions (checked against nuget.org, Microsoft Learn and runner-images).**
+  Windows App SDK 1.8 left servicing on 2026-09-24, so it moves to **2.6.5** (current, supported until
+  2027-04-29). Only the component packages the app uses are referenced (Base, Foundation,
+  InteractiveExperiences, WinUI, Runtime + SDK.BuildTools.MSIX); the metapackage would add AI, ML,
+  Search, Widgets and DWrite, which FileScout does not use. The runtime package family becomes
+  `Microsoft.WindowsAppRuntime.2` (users need the 2.x runtime). Windows SDK BuildTools
+  10.0.26100.7705 → 10.0.26100.9457 (the 28000 line is early-release for OEMs), WebView2
+  1.0.3179.45 → 1.0.4314.35 (WinUI 2.6.5 requires ≥ 1.0.3719.77).
+  **Not upgraded, with reasons:** C++/WinRT stays on 2.0.250303.1, because 3.0 is a breaking major version
+  (C++20 modules, removed pre-standard coroutines) and nothing here needs it. Toolset stays v143
+  (VS 2022 17.14, an LTS) on the self-hosted runner; VS 2026 (v145) is a separate step with no benefit
+  for this code yet. GoogleTest 1.8.1 (the old Microsoft NuGet) works; moving to 1.18 via vcpkg is
+  worth doing but is not a blocker. ItemsView vs ListView: Microsoft documents data virtualization for
+  ListView (`IItemsRangeInfo`) and no performance claim for ItemsView, so the list stays a ListView.

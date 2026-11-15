@@ -3,7 +3,7 @@
 ## Stack
 
 - Language: C++20
-- UI: WinUI 3 (Windows App SDK 1.8, C++/WinRT)
+- UI: WinUI 3 (Windows App SDK 2.6, C++/WinRT)
 - Target: Windows 11 x64 (unpackaged desktop app)
 
 ## Build & Test
