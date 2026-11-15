@@ -137,7 +137,8 @@ Remove-Item (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\
 $hashBefore = Export-Touched 'before'
 
 $rec = Start-Recording (Join-Path $Out 'default-fm-demo.mp4')
-$enabledHere = $false
+$manifestKey = 'HKCU:\Software\FileScout\DefaultFileManager'
+$registeredBefore = Test-Path $manifestKey
 try {
 Pause-Ui 1000
 Show-Caption 'FileScout as the default file manager  -  win1, user runetest'
@@ -150,7 +151,6 @@ $w = Wait-NewFolderWindow $before; Record-Step 'Win+E before' $w 'Explorer'; Pau
 
 # 2. One action inside FileScout
 Use-FileScoutMenu '2. In FileScout: Theme menu > "Make FileScout the default file manager"' 'Make FileScout'
-$enabledHere = $true
 
 # 3. Win+E
 Show-Caption '3. Win+E now opens FileScout'
@@ -195,7 +195,6 @@ Pause-Ui 1000
 
 # 7. Restore from inside FileScout
 Use-FileScoutMenu '7. In FileScout: Theme menu > "Restore Explorer as default file manager"' 'Restore Explorer'
-$enabledHere = $false
 
 # 8. After restore
 Show-Caption '8. After restore: Win+E opens Explorer again'
@@ -211,8 +210,9 @@ Show-Caption ("9. Registry keys FileScout touches, before vs after: {0} (SHA-256
 Pause-Ui 5000
 }
 finally {
-    # A failed step must not leave FileScout registered or the recorder running.
-    if ($enabledHere) {
+    # A failed step must not leave FileScout registered or the recorder running. The registry, not
+    # a flag set after a step returns, says whether this run left FileScout registered.
+    if (-not $registeredBefore -and (Test-Path $manifestKey)) {
         try {
             $p = Start-Process $Exe -ArgumentList '--restore-explorer' -Wait -PassThru
             if ($p.ExitCode -ne 0) { Write-Output "[error] --restore-explorer exited with $($p.ExitCode)" }
