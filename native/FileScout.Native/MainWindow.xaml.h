@@ -13,6 +13,7 @@
 #include "Shell\ShellFileOperationService.h"
 #include "Shell\ShellOverflowMenuService.h"
 #include "Shell\CommandRegistry.h"
+#include "Shell\DefaultFileManagerService.h"
 #include "Shell\ShellInteropService.h"
 #include "Search\SearchService.h"
 #include "Domain\FileRowViewModel.h"
@@ -204,6 +205,7 @@ namespace winrt::FileScoutNative::implementation
         winrt::Microsoft::UI::Xaml::Controls::MenuFlyout m_contextMenu{ nullptr };
         ::FileScoutNative::Shell::ContextMenuService m_contextMenuService;
         ::FileScoutNative::Shell::FavoritesService m_favoritesService;
+        ::FileScoutNative::Shell::DefaultFileManagerService m_defaultFileManager;
         ::FileScoutNative::Shell::ShellClipboardService m_shellClipboardService;
         ::FileScoutNative::Shell::ShellFileOperationService m_shellFileOperationService;
         ::FileScoutNative::Shell::ShellOverflowMenuService m_shellOverflowMenuService;
@@ -245,6 +247,7 @@ namespace winrt::FileScoutNative::implementation
         void RefreshThemeDropDown();
         void ApplyThemeSelection(std::wstring_view themeId);
         void BenchOnFullList(int32_t paneIndex, std::size_t itemCount);
+        void SetDefaultFileManager(bool makeDefault);
         void RefreshThemeSensitiveChrome();
         void SetupKeyboardAccelerators();
         void LoadDirectory(std::filesystem::path const& path,

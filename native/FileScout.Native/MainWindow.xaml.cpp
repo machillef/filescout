@@ -1902,6 +1902,22 @@ namespace winrt::FileScoutNative::implementation
             flyout.Items().Append(item);
         }
 
+        // System integration lives in the same menu until the new chrome gets a settings surface.
+        flyout.Items().Append(winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator{});
+        {
+            bool const isDefault = m_defaultFileManager.GetStatus() ==
+                ::FileScoutNative::Shell::DefaultFileManagerStatus::FullyDefault;
+            auto item = winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem{};
+            item.Text(isDefault ? L"Restore Explorer as default file manager"
+                                : L"Make FileScout the default file manager");
+            winrt::Microsoft::UI::Xaml::Controls::FontIcon icon;
+            icon.Glyph(isDefault ? L"\uE7A7" : L"\uE8B7");
+            item.Icon(icon);
+            winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(item, L"DefaultFileManagerMenuItem");
+            item.Click([this, isDefault](auto const&, auto const&) { SetDefaultFileManager(!isDefault); });
+            flyout.Items().Append(item);
+        }
+
         ThemeDropDownButton().Flyout(flyout);
         UpdateTitleBarInteractiveRegions();
     }
@@ -1924,6 +1940,18 @@ namespace winrt::FileScoutNative::implementation
         {
             StatusTextBlock().Text(L"Theme change failed.");
         }
+    }
+
+    void MainWindow::SetDefaultFileManager(bool const makeDefault)
+    {
+        bool const ok = makeDefault ? m_defaultFileManager.SetAsDefault() : m_defaultFileManager.RestoreDefault();
+        TraceLog(std::wstring{ L"[default-fm] " } + (makeDefault ? L"set" : L"restore") + (ok ? L" ok" : L" FAILED"));
+        StatusTextBlock().Text(
+            !ok ? (makeDefault ? L"Could not make FileScout the default file manager."
+                               : L"Could not restore Explorer as the default file manager.")
+                : (makeDefault ? L"FileScout now opens folders, drives and Win+E."
+                               : L"Explorer is the default file manager again."));
+        RefreshThemeDropDown();
     }
 
     void MainWindow::RefreshThemeSensitiveChrome()
@@ -4627,6 +4655,12 @@ namespace winrt::FileScoutNative::implementation
         if (commandId == L"toggleExtensions")
         {
             ToggleExtensions(m_activePaneIndex);
+            return;
+        }
+
+        if (commandId == L"setDefaultFileManager" || commandId == L"restoreExplorer")
+        {
+            SetDefaultFileManager(commandId == L"setDefaultFileManager");
             return;
         }
     }
