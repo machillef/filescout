@@ -7,7 +7,7 @@
 TEST(SourceEncoding, RawUtf8WideLiteralMatchesEscapedText)
 {
     std::wstring const raw = L"Αρχείο";
-    std::wstring const escaped = L"Αρχείο";
+    std::wstring const escaped = L"\u0391\u03c1\u03c7\u03b5\u03af\u03bf";
 
     EXPECT_EQ(raw, escaped);
     EXPECT_EQ(raw.size(), 6u);
