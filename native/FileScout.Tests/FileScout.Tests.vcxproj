@@ -190,6 +190,7 @@
     <ClCompile Include="tests\ComApartmentTests.cpp" />
     <ClCompile Include="tests\TypeAheadTests.cpp" />
     <ClCompile Include="tests\ContextMenuAnchorTests.cpp" />
+    <ClCompile Include="tests\PendingFilterTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
