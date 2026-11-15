@@ -10,6 +10,7 @@
 #include "MainWindow.xaml.h"
 #include "Domain/WorkerCount.h"
 #include "Domain/AddressNavigation.h"
+#include "Domain/TextFold.h"
 #include "Domain/BatchRenameInput.h"
 #include "Domain/DragDropPlanning.h"
 #include "Domain/DriveCapacity.h"
@@ -1512,13 +1513,8 @@ namespace
             return prefix + L"#";
         }
 
-        wchar_t ch = static_cast<wchar_t>(::towupper(item.display_name.front()));
-        if (::iswalnum(ch))
-        {
-            return prefix + std::wstring{ 1, ch };
-        }
-
-        return prefix + L"#";
+        // std::wstring(count, ch): braces would pick the initializer-list constructor (two characters).
+        return prefix + std::wstring(1, ::FileScoutNative::Domain::NameGroupInitial(item.display_name));
     }
 
     std::wstring BuildSizeGroupLabel(::FileScoutNative::Domain::ShellItemRef const& item)
@@ -5486,7 +5482,7 @@ namespace winrt::FileScoutNative::implementation
             {
                 return std::ranges::any_of(ActivePane().items, [&name](auto const& item)
                     {
-                        return item.is_folder && _wcsicmp(item.display_name.c_str(), name.c_str()) == 0;
+                        return item.is_folder && ::FileScoutNative::Domain::EqualsIgnoreCase(item.display_name, name);
                     });
             };
 

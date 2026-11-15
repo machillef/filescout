@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 #include "Domain/ShellItemRef.h"
+#include "Domain/TextFold.h"
 #include "Search/SearchLimits.h"
 #include "Search/SearchService.h"
 
@@ -80,7 +81,8 @@ namespace FileScoutNative::Search
             bool matched = false;
             for (; filename_index < filename.size(); ++filename_index)
             {
-                if (std::towlower(filename[filename_index]) == std::towlower(query_ch))
+                if (::FileScoutNative::Domain::FoldChar(filename[filename_index]) ==
+                    ::FileScoutNative::Domain::FoldChar(query_ch))
                 {
                     positions.push_back(filename_index);
                     ++filename_index;
