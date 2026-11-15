@@ -23,6 +23,7 @@
 #include "Domain/ShellItemSort.h"
 #include "Domain/SidebarRecents.h"
 #include "Domain/ThemeService.h"
+#include "Domain/TypeAhead.h"
 #include "Domain/Wave1FeatureGate.h"
 #include "Search/SearchFilter.h"
 #include "Search/SearchPresentation.h"
@@ -6093,6 +6094,12 @@ namespace winrt::FileScoutNative::implementation
                 FileRowsListView_KeyDown(a);
             });
 
+        listView.CharacterReceived([this, paneIndex](auto const&, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                FileRowsListView_CharacterReceived(a);
+            });
+
         listView.Loaded([this, paneIndex](auto const& sender, auto const&)
             {
                 auto const list = sender.as<winrt::Microsoft::UI::Xaml::Controls::ListView>();
@@ -6148,57 +6155,69 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        auto const vk = static_cast<int32_t>(args.Key());
-        // VK codes 65–90 are A–Z.
-        if (vk < 65 || vk > 90) return;
+        // Type-ahead runs from CharacterReceived, which gets the typed character for any keyboard
+        // layout or IME instead of a virtual key (UB-18).
+    }
 
+    void MainWindow::FileRowsListView_CharacterReceived(
+        winrt::Microsoft::UI::Xaml::Input::CharacterReceivedRoutedEventArgs const& args)
+    {
         auto& pane = ActivePane();
-        if (pane.search_mode != SearchMode::None) return;
-        if (pane.items.empty()) return;
-
-        wchar_t const ch = static_cast<wchar_t>(std::towlower(static_cast<wchar_t>(vk)));
-
-        // Start from the item after the current selection, wrapping around.
-        int32_t const selected = pane.active_list_view ? pane.active_list_view.SelectedIndex() : -1;
-        int32_t const start = (selected >= 0)
-            ? (selected + 1) % static_cast<int32_t>(pane.items.size())
-            : 0;
-
-        for (std::size_t i = 0; i < pane.items.size(); ++i)
+        auto const nowMs = ::GetTickCount64();
+        auto const ch = args.Character();
+        if (!::FileScoutNative::Domain::AcceptsTypeAheadCharacter(
+                ch, ::FileScoutNative::Domain::IsTypeAheadIdle(pane.type_ahead, nowMs)))
         {
-            auto const idx = static_cast<int32_t>((start + i) % static_cast<int32_t>(pane.items.size()));
-            auto const& name = pane.items[static_cast<std::size_t>(idx)].display_name;
-            if (!name.empty() && std::towlower(name[0]) == ch)
-            {
-                SelectItemByIndex(idx);
-                if (pane.active_list_view)
-                {
-                    // Fix bug #2: set ListView SelectedIndex so the next keypress reads the
-                    // correct position from SelectedIndex(). SelectItemByIndex only updates
-                    // the domain model — without this, SelectedIndex() stays stale and every
-                    // press restarts from the same item.
-                    pane.active_list_view.SelectedIndex(idx);
-                    pane.active_list_view.ScrollIntoView(
-                        pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
-                    pane.active_list_view.UpdateLayout();
+            return;
+        }
 
-                    if (auto const container =
-                            pane.active_list_view.ContainerFromIndex(idx)
-                                .try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>())
-                    {
-                        container.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
-                    }
-                    else
-                    {
-                        pane.active_list_view.Focus(
-                            winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
-                    }
-                }
-                StatusTextBlock().Text(ToHString(L"\u2192 " + pane.items[static_cast<std::size_t>(idx)].display_name));
-                args.Handled(true);
-                return;
+        auto const& displayed = DisplayedItems();
+        if (displayed.empty())
+        {
+            return;
+        }
+
+        auto const query = ::FileScoutNative::Domain::AppendTypeAheadCharacter(pane.type_ahead, ch, nowMs);
+        int32_t const selected = pane.active_list_view ? pane.active_list_view.SelectedIndex() : -1;
+        auto const focused = selected >= 0
+            ? std::optional<std::size_t>{ static_cast<std::size_t>(selected) }
+            : std::nullopt;
+        auto const match = ::FileScoutNative::Domain::FindTypeAheadMatch(
+            displayed.size(),
+            [&](std::size_t const i) -> std::wstring_view { return displayed[i].display_name; },
+            focused,
+            query);
+        args.Handled(true);
+        if (!match.has_value())
+        {
+            StatusTextBlock().Text(ToHString(L"No item starts with \u201C" + pane.type_ahead.text + L"\u201D"));
+            return;
+        }
+
+        auto const idx = static_cast<int32_t>(*match);
+        auto const displayName = displayed[*match].display_name;
+        SelectItemByIndex(idx);
+        if (pane.active_list_view)
+        {
+            // Set ListView SelectedIndex so the next keypress starts from this row (SelectItemByIndex
+            // only updates the domain model).
+            pane.active_list_view.SelectedIndex(idx);
+            pane.active_list_view.ScrollIntoView(
+                pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
+            pane.active_list_view.UpdateLayout();
+
+            if (auto const container =
+                    pane.active_list_view.ContainerFromIndex(idx)
+                        .try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>())
+            {
+                container.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+            }
+            else
+            {
+                pane.active_list_view.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
             }
         }
+        StatusTextBlock().Text(ToHString(L"\u2192 " + displayName));
     }
 
     bool MainWindow::ActivateDisplayedItemByIndex(std::optional<int32_t> const itemIndex)

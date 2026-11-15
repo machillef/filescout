@@ -68,11 +68,11 @@ TEST(TypeAhead, ExtendingThePrefix_KeepsTheFocusedRowWhenItStillMatches)
 
 TEST(TypeAhead, CaseInsensitive_GreekAndDigits)
 {
-    std::vector<std::wstring> const names{ L"2024 report", L"Έγγραφα", L"Φωτογραφίες" };
+    std::vector<std::wstring> const names{ L"2024 report", L"\u0388\u03B3\u03B3\u03C1\u03B1\u03C6\u03B1", L"\u03A6\u03C9\u03C4\u03BF\u03B3\u03C1\u03B1\u03C6\u03AF\u03B5\u03C2" };
     TypeAheadBuffer buffer;
-    // "φω" typed in lower case matches "Φωτογραφίες".
-    EXPECT_EQ(Type(buffer, names, std::nullopt, L'φ', 0), 2u);
-    EXPECT_EQ(Type(buffer, names, 2, L'ω', 100), 2u);
+    // Greek "phi omega" typed in lower case matches the capitalised name.
+    EXPECT_EQ(Type(buffer, names, std::nullopt, L'\u03C6', 0), 2u);
+    EXPECT_EQ(Type(buffer, names, 2, L'\u03C9', 100), 2u);
     TypeAheadBuffer digits;
     EXPECT_EQ(Type(digits, names, 2, L'2', 0), 0u);
 }
@@ -88,7 +88,7 @@ TEST(TypeAhead, NoMatch_ReturnsNothing)
 TEST(TypeAhead, AcceptsPrintableCharactersButNotControlOrLeadingSpace)
 {
     EXPECT_TRUE(AcceptsTypeAheadCharacter(L'a', true));
-    EXPECT_TRUE(AcceptsTypeAheadCharacter(L'Ω', true));
+    EXPECT_TRUE(AcceptsTypeAheadCharacter(L'\u03A9', true));
     EXPECT_TRUE(AcceptsTypeAheadCharacter(L'7', true));
     EXPECT_TRUE(AcceptsTypeAheadCharacter(L' ', false));
     EXPECT_FALSE(AcceptsTypeAheadCharacter(L' ', true));
