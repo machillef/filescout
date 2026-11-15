@@ -71,6 +71,7 @@
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
       <WarningLevel>Level4</WarningLevel>
       <!-- Include the main project root so domain/shell headers resolve correctly -->
       <!-- Include Generated Files for winrt/base.h (winrt::com_ptr used in ShellInteropService) -->
