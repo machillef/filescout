@@ -173,6 +173,7 @@
     <ClCompile Include="tests\NavigationHistoryTests.cpp" />
     <ClCompile Include="tests\KeyboardShortcutsTests.cpp" />
     <ClCompile Include="tests\TypeAheadTests.cpp" />
+    <ClCompile Include="tests\ContextMenuAnchorTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
