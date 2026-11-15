@@ -7631,7 +7631,13 @@ namespace winrt::FileScoutNative::implementation
             // LoadDirectory updated the shared toolbar for pane 1 while it was active; show the
             // active pane's location and history again.
             auto const& active = ActivePane();
-            if (!active.current_path.empty())
+            if (active.is_drives_view || active.current_path.empty())
+            {
+                // This PC has no path: same chrome as LoadDrivesView.
+                BreadcrumbPanel().Children().Clear();
+                SearchTextBox().PlaceholderText(L"Search This PC\u2026");
+            }
+            else
             {
                 UpdateBreadcrumbs(active.current_path);
                 UpdateSearchPlaceholder(active.current_path);
