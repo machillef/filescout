@@ -40,6 +40,13 @@ namespace FileScoutNative::Domain
         std::filesystem::path const& path,
         bool const isFolder)
     {
+        // Whatever the icon loader looks up literally (drive roots, executables) has its own
+        // icon, so it gets a per-item key; everything else shares a bucket.
+        if (UsesLiteralIconLookup(path, isFolder))
+        {
+            return L"__item__:" + LowercaseCopy(path.lexically_normal().wstring());
+        }
+
         if (isFolder)
         {
             return L"__folder__";
@@ -49,11 +56,6 @@ namespace FileScoutNative::Domain
         if (extension.empty())
         {
             return L"__file__";
-        }
-
-        if (UsesPerItemIconIdentity(path, false))
-        {
-            return L"__item__:" + LowercaseCopy(path.lexically_normal().wstring());
         }
 
         return extension;
