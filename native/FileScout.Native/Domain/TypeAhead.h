@@ -27,6 +27,13 @@ namespace FileScoutNative::Domain
         bool start_after_focused{ true };
     };
 
+    // Ends the current prefix (the pane loaded another folder): the next character starts anew.
+    inline void ResetTypeAhead(TypeAheadBuffer& buffer) noexcept
+    {
+        buffer.text.clear();
+        buffer.last_key_ms = 0;
+    }
+
     [[nodiscard]] inline bool IsTypeAheadIdle(TypeAheadBuffer const& buffer, std::uint64_t const nowMs)
     {
         return buffer.text.empty() || nowMs < buffer.last_key_ms || nowMs - buffer.last_key_ms > kTypeAheadResetMs;

@@ -3160,6 +3160,7 @@ namespace winrt::FileScoutNative::implementation
         pane.items.clear();
         pane.selection.Clear();
         pane.tab_rows[tabIndex].Clear();
+        ::FileScoutNative::Domain::ResetTypeAhead(pane.type_ahead);
         // The tab's cached listing belongs to the folder being left; drop it now that current_path
         // already names the pending target, so a sort or tab switch before the listing arrives
         // cannot pair the new path with the old folder's items (RestoreActiveTab reloads an empty cache).
@@ -6156,7 +6157,8 @@ namespace winrt::FileScoutNative::implementation
         }
 
         // Type-ahead runs from CharacterReceived, which gets the typed character for any keyboard
-        // layout or IME instead of a virtual key (UB-18).
+        // layout instead of a virtual key (UB-18). Text committed by an IME does not raise
+        // CharacterReceived, so IME type-ahead is not supported.
     }
 
     void MainWindow::FileRowsListView_CharacterReceived(
