@@ -2168,6 +2168,15 @@ namespace winrt::FileScoutNative::implementation
 
         if (args.Key() == winrt::Windows::System::VirtualKey::Escape)
         {
+            if (pane.search_mode == SearchMode::None && pane.pending_filter.HasPending())
+            {
+                // Escape cancels a filter still waiting for the load (UA-05); there is no
+                // snapshot to restore yet.
+                args.Handled(true);
+                pane.pending_filter.Clear();
+                SearchTextBox().Text(L"");
+                return;
+            }
             if (pane.search_mode == SearchMode::Filter || pane.search_mode == SearchMode::Recursive)
             {
                 args.Handled(true);
@@ -7363,11 +7372,15 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
     {
         auto& pane = m_panes[paneIndex];
-        // Cancel any pending staged-publish dispatch — this rebuild replaces it entirely.
-        // The staged final publish then returns early, so a filter typed meanwhile (UA-05) is
-        // applied after this rebuild instead, once the listing is complete.
+        // Once the listing is complete (items published), this rebuild replaces the staged final
+        // publish: cancel it, and apply a filter typed meanwhile (UA-05) after the rebuild. While
+        // enumeration has published nothing, the load is still in progress: keep the flag so its
+        // final publish still runs and applies the filter.
         bool const replacesFinalPublish = pane.awaiting_final_batch && !pane.items.empty();
-        pane.awaiting_final_batch = false;
+        if (replacesFinalPublish)
+        {
+            pane.awaiting_final_batch = false;
+        }
 
         // Use (std::min)() to prevent expansion of the Windows.h min() macro.
         auto const tabCount = (std::min)(pane.tabs.size(), pane.tab_rows.size());
