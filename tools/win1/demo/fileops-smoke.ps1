@@ -8,8 +8,10 @@ Remove-Item -Recurse -Force $Dir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Dir | Out-Null
 Set-Content (Join-Path $Dir 'alpha.txt') 'smoke'
 $script:Failures = 0
-function Expect([string]$step, [string]$want) {
-    $got = State
+function Expect([string]$step, [string]$want, [int]$timeoutSec = 20) {
+    # Operations finish asynchronously: poll until the folder matches or the timeout passes.
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    do { $got = State; if ($got -eq $want) { break }; Start-Sleep -Milliseconds 250 } while ((Get-Date) -lt $deadline)
     $mark = if ($got -eq $want) { 'ok' } else { $script:Failures++; "FAIL (want: $want)" }
     "${step}: $got  $mark"
 }
