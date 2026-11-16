@@ -150,6 +150,7 @@
     <ClInclude Include="Shell\TempStagingCleanup.h" />
     <ClInclude Include="Shell\ShellCommandVerb.h" />
     <ClInclude Include="Shell\LocaleDateTimeFormatter.h" />
+    <ClInclude Include="Shell\ComApartment.h" />
     <ClInclude Include="Shell\ShellClipboardService.h" />
     <ClInclude Include="Shell\ShellFileOperationService.h" />
     <ClInclude Include="Shell\ShellOverflowMenuService.h" />

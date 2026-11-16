@@ -26,6 +26,7 @@
 #include "Domain/Wave1FeatureGate.h"
 #include "Search/SearchFilter.h"
 #include "Search/SearchPresentation.h"
+#include "Shell/ComApartment.h"
 #include "Shell/TempStagingCleanup.h"
 #include "TraceHelper.h"
 #include "Bench.h"
@@ -3585,6 +3586,7 @@ namespace winrt::FileScoutNative::implementation
                 futures.push_back(std::async(std::launch::async,
                     [this, &items, start, end]()
                     {
+                        ::FileScoutNative::Shell::ComApartment apartment;
                         for (size_t i = start; i < end; ++i)
                             items[i].icon = m_shellInterop.GetItemIcon(
                                 items[i].path, items[i].is_folder);
@@ -3678,6 +3680,7 @@ namespace winrt::FileScoutNative::implementation
                 futures.push_back(std::async(std::launch::async,
                     [this, &items, start, end, cancelToken, &anyWorkerCancelled]()
                     {
+                        ::FileScoutNative::Shell::ComApartment apartment;
                         for (size_t i = start; i < end; ++i)
                         {
                             if (cancelToken && cancelToken->load(std::memory_order_relaxed))
@@ -5844,9 +5847,8 @@ namespace winrt::FileScoutNative::implementation
         std::filesystem::path extractedPath;
         std::wstring errorText;
 
-        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        bool const shouldUninitialize = SUCCEEDED(initHr);
-        if (FAILED(initHr) && initHr != RPC_E_CHANGED_MODE)
+        std::optional<::FileScoutNative::Shell::ComApartment> apartment{ std::in_place };
+        if (!apartment->IsUsable())
         {
             errorText = L"Archive extraction failed to initialize COM.";
         }
@@ -5893,10 +5895,7 @@ namespace winrt::FileScoutNative::implementation
             errorText = L"Archive extraction failed.";
         }
 
-        if (shouldUninitialize)
-        {
-            CoUninitialize();
-        }
+        apartment.reset(); // leave the MTA on this pool thread before handing back to the UI
 
         m_dispatcherQueue.TryEnqueue([this, lifetime, item = std::move(item),
                                       extractedPath = std::move(extractedPath),
@@ -5937,9 +5936,8 @@ namespace winrt::FileScoutNative::implementation
         std::filesystem::path requestedPath;
         std::wstring errorText;
 
-        HRESULT const initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        bool const shouldUninitialize = SUCCEEDED(initHr);
-        if (FAILED(initHr) && initHr != RPC_E_CHANGED_MODE)
+        std::optional<::FileScoutNative::Shell::ComApartment> apartment{ std::in_place };
+        if (!apartment->IsUsable())
         {
             errorText = L"Archive extraction failed to initialize COM.";
         }
@@ -5982,10 +5980,7 @@ namespace winrt::FileScoutNative::implementation
             errorText = L"Archive extraction failed.";
         }
 
-        if (shouldUninitialize)
-        {
-            CoUninitialize();
-        }
+        apartment.reset(); // leave the MTA on this pool thread before handing back to the UI
 
         m_dispatcherQueue.TryEnqueue([this, lifetime, item = std::move(item),
                                       extractedPath = std::move(extractedPath),
