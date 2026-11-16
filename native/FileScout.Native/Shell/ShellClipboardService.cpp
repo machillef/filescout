@@ -208,9 +208,9 @@ namespace FileScoutNative::Shell
         }
 
         // A cut is pasted once, so its clipboard entry goes; a newer copy or cut stays.
-        if (isMove && GetClipboardSequenceNumber() == snapshot.sequence_number)
+        if (isMove)
         {
-            ClearClipboard();
+            (void)ClearClipboardIfUnchanged(snapshot.sequence_number);
         }
 
         result.succeeded = true;
@@ -348,8 +348,29 @@ namespace FileScoutNative::Shell
         }
     }
 
-    void ShellClipboardService::ClearClipboard()
+    bool ShellClipboardService::ClearClipboardIfUnchanged(DWORD const sequenceNumber)
     {
-        winrt::check_hresult(OleSetClipboard(nullptr));
+        // Another thread or process may hold the clipboard briefly; retry for ~50 ms, then leave it.
+        bool isOpen = false;
+        for (int attempt = 0; attempt < 5 && !isOpen; ++attempt)
+        {
+            isOpen = OpenClipboard(nullptr) != FALSE;
+            if (!isOpen)
+            {
+                Sleep(10);
+            }
+        }
+        if (!isOpen)
+        {
+            return false;
+        }
+
+        bool const unchanged = GetClipboardSequenceNumber() == sequenceNumber;
+        if (unchanged)
+        {
+            EmptyClipboard();
+        }
+        CloseClipboard();
+        return unchanged;
     }
 }

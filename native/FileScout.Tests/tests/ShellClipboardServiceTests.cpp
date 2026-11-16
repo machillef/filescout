@@ -258,13 +258,21 @@ TEST_F(ShellClipboardServiceFixture, ClearIfUnchangedBacksOffWhileAnotherWriterH
     std::promise<void> opened;
     std::promise<void> release;
     std::thread writer([&] {
-        bool const isOpen = OpenClipboard(nullptr) != FALSE;
+        // A writer owns the open clipboard through its window (OpenClipboard(nullptr) would share
+        // the open state with every thread of this process).
+        HWND const window = CreateWindowExW(
+            0, L"STATIC", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
+        bool const isOpen = window != nullptr && OpenClipboard(window) != FALSE;
         EXPECT_TRUE(isOpen);
         opened.set_value();
         release.get_future().wait();
         if (isOpen)
         {
             CloseClipboard();
+        }
+        if (window != nullptr)
+        {
+            DestroyWindow(window);
         }
     });
     opened.get_future().wait();

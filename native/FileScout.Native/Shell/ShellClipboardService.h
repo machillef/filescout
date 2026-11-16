@@ -40,6 +40,10 @@ namespace FileScoutNative::Shell
             HWND ownerWindow,
             std::filesystem::path const& directory,
             ClipboardSnapshot const& snapshot) const;
+        // Empties the clipboard only if nothing was written since `sequenceNumber`. The check and the
+        // clear run while this thread holds the clipboard open, so no writer can slip in between;
+        // if another thread holds it, this backs off and returns false.
+        static bool ClearClipboardIfUnchanged(DWORD sequenceNumber);
 
     private:
         void SetClipboardItems(
@@ -51,7 +55,6 @@ namespace FileScoutNative::Shell
         [[nodiscard]] static uint32_t CountClipboardItems(IDataObject* dataObject);
         [[nodiscard]] static DWORD GetPreferredDropEffect(IDataObject* dataObject);
         static void SetPreferredDropEffect(IDataObject* dataObject, DWORD effect);
-        static void ClearClipboard();
 
         ShellFileOperationService m_fileOperationService;
     };
