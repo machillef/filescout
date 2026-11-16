@@ -77,7 +77,7 @@ Status: the PR that fixes the item (all squash-merged into `master`), or `—` w
 | UA-13 | Two near-identical icon backfills | perf, not done | Debt: both backfills go through the same `ShellInteropService` icon cache, and since #10 cached pixels are shared, so nothing is fetched or stored twice; merging the two loops would be cleanup, not a speed-up. | — |
 | UA-14 | XAML comment says palette is collapsed outside beta | bug (comment) | Fix the comment. | #24 |
 | UA-15 | WinUI animations | not a bug | Rust-port note; WinUI renders them itself. | — |
-| UA-16 | `m_lastContextMenuPoint` stored on the window | see UB-15 | Its real defect is the (160,160) fallback, fixed in UB-15. | #39 |
+| UA-16 | `m_lastContextMenuPoint` stored on the window | see UB-15 | Its real defect is the (160,160) fallback, fixed in UB-15. | #48 |
 
 ## spec-ui Part 2 "Να μη μεταφερθούν ως έχουν"
 
@@ -92,12 +92,12 @@ Status: the PR that fixes the item (all squash-merged into `master`), or `—` w
 | UB-07 | `InitPane` temporarily changes `m_activePaneIndex` | bug | Async continuations started inside read the wrong pane if they run before restore. Fix: pass the pane index. | #43 |
 | UB-08 | Tab state copied in three places | not a bug | Debt; the copies are consistent today. | — |
 | UB-09 | Rows rebuilt on every change | perf | Reduced: #17 builds row view models in parallel and #10 shares icon pixels; a full rebuild per change remains and is within the perf targets (perf.md). | #17 |
-| UB-10 | Sidebar rebuilt with sync icons and disk capacity on every navigation | perf/bug | Navigation stalls on slow/network drives. Fix: rebuild only when favourites/drives change. | #47 |
+| UB-10 | Sidebar rebuilt with sync icons and disk capacity on every navigation | perf/bug | Navigation stalls on slow/network drives. Fixed: the drive list (with free space) is read once and reloads on a volume change or Refresh. Open: that read still runs on the UI thread at startup and Refresh. | #47 |
 | UB-11 | Recents always read the left pane | bug | Fix: read the active pane; test. | #35 |
 | UB-12 | Recycle Bin click pushes the new path onto the back stack | bug | Back from the Recycle Bin does not return to the previous folder. Fix + test. | #31 |
 | UB-13 | Hard-coded `#0078D4` / `#C42B1C` | bug | = UA-08, theme tokens. | #24 |
 | UB-14 | "Rename works one item at a time in the closed beta" message | not a bug | Shown only while the batch-rename gate is off, which is the intended message for that state. | — |
-| UB-15 | Overflow menu opens at (160,160) without a click point | bug | Fix: anchor at the focused row. | #39 |
+| UB-15 | Overflow menu opens at (160,160) without a click point | bug | Fix: anchor at the focused row. | #48 |
 | UB-16 | Address box re-focused on the next tick | not a bug | Works around a real WinUI focus steal; removing it reintroduces the bug. | — |
 | UB-17 | Case-only rename is skipped | bug | Explorer allows `foo.txt` → `Foo.txt`. Fix + test. | #26 |
 | UB-18 | Type-ahead: one letter, A–Z only, over `pane.items` not displayed rows | bug | Fix: buffered type-ahead over displayed rows, any character. | #38 |
