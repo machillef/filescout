@@ -7844,6 +7844,12 @@ namespace winrt::FileScoutNative::implementation
             SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
 
             auto& pane = ActivePane();
+            // Entering This PC is a navigation: end the search (and any filter waiting for a load),
+            // and invalidate a folder load still in flight so its callbacks cannot replace the
+            // drive list or apply that filter.
+            EndSearchOnNavigation(m_activePaneIndex);
+            ++pane.load_generation;
+            pane.awaiting_final_batch = false;
             // This PC has no path; the folder being left still belongs in the recents. The sidebar is
             // rebuilt only after the pane state below says "This PC", so it highlights the right row.
             bool recentsChanged = false;
