@@ -65,3 +65,28 @@ TEST(ScopedTimer, ElapsedIsNonNegative)
     }
     EXPECT_GE(elapsed, 0LL);
 }
+
+// UA-09: crash and trace logs must keep non-ASCII text (a wofstream converts through the "C"
+// locale and drops it), and writing a log line must never throw on an error path.
+TEST(TraceLogFile, AppendsLinesAsUtf8)
+{
+    auto const path = std::filesystem::temp_directory_path() / L"FileScoutTests_utf8_log.txt";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    AppendUtf8LogLine(path, L"\u03c3\u03c6\u03ac\u03bb\u03bc\u03b1 \u9519\u8bef 0x80004005");
+    AppendUtf8LogLine(path, L"second");
+
+    std::ifstream stream{ path, std::ios::binary };
+    std::string const bytes{ std::istreambuf_iterator<char>{ stream }, std::istreambuf_iterator<char>{} };
+    EXPECT_EQ(bytes,
+        "\xcf\x83\xcf\x86\xce\xac\xce\xbb\xce\xbc\xce\xb1 \xe9\x94\x99\xe8\xaf\xaf 0x80004005\n"
+        "second\n");
+    stream.close();
+    std::filesystem::remove(path, ec);
+}
+
+TEST(TraceLogFile, UnwritablePathDoesNotThrow)
+{
+    EXPECT_NO_THROW(AppendUtf8LogLine(L"Z:\\no\\such\\dir\\log.txt", L"line"));
+}
