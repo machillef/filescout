@@ -23,6 +23,7 @@
 #include "Domain/RowIconState.h"
 #include "Domain/ShellItemSort.h"
 #include "Domain/SidebarRecents.h"
+#include "Domain/ThemeBrushKeys.h"
 #include "Domain/ThemeService.h"
 #include "Domain/TypeAhead.h"
 #include "Domain/Wave1FeatureGate.h"
@@ -31,6 +32,8 @@
 #include "Shell/ComApartment.h"
 #include "Shell/TempStagingCleanup.h"
 #include "TraceHelper.h"
+
+#include <cassert>
 #include "Bench.h"
 #include "Domain/ParallelFor.h"
 
@@ -63,6 +66,7 @@ namespace
 
     winrt::Microsoft::UI::Xaml::Media::Brush LookupBrush(std::wstring_view const key)
     {
+        assert(::FileScoutNative::Domain::IsKnownThemeBrushKey(key) && "add the key to Domain/ThemeBrushKeys.h");
         try
         {
             return winrt::Microsoft::UI::Xaml::Application::Current()
@@ -72,8 +76,12 @@ namespace
         }
         catch (...)
         {
-            return winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
-                winrt::Windows::UI::Color{ 0xFF, 0xF3, 0xF4, 0xF6 });
+            // No silent light-grey fallback (wrong in the dark theme, UA-07): ThemeBrushKeysTests keeps
+            // every key known, so a miss is a bug. Debug stops here; Release logs it and leaves the
+            // property unset.
+            TraceLog(L"LookupBrush: missing theme resource " + std::wstring{ key });
+            assert(!"LookupBrush: missing theme resource (see TraceLog)");
+            return nullptr;
         }
     }
 

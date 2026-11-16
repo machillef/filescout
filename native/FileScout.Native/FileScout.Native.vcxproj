@@ -143,6 +143,7 @@
     <ClInclude Include="Domain\TypeAhead.h" />
     <ClInclude Include="Domain\ContextMenuAnchor.h" />
     <ClInclude Include="Domain\PendingFilter.h" />
+    <ClInclude Include="Domain\ThemeBrushKeys.h" />
     <ClInclude Include="Domain\SidebarRecents.h" />
     <ClInclude Include="Domain\ShellItemRef.h" />
     <ClInclude Include="Domain\ThemeDefinition.h" />
