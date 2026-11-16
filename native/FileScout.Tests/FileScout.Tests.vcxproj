@@ -166,6 +166,7 @@
     <ClCompile Include="tests\NavigationInputTests.cpp" />
     <ClCompile Include="tests\RowIconStateTests.cpp" />
     <ClCompile Include="tests\ShellItemSortTests.cpp" />
+    <ClCompile Include="tests\SidebarCacheTests.cpp" />
     <ClCompile Include="tests\SidebarRecentsTests.cpp" />
     <ClCompile Include="tests\ThemeServiceTests.cpp" />
     <ClCompile Include="tests\Wave1FeatureGateTests.cpp" />
