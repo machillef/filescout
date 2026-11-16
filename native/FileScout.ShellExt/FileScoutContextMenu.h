@@ -2,11 +2,12 @@
 
 #include "pch.h"
 
-// CLSID for the FileScout shell context menu extension.
-// {A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
+// CLSID for the FileScout shell context menu extension. Generated once (2026-11-15); keep it
+// stable, registrations on users' machines refer to it.
+// {9722A202-6B0E-4C00-8493-B602331141AD}
 static constexpr CLSID CLSID_FileScoutContextMenu = {
-    0xA1B2C3D4, 0xE5F6, 0x7890,
-    { 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78, 0x90 }
+    0x9722A202, 0x6B0E, 0x4C00,
+    { 0x84, 0x93, 0xB6, 0x02, 0x33, 0x11, 0x41, 0xAD }
 };
 
 namespace FileScoutShellExt
@@ -17,21 +18,87 @@ namespace FileScoutShellExt
         L"Software\\Classes\\Drive\\shellex\\ContextMenuHandlers\\FileScout",
     };
 
-    inline std::wstring BuildFileScoutPathFromShellExtensionPath(std::wstring const& modulePath)
-    {
-        auto path = std::filesystem::path{ modulePath };
-        auto shellExtDir = path.parent_path();
-        auto configurationDir = shellExtDir.parent_path();
-        auto platformDir = configurationDir.parent_path();
-        auto binDir = platformDir.parent_path();
-        auto nativeDir = binDir.parent_path();
+    inline constexpr wchar_t ClsidString[] = L"{9722A202-6B0E-4C00-8493-B602331141AD}";
 
-        if (shellExtDir.empty() || configurationDir.empty() || platformDir.empty() || binDir.empty() || nativeDir.empty())
+    // Where FileScoutNative.exe can be, best first:
+    //   1. installed: next to the DLL;
+    //   2. development build: DLL in native\bin\<platform>\<config>\ShellExt\,
+    //      exe in native\<platform>\<config>\FileScout.Native\.
+    inline std::vector<std::wstring> BuildFileScoutPathCandidates(std::wstring const& modulePath)
+    {
+        std::vector<std::wstring> candidates;
+        auto const path = std::filesystem::path{ modulePath };
+        auto const shellExtDir = path.parent_path();
+        if (modulePath.empty() || shellExtDir.empty())
         {
-            return FileScoutExeName;
+            return candidates;
         }
 
-        return (nativeDir / platformDir.filename() / configurationDir.filename() / L"FileScout.Native" / FileScoutExeName).wstring();
+        candidates.push_back((shellExtDir / FileScoutExeName).wstring());
+
+        auto const configurationDir = shellExtDir.parent_path();
+        auto const platformDir = configurationDir.parent_path();
+        auto const binDir = platformDir.parent_path();
+        auto const nativeDir = binDir.parent_path();
+        if (!binDir.has_filename() || !configurationDir.has_filename() || !platformDir.has_filename())
+        {
+            return candidates;
+        }
+
+        candidates.push_back(
+            (nativeDir / platformDir.filename() / configurationDir.filename() / L"FileScout.Native" / FileScoutExeName)
+                .wstring());
+        return candidates;
+    }
+
+    // First candidate that exists; otherwise the development path (or the bare exe name) so the
+    // error a user sees names a plausible location.
+    template <typename IsFile>
+    std::wstring ResolveFileScoutPathFromShellExtensionPath(std::wstring const& modulePath, IsFile&& isFile)
+    {
+        auto const candidates = BuildFileScoutPathCandidates(modulePath);
+        for (auto const& candidate : candidates)
+        {
+            if (isFile(std::filesystem::path{ candidate }))
+            {
+                return candidate;
+            }
+        }
+
+        return candidates.empty() ? std::wstring{ FileScoutExeName } : candidates.back();
+    }
+
+    inline std::wstring BuildFileScoutPathFromShellExtensionPath(std::wstring const& modulePath)
+    {
+        return ResolveFileScoutPathFromShellExtensionPath(modulePath, [](std::filesystem::path const& candidate)
+        {
+            std::error_code ec;
+            return std::filesystem::is_regular_file(candidate, ec);
+        });
+    }
+
+    // Reads a Win32 string whose API takes (buffer, capacity) and returns the written length, or
+    // the capacity when it truncated (GetModuleFileNameW). Grows the buffer instead of MAX_PATH.
+    template <typename Read>
+    std::wstring ReadGrowingString(Read&& read)
+    {
+        for (DWORD capacity = 260; capacity <= 32768 * 2; capacity *= 2)
+        {
+            std::wstring buffer(capacity, L'\0');
+            auto const length = read(buffer.data(), capacity);
+            if (length == 0)
+            {
+                return {};
+            }
+
+            if (length < capacity)
+            {
+                buffer.resize(length);
+                return buffer;
+            }
+        }
+
+        return {};
     }
 
     inline auto const& ContextMenuHandlerRegistryKeys()
@@ -95,7 +162,7 @@ namespace FileScoutShellExt
     }
 }
 
-class DECLSPEC_UUID("A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
+class DECLSPEC_UUID("9722A202-6B0E-4C00-8493-B602331141AD")
     FileScoutContextMenu
     : public IShellExtInit
     , public IContextMenu
