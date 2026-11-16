@@ -2770,7 +2770,7 @@ namespace winrt::FileScoutNative::implementation
                 {
                     m_shellFileOperationService.CopyItemsFromPaths(owner, sourcePaths, destinationPath, isMove);
                 });
-            LoadDirectory(destinationPath);
+            RefreshPanesShowing(destinationPath);
 
             StatusTextBlock().Text(ToHString(
                 (isMove ? L"Moved " : L"Copied ") +
@@ -3142,6 +3142,26 @@ namespace winrt::FileScoutNative::implementation
         // Capture pane/tab index synchronously so async work targets the right pane
         // even if the user switches panes before the enumeration finishes.
         LoadDirectoryAsync(absolutePath, m_activePaneIndex, std::move(selectAfter));
+    }
+
+    void MainWindow::RefreshPanesShowing(
+        std::filesystem::path const& folder,
+        std::optional<std::filesystem::path> selectAfter)
+    {
+        // A file operation finishes after the user may have switched pane, tab or folder: reload
+        // the views that still show the changed folder, and never navigate any other view.
+        auto const folderKey = ::FileScoutNative::Domain::SidebarPathKey(folder);
+        for (int32_t index = 0; index < static_cast<int32_t>(m_panes.size()); ++index)
+        {
+            auto const& pane = m_panes[index];
+            if (pane.is_drives_view || pane.is_recycle_bin_view || pane.current_path.empty() ||
+                ::FileScoutNative::Domain::SidebarPathKey(pane.current_path) != folderKey)
+            {
+                continue;
+            }
+
+            LoadDirectoryAsync(pane.current_path, index, selectAfter);
+        }
     }
 
     winrt::fire_and_forget MainWindow::LoadDirectoryAsync(
@@ -4741,14 +4761,17 @@ namespace winrt::FileScoutNative::implementation
         try
         {
             auto const owner = GetWindowHandle();
-            auto const outcome = co_await OnShellThread([this, owner, destination]
+            // Read the clipboard now, on the UI thread: the paste may wait behind earlier shell
+            // work, and must not pick up whatever the user copies or cuts in the meantime.
+            auto snapshot = m_shellClipboardService.CaptureClipboard();
+            auto const outcome = co_await OnShellThread([this, owner, destination, snapshot = std::move(snapshot)]
                 {
-                    return m_shellClipboardService.PasteInto(owner, destination);
+                    return m_shellClipboardService.PasteCaptured(owner, destination, snapshot);
                 });
             if (outcome.succeeded)
             {
                 m_cutItemPaths.clear();
-                LoadDirectory(destination);
+                RefreshPanesShowing(destination);
                 StatusTextBlock().Text(ToHString(BuildPasteSuccessStatus(outcome)));
             }
             else
@@ -4800,7 +4823,7 @@ namespace winrt::FileScoutNative::implementation
                 {
                     return m_shellFileOperationService.CreateFolder(owner, parent, folderName);
                 });
-            LoadDirectory(ActivePane().current_path, createdPath);
+            RefreshPanesShowing(parent, createdPath);
             StatusTextBlock().Text(ToHString(L"Created folder: " + createdPath.filename().wstring()));
         }
         catch (std::exception const&)
@@ -4852,7 +4875,7 @@ namespace winrt::FileScoutNative::implementation
                 {
                     return m_shellFileOperationService.RenameItem(owner, source, newName);
                 });
-            LoadDirectory(ActivePane().current_path, renamedPath);
+            RefreshPanesShowing(source.parent_path(), renamedPath);
             StatusTextBlock().Text(ToHString(L"Renamed to " + renamedPath.filename().wstring()));
         }
         catch (::FileScoutNative::Shell::FileOperationException const& error)
@@ -5334,7 +5357,7 @@ namespace winrt::FileScoutNative::implementation
                 selectAfter = renamedPaths.front();
             }
 
-            LoadDirectory(ActivePane().current_path, selectAfter);
+            RefreshPanesShowing(requests.front().path.parent_path(), selectAfter);
             StatusTextBlock().Text(ToHString(
                 L"Batch renamed " + std::to_wstring(requests.size()) +
                 (requests.size() == 1 ? L" item." : L" items.")));
@@ -5455,7 +5478,7 @@ namespace winrt::FileScoutNative::implementation
                     winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
                 if (success)
                 {
-                    LoadDirectory(currentPath);
+                    RefreshPanesShowing(currentPath);
                     StatusTextBlock().Text(ToHString(
                         itemCount == 1
                             ? L"Deleted " + displayName + L" to Recycle Bin"

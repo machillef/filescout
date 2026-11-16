@@ -281,6 +281,9 @@ namespace winrt::FileScoutNative::implementation
         [[nodiscard]] bool TryNavigateToAddressInput(std::wstring_view rawInput);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
             std::optional<std::filesystem::path> selectAfter);
+        // Reloads every pane whose current folder is `folder` (a file operation changed it).
+        void RefreshPanesShowing(std::filesystem::path const& folder,
+            std::optional<std::filesystem::path> selectAfter = std::nullopt);
         // S7: backfill real per-extension icons asynchronously after fast rows appear.
         winrt::fire_and_forget BackfillIconsAsync(
             int32_t paneIndex, int32_t tabIndex, uint32_t generation,

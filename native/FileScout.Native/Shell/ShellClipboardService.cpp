@@ -102,50 +102,82 @@ namespace FileScoutNative::Shell
         HWND const ownerWindow,
         std::filesystem::path const& directory) const
     {
+        return PasteCaptured(ownerWindow, directory, CaptureClipboard());
+    }
+
+    ClipboardSnapshot ShellClipboardService::CaptureClipboard() const
+    {
+        ClipboardSnapshot snapshot{ .sequence_number = GetClipboardSequenceNumber() };
+        try
+        {
+            auto const dataObject = GetClipboardDataObject();
+            snapshot.is_move =
+                (GetPreferredDropEffect(dataObject.get()) & DROPEFFECT_MOVE) == DROPEFFECT_MOVE;
+
+            winrt::com_ptr<IShellItemArray> itemArray;
+            winrt::check_hresult(SHCreateShellItemArrayFromDataObject(
+                dataObject.get(), __uuidof(IShellItemArray), itemArray.put_void()));
+            DWORD count = 0;
+            winrt::check_hresult(itemArray->GetCount(&count));
+            snapshot.items.reserve(count);
+            for (DWORD index = 0; index < count; ++index)
+            {
+                winrt::com_ptr<IShellItem> item;
+                winrt::check_hresult(itemArray->GetItemAt(index, item.put()));
+                PIDLIST_ABSOLUTE pidl = nullptr;
+                winrt::check_hresult(SHGetIDListFromObject(item.get(), &pidl));
+                snapshot.items.emplace_back(pidl, [](PIDLIST_ABSOLUTE const p) { ILFree(p); });
+            }
+        }
+        catch (winrt::hresult_error const&)
+        {
+            snapshot.items.clear();
+            snapshot.failure_detail = ClipboardEmptyDetail();
+        }
+        catch (std::runtime_error const& error)
+        {
+            snapshot.items.clear();
+            snapshot.failure_detail = BuildClipboardRuntimeDetail(error);
+        }
+
+        if (snapshot.failure_detail.empty() && snapshot.items.empty())
+        {
+            snapshot.failure_detail = ClipboardEmptyDetail();
+        }
+        return snapshot;
+    }
+
+    ClipboardPasteResult ShellClipboardService::PasteCaptured(
+        HWND const ownerWindow,
+        std::filesystem::path const& directory,
+        ClipboardSnapshot const& snapshot) const
+    {
+        auto const isMove = snapshot.is_move;
+        if (!snapshot.failure_detail.empty())
+        {
+            return BuildPasteFailureResult(directory, isMove, 0, snapshot.failure_detail);
+        }
+
         auto result = ClipboardPasteResult{
+            .was_move = isMove,
+            .item_count = static_cast<uint32_t>(snapshot.items.size()),
             .destination = directory,
+            .attempted_action = isMove ? L"Paste move" : L"Paste copy",
         };
 
-        winrt::com_ptr<IDataObject> clipboardDataObject;
         try
         {
-            clipboardDataObject = GetClipboardDataObject();
-        }
-        catch (winrt::hresult_error const&)
-        {
-            return BuildPasteFailureResult(directory, false, 0, ClipboardEmptyDetail());
-        }
-        catch (std::runtime_error const& error)
-        {
-            return BuildPasteFailureResult(directory, false, 0, BuildClipboardRuntimeDetail(error));
-        }
+            std::vector<PCIDLIST_ABSOLUTE> pidls;
+            pidls.reserve(snapshot.items.size());
+            for (auto const& item : snapshot.items)
+            {
+                pidls.push_back(item.get());
+            }
 
-        auto const preferredDropEffect = GetPreferredDropEffect(clipboardDataObject.get());
-        auto const isMove = (preferredDropEffect & DROPEFFECT_MOVE) == DROPEFFECT_MOVE;
-        result.was_move = isMove;
-        result.attempted_action = isMove ? L"Paste move" : L"Paste copy";
-
-        try
-        {
-            result.item_count = CountClipboardItems(clipboardDataObject.get());
-        }
-        catch (winrt::hresult_error const&)
-        {
-            return BuildPasteFailureResult(directory, isMove, 0, ClipboardEmptyDetail());
-        }
-        catch (std::runtime_error const& error)
-        {
-            return BuildPasteFailureResult(directory, isMove, 0, BuildClipboardRuntimeDetail(error));
-        }
-
-        if (result.item_count == 0)
-        {
-            return BuildPasteFailureResult(directory, isMove, 0, ClipboardEmptyDetail());
-        }
-
-        try
-        {
-            m_fileOperationService.PasteItems(ownerWindow, clipboardDataObject.get(), directory, isMove);
+            winrt::com_ptr<IShellItemArray> itemArray;
+            winrt::check_hresult(SHCreateShellItemArrayFromIDLists(
+                static_cast<UINT>(pidls.size()), pidls.data(), itemArray.put()));
+            m_fileOperationService.PasteItems(ownerWindow, itemArray.get(), directory, isMove);
         }
         catch (FileOperationException const& error)
         {
@@ -175,7 +207,8 @@ namespace FileScoutNative::Shell
                 BuildClipboardRuntimeDetail(error));
         }
 
-        if (isMove)
+        // A cut is pasted once, so its clipboard entry goes; a newer copy or cut stays.
+        if (isMove && GetClipboardSequenceNumber() == snapshot.sequence_number)
         {
             ClearClipboard();
         }

@@ -3,7 +3,7 @@
 param([string]$Exe, [string]$Dir = 'C:\fsdev\gui-out\smoke', [string]$Out = 'C:\fsdev\gui-out')
 $ErrorActionPreference = 'Stop'
 Import-Module C:\fsdev\tools\Win1Ui.psm1 -DisableNameChecking
-Get-Process FileScoutNative, notepad -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process FileScoutNative -ErrorAction SilentlyContinue | Stop-Process -Force
 Remove-Item -Recurse -Force $Dir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Dir | Out-Null
 Set-Content (Join-Path $Dir 'alpha.txt') 'smoke'

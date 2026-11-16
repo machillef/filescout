@@ -15,6 +15,16 @@ namespace FileScoutNative::Shell
         std::wstring failure_detail;
     };
 
+    // The clipboard's shell items as absolute ID lists, read when the user pressed Paste. Plain
+    // memory, not a COM object, so it can be handed to the shell worker thread (S-03).
+    struct ClipboardSnapshot
+    {
+        std::vector<std::shared_ptr<std::remove_pointer_t<PIDLIST_ABSOLUTE>>> items;
+        bool is_move{ false };
+        DWORD sequence_number{ 0 };
+        std::wstring failure_detail;  // non-empty when the clipboard could not be read
+    };
+
     class ShellClipboardService final : public FileScoutNative::Domain::ClipboardService
     {
     public:
@@ -24,6 +34,12 @@ namespace FileScoutNative::Shell
         [[nodiscard]] ClipboardPasteResult PasteInto(
             HWND ownerWindow,
             std::filesystem::path const& directory) const;
+        // Reads the clipboard now; PasteCaptured pastes that snapshot later, on any STA thread.
+        [[nodiscard]] ClipboardSnapshot CaptureClipboard() const;
+        [[nodiscard]] ClipboardPasteResult PasteCaptured(
+            HWND ownerWindow,
+            std::filesystem::path const& directory,
+            ClipboardSnapshot const& snapshot) const;
 
     private:
         void SetClipboardItems(

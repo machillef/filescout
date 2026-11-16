@@ -73,7 +73,7 @@ namespace FileScoutNative::Shell
             std::span<std::filesystem::path const> paths) const;
         void PasteItems(
             HWND ownerWindow,
-            IDataObject* clipboardDataObject,
+            IUnknown* items,
             std::filesystem::path const& destinationDirectory,
             bool move) const;
         void CopyItemsFromPaths(

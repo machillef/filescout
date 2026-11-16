@@ -36,7 +36,8 @@ namespace FileScoutNative::Shell
 
     void ShellStaWorker::Run()
     {
-        HRESULT const init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        // OleInitialize, not just CoInitializeEx: clipboard and drag-drop calls on this STA need OLE.
+        HRESULT const init = ::OleInitialize(nullptr);
         for (;;)
         {
             // Drain everything queued, then wait for more while pumping messages (an STA must).
@@ -81,7 +82,7 @@ namespace FileScoutNative::Shell
         }
         if (SUCCEEDED(init))
         {
-            ::CoUninitialize();
+            ::OleUninitialize();
         }
     }
 }
