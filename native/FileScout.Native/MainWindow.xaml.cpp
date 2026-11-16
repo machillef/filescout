@@ -2007,6 +2007,7 @@ namespace winrt::FileScoutNative::implementation
         winrt::Windows::Foundation::IInspectable const&,
         Microsoft::UI::Xaml::RoutedEventArgs const&)
     {
+        RefreshSidebarCaches();
         if (ActivePane().is_drives_view || ActivePane().current_path.empty())
         {
             LoadDrivesView();
