@@ -2168,6 +2168,15 @@ namespace winrt::FileScoutNative::implementation
 
         if (args.Key() == winrt::Windows::System::VirtualKey::Escape)
         {
+            if (pane.search_mode == SearchMode::None && pane.pending_filter.HasPending())
+            {
+                // Escape cancels a filter still waiting for the load (UA-05); there is no
+                // snapshot to restore yet.
+                args.Handled(true);
+                pane.pending_filter.Clear();
+                SearchTextBox().Text(L"");
+                return;
+            }
             if (pane.search_mode == SearchMode::Filter || pane.search_mode == SearchMode::Recursive)
             {
                 args.Handled(true);
@@ -2310,6 +2319,7 @@ namespace winrt::FileScoutNative::implementation
 
         if (query.empty())
         {
+            pane.pending_filter.Clear();
             // Leaving search — restore the list if we were filtering.
             if (pane.search_mode == SearchMode::Filter)
             {
@@ -2324,7 +2334,13 @@ namespace winrt::FileScoutNative::implementation
         // Transition into Filter mode on first character.
         if (pane.search_mode == SearchMode::None)
         {
-            if (pane.awaiting_final_batch) return; // Snapshot would be incomplete.
+            // The snapshot would be incomplete during a load: keep the query for the final publish
+            // and say so, instead of dropping the keystrokes (UA-05).
+            if (!pane.pending_filter.OnQueryChanged(query, pane.awaiting_final_batch))
+            {
+                StatusTextBlock().Text(ToHString(::FileScoutNative::Domain::BuildPendingFilterStatus(query)));
+                return;
+            }
             pane.search_mode = SearchMode::Filter;
             auto const tabIndex = pane.active_tab_index;
             pane.search_snapshot = pane.tabs[tabIndex].items;
@@ -2348,6 +2364,38 @@ namespace winrt::FileScoutNative::implementation
 
         pane.filtered_items = filteredItems;
         ApplyPaneStateToRows(pane, filteredItems, rows, m_iconSourceCache);
+    }
+
+    void MainWindow::EndSearchOnNavigation(int32_t const paneIndex, bool const restoreSnapshot)
+    {
+        // Navigation, a tab change or a pane switch ends the search, including a filter that is
+        // still waiting for a load to finish (UA-05): it must not filter the next folder.
+        auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
+        if (pane.search_mode != SearchMode::None)
+        {
+            ResetSearchState(paneIndex, restoreSnapshot);
+        }
+        else if (pane.pending_filter.HasPending())
+        {
+            pane.pending_filter.Clear();
+            if (paneIndex == m_activePaneIndex)
+            {
+                SearchTextBox().Text(L"");
+            }
+        }
+    }
+
+    void MainWindow::ApplyPendingFilter(int32_t const paneIndex)
+    {
+        auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
+        if (!pane.pending_filter.TakeOnFinalPublish().has_value() || paneIndex != m_activePaneIndex)
+        {
+            return;
+        }
+
+        // The search box shows the active pane's query; rerun the normal filter path on what it
+        // holds now, with the load finished.
+        SearchTextBox_TextChanged(nullptr, nullptr);
     }
 
     void MainWindow::FileRowsListView_SelectionChanged(
@@ -2838,10 +2886,7 @@ namespace winrt::FileScoutNative::implementation
         auto const paneIndex = PaneIndexForTabView(tabView);
         auto& pane = m_panes[paneIndex];
 
-        if (pane.search_mode != SearchMode::None)
-        {
-            ResetSearchState(paneIndex, true);
-        }
+        EndSearchOnNavigation(paneIndex);
 
         if (pane.tab_switching || pane.tabs.empty())
         {
@@ -3143,10 +3188,7 @@ namespace winrt::FileScoutNative::implementation
         // The Recycle Bin is a view chosen by the target, so Back/Forward/sidebar clicks leave it.
         pane.is_recycle_bin_view = ::FileScoutNative::Domain::IsRecycleBinLocation(absolutePath);
         UpdateNavButtons();
-        if (pane.search_mode != SearchMode::None)
-        {
-            ResetSearchState(m_activePaneIndex, true);
-        }
+        EndSearchOnNavigation(m_activePaneIndex);
 
         // Capture pane/tab index synchronously so async work targets the right pane
         // even if the user switches panes before the enumeration finishes.
@@ -3321,6 +3363,7 @@ namespace winrt::FileScoutNative::implementation
                         timing.final_publish_tick = timing.first_batch_publish_tick;
                         pane.last_load_timing = timing;
                         TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                        ApplyPendingFilter(paneIndex);
                         if (selectAfter.has_value())
                             SelectItemByPath(*selectAfter);
                     });
@@ -3397,6 +3440,7 @@ namespace winrt::FileScoutNative::implementation
                         timing.final_publish_tick = timing.first_batch_publish_tick;
                         pane.last_load_timing = timing;
                         TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                        ApplyPendingFilter(paneIndex);
                         if (selectAfter.has_value())
                             SelectItemByPath(*selectAfter);
                     });
@@ -3528,6 +3572,7 @@ namespace winrt::FileScoutNative::implementation
                             timing.final_publish_tick = timing.first_batch_publish_tick;
                             pane.last_load_timing = timing;
                             TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                            ApplyPendingFilter(paneIndex);
                             if (selectAfter.has_value())
                                 SelectItemByPath(*selectAfter);
                             // P4: backfill real per-extension icons after rows appear.
@@ -3570,6 +3615,7 @@ namespace winrt::FileScoutNative::implementation
                                 timing.final_publish_tick = ::GetTickCount64();
                                 pane.last_load_timing = timing;
                                 TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                                ApplyPendingFilter(paneIndex);
                                 if (paneIndex == 0 && BenchTargets(absolute))
                                 {
                                     BenchOnFullList(paneIndex, totalItems);
@@ -6849,11 +6895,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         // Exit search mode on the outgoing pane before switching.
-        auto& outgoing = m_panes[m_activePaneIndex];
-        if (outgoing.search_mode != SearchMode::None)
-        {
-            ResetSearchState(m_activePaneIndex, true);
-        }
+        EndSearchOnNavigation(m_activePaneIndex);
 
         m_activePaneIndex = paneIndex;
         UpdateActivePaneIndicator();
@@ -7201,6 +7243,10 @@ namespace winrt::FileScoutNative::implementation
         {
             SortItems(tab.items, pane.sort_column, pane.sort_direction);
         }
+        // During a search the rows come from these lists (DisplayedItems, and the snapshot that
+        // clearing the filter restores): sort them too, or row indices and items disagree.
+        SortItems(pane.search_snapshot, pane.sort_column, pane.sort_direction);
+        SortItems(pane.filtered_items, pane.sort_column, pane.sort_direction);
 
         if (pane.active_tab_index >= 0 && pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
         {
@@ -7330,15 +7376,24 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
     {
         auto& pane = m_panes[paneIndex];
-        // Cancel any pending staged-publish dispatch — this rebuild replaces it entirely.
-        pane.awaiting_final_batch = false;
+        // Once the listing is complete (items published), this rebuild replaces the staged final
+        // publish: cancel it, and apply a filter typed meanwhile (UA-05) after the rebuild. While
+        // enumeration has published nothing, the load is still in progress: keep the flag so its
+        // final publish still runs and applies the filter.
+        bool const replacesFinalPublish = pane.awaiting_final_batch && !pane.items.empty();
+        if (replacesFinalPublish)
+        {
+            pane.awaiting_final_batch = false;
+        }
 
         // Use (std::min)() to prevent expansion of the Windows.h min() macro.
         auto const tabCount = (std::min)(pane.tabs.size(), pane.tab_rows.size());
         for (std::size_t i = 0; i < tabCount; ++i)
         {
+            // The active tab shows DisplayedItems (the filtered list during a search): build its
+            // rows from the same list, or row indices and DisplayedItems disagree.
             auto const& source = (static_cast<int32_t>(i) == pane.active_tab_index)
-                ? pane.items
+                ? DisplayedItems(pane)
                 : pane.tabs[i].items;
 
             auto& rows = pane.tab_rows[i];
@@ -7378,6 +7433,11 @@ namespace winrt::FileScoutNative::implementation
             {
                 UpdateRowSelectionVisuals(pane);
             }
+        }
+
+        if (replacesFinalPublish)
+        {
+            ApplyPendingFilter(paneIndex);
         }
     }
 
@@ -7803,6 +7863,13 @@ namespace winrt::FileScoutNative::implementation
             SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
 
             auto& pane = ActivePane();
+            // Entering This PC is a navigation: end the search (and any filter waiting for a load),
+            // and invalidate a folder load still in flight so its callbacks cannot replace the
+            // drive list or apply that filter.
+            // No snapshot restore: the drive rows replace the list right below.
+            EndSearchOnNavigation(m_activePaneIndex, false);
+            ++pane.load_generation;
+            pane.awaiting_final_batch = false;
             // This PC has no path; the folder being left still belongs in the recents. The sidebar is
             // rebuilt only after the pane state below says "This PC", so it highlights the right row.
             bool recentsChanged = false;
