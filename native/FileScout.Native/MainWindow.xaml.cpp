@@ -3153,13 +3153,19 @@ namespace winrt::FileScoutNative::implementation
         auto const folderKey = ::FileScoutNative::Domain::SidebarPathKey(folder);
         for (int32_t index = 0; index < static_cast<int32_t>(m_panes.size()); ++index)
         {
-            auto const& pane = m_panes[index];
+            auto& pane = m_panes[index];
             if (pane.is_drives_view || pane.is_recycle_bin_view || pane.current_path.empty() ||
                 ::FileScoutNative::Domain::SidebarPathKey(pane.current_path) != folderKey)
             {
                 continue;
             }
 
+            // The reload publishes the full listing, so a filter or search on this pane ends first
+            // (as LoadDirectory does); otherwise DisplayedItems would still be the old filtered list.
+            if (pane.search_mode != SearchMode::None)
+            {
+                ResetSearchState(index, false);
+            }
             LoadDirectoryAsync(pane.current_path, index, selectAfter);
         }
     }
