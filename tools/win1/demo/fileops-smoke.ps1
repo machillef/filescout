@@ -7,6 +7,12 @@ Get-Process FileScoutNative -ErrorAction SilentlyContinue | Stop-Process -Force
 Remove-Item -Recurse -Force $Dir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Dir | Out-Null
 Set-Content (Join-Path $Dir 'alpha.txt') 'smoke'
+$script:Failures = 0
+function Expect([string]$step, [string]$want) {
+    $got = State
+    $mark = if ($got -eq $want) { 'ok' } else { $script:Failures++; "FAIL (want: $want)" }
+    "${step}: $got  $mark"
+}
 function State { (Get-ChildItem $Dir -Force | Sort-Object Name | ForEach-Object { $_.Name }) -join ', ' }
 
 $p = Start-Process $Exe -ArgumentList "`"$Dir`"" -PassThru
@@ -18,10 +24,10 @@ Start-Sleep 2
 $row = Find-Element $w -name 'alpha.txt' -timeoutMs 5000
 if (-not $row) { Invoke-Click 400 175 } else { Click-Element $row }
 Start-Sleep 1
-"start: $(State)"
+Expect 'start' 'alpha.txt'
 
 Send-Keys 0x11, 0x43; Start-Sleep 1; Send-Keys 0x11, 0x56; Start-Sleep 4      # Ctrl+C, Ctrl+V
-"after paste: $(State)"
+Expect 'after paste' 'alpha - Copy.txt, alpha.txt'
 
 function Select-Row([string]$name) {
     # Details view shows names without the extension, list view with it. A closing dialog can
@@ -44,13 +50,13 @@ Select-Row 'alpha.txt'
 Send-Keys 0x71; Start-Sleep 2                                                     # F2
 Save-Screenshot (Join-Path $Out 'smoke-rename-dialog.png')
 Send-Text '^a'; Send-Text 'renamed.txt'; Start-Sleep 1; Send-Text '{ENTER}'; Start-Sleep 4
-"after rename: $(State)"
+Expect 'after rename' 'alpha - Copy.txt, renamed.txt'
 
 Select-Row 'renamed.txt'
 Send-Keys 0x11, 0x10, 0x4E; Start-Sleep 2                                         # Ctrl+Shift+N
 Save-Screenshot (Join-Path $Out 'smoke-newfolder-dialog.png')
 Send-Text '^a'; Send-Text 'NewDir'; Start-Sleep 1; Send-Text '{ENTER}'; Start-Sleep 4
-"after new folder: $(State)"
+Expect 'after new folder' 'alpha - Copy.txt, NewDir, renamed.txt'
 Save-Screenshot (Join-Path $Out 'smoke-after-create.png')
 
 Select-Row 'renamed.txt'
@@ -61,7 +67,9 @@ $btn = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Wi
     Select-Object -First 1
 if (-not $btn) { throw 'Delete button not found' }
 Click-Element $btn; Start-Sleep 5                                                 # confirm (Cancel is the default)
-"after delete: $(State)"
+Expect 'after delete' 'alpha - Copy.txt, NewDir'
 "responsive: $($p.Responding) exited: $($p.HasExited)"
+if (-not $p.Responding -or $p.HasExited) { $script:Failures++ }
 Save-Screenshot (Join-Path $Out 'smoke-final.png')
 if (-not $p.HasExited) { $p.Kill() }
+exit [int]($script:Failures -gt 0)
