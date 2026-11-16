@@ -56,3 +56,22 @@ Newest last. Each entry: date, decision, why, alternatives rejected.
   for this code yet. GoogleTest 1.8.1 (the old Microsoft NuGet) works; moving to 1.18 via vcpkg is
   worth doing but is not a blocker. ItemsView vs ListView: Microsoft documents data virtualization for
   ListView (`IItemsRangeInfo`) and no performance claim for ItemsView, so the list stays a ListView.
+
+## Open items (2026-11-16)
+
+- **Load time vs the intermediate p4 build:** the final build loads the 100k folder about 1 s slower
+  than p4 (after #17) when measured in the same session. The sort part is recovered in #50; the
+  enumeration and row-building part is not explained (see perf.md). Next step: a WPR/WPA profile on win1.
+- **UB-10 follow-up:** drive enumeration (`GetDiskFreeSpaceEx` per drive) still runs on the UI
+  thread at startup, on Refresh and on a volume change. Before #47 it ran on every navigation. It
+  should move off the UI thread.
+- **IME type-ahead:** text committed by an IME does not raise `CharacterReceived`, so type-ahead (UB-18)
+  does not cover IME input.
+- **UA-05:** rows filtered right after a load keep the placeholder icon until the next filter.
+- **Case-sensitive NTFS folders:** favourites use a case-insensitive path key, so two folders whose
+  names differ only by case (possible in per-directory case-sensitive folders) collide. This was
+  already true for ASCII names before #45.
+- **Look:** sidebar expanders keep the default WinUI chrome. After the first dual-pane toggle, the
+  right pane takes the focus and the accent.
+- **Default file manager:** Edge's per-item "Show in folder" is not in the video (its "Open downloads
+  folder" is). A probe shows `SHOpenFolderAndSelectItems` opens FileScout, but without selecting the item.
