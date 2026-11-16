@@ -194,6 +194,7 @@
     <ClCompile Include="tests\ThemeBrushKeysTests.cpp" />
     <ClCompile Include="tests\UnhandledExceptionReportTests.cpp" />
     <ClCompile Include="tests\PaneLoadTargetTests.cpp" />
+    <ClCompile Include="tests\PerfProbeTests.cpp" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
