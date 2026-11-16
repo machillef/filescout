@@ -7243,6 +7243,10 @@ namespace winrt::FileScoutNative::implementation
         {
             SortItems(tab.items, pane.sort_column, pane.sort_direction);
         }
+        // During a search the rows come from these lists (DisplayedItems, and the snapshot that
+        // clearing the filter restores): sort them too, or row indices and items disagree.
+        SortItems(pane.search_snapshot, pane.sort_column, pane.sort_direction);
+        SortItems(pane.filtered_items, pane.sort_column, pane.sort_direction);
 
         if (pane.active_tab_index >= 0 && pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
         {
