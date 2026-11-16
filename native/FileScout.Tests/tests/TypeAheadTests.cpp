@@ -95,3 +95,15 @@ TEST(TypeAhead, AcceptsPrintableCharactersButNotControlOrLeadingSpace)
     EXPECT_FALSE(AcceptsTypeAheadCharacter(L'\r', true));
     EXPECT_FALSE(AcceptsTypeAheadCharacter(L'\b', false));
 }
+
+// Navigating to another folder ends the prefix: "f" + Enter into foo, then "b" must find "bar",
+// not search for "fb" (the load resets the pane's buffer).
+TEST(TypeAhead, ResetStartsANewPrefixWithinTheTimeout)
+{
+    std::vector<std::wstring> const names{ L"alpha", L"bar" };
+    TypeAheadBuffer buffer;
+    (void)AppendTypeAheadCharacter(buffer, L'f', 1000);
+    ResetTypeAhead(buffer);
+    EXPECT_EQ(Type(buffer, names, std::nullopt, L'b', 1200), 1u);
+    EXPECT_EQ(buffer.text, L"b");
+}
