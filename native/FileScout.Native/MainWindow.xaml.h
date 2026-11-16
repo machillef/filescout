@@ -283,6 +283,10 @@ namespace winrt::FileScoutNative::implementation
         void LoadDirectory(std::filesystem::path const& path,
             std::optional<std::filesystem::path> selectAfter = std::nullopt,
             bool skipHistoryRecord = false);
+        // Loads `path` into pane `paneIndex` without making it active (UB-07).
+        void LoadDirectoryInPane(int32_t paneIndex, std::filesystem::path const& path,
+            std::optional<std::filesystem::path> selectAfter = std::nullopt,
+            bool skipHistoryRecord = false);
         [[nodiscard]] bool TryNavigateToAddressInput(std::wstring_view rawInput);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
             std::optional<std::filesystem::path> selectAfter);

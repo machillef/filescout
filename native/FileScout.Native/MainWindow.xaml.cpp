@@ -19,6 +19,7 @@
 #include "Domain/NavigationHistory.h"
 #include "Domain/KeyboardShortcuts.h"
 #include "Domain/NavigationInput.h"
+#include "Domain/PaneLoadTarget.h"
 #include "Domain/RenamePolicy.h"
 #include "Domain/RowIconState.h"
 #include "Domain/ShellItemSort.h"
@@ -3150,6 +3151,16 @@ namespace winrt::FileScoutNative::implementation
         std::optional<std::filesystem::path> selectAfter,
         bool skipHistoryRecord)
     {
+        LoadDirectoryInPane(m_activePaneIndex, path, std::move(selectAfter), skipHistoryRecord);
+    }
+
+    void MainWindow::LoadDirectoryInPane(
+        int32_t const paneIndex,
+        std::filesystem::path const& path,
+        std::optional<std::filesystem::path> selectAfter,
+        bool skipHistoryRecord)
+    {
+        auto const chrome = ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex);
         ScopedTimer loadTimer{ L"LoadDirectory: " + path.wstring() };
         m_cutItemPaths.clear();
         std::filesystem::path absolutePath;
@@ -3180,7 +3191,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         // Exit search mode before navigating.
-        auto& pane = ActivePane();
+        auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
 
         // Record current path in back-stack unless this is a history navigation.
         {
@@ -3195,12 +3206,15 @@ namespace winrt::FileScoutNative::implementation
         }
         // The Recycle Bin is a view chosen by the target, so Back/Forward/sidebar clicks leave it.
         pane.is_recycle_bin_view = ::FileScoutNative::Domain::IsRecycleBinLocation(absolutePath);
-        UpdateNavButtons();
-        EndSearchOnNavigation(m_activePaneIndex);
+        if (chrome.toolbar)
+        {
+            UpdateNavButtons();
+        }
+        EndSearchOnNavigation(paneIndex);
 
-        // Capture pane/tab index synchronously so async work targets the right pane
+        // The pane index is fixed here so async work targets the right pane
         // even if the user switches panes before the enumeration finishes.
-        LoadDirectoryAsync(absolutePath, m_activePaneIndex, std::move(selectAfter));
+        LoadDirectoryAsync(absolutePath, paneIndex, std::move(selectAfter));
     }
 
     void MainWindow::RefreshPanesShowing(
@@ -3372,7 +3386,8 @@ namespace winrt::FileScoutNative::implementation
                         pane.last_load_timing = timing;
                         TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
                         ApplyPendingFilter(paneIndex);
-                        if (selectAfter.has_value())
+                        if (selectAfter.has_value() &&
+                            ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
                             SelectItemByPath(*selectAfter);
                     });
             }
@@ -3449,7 +3464,8 @@ namespace winrt::FileScoutNative::implementation
                         pane.last_load_timing = timing;
                         TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
                         ApplyPendingFilter(paneIndex);
-                        if (selectAfter.has_value())
+                        if (selectAfter.has_value() &&
+                            ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
                             SelectItemByPath(*selectAfter);
                     });
             }
@@ -3581,7 +3597,8 @@ namespace winrt::FileScoutNative::implementation
                             pane.last_load_timing = timing;
                             TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
                             ApplyPendingFilter(paneIndex);
-                            if (selectAfter.has_value())
+                            if (selectAfter.has_value() &&
+                            ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
                                 SelectItemByPath(*selectAfter);
                             // P4: backfill real per-extension icons after rows appear.
                             {
@@ -3628,7 +3645,8 @@ namespace winrt::FileScoutNative::implementation
                                 {
                                     BenchOnFullList(paneIndex, totalItems);
                                 }
-                                if (!pane.user_interacted_after_first_batch && selectAfter.has_value())
+                                if (!pane.user_interacted_after_first_batch && selectAfter.has_value() &&
+                                    ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
                                     SelectItemByPath(*selectAfter);
                                 // P4: backfill real per-extension icons after all rows appear.
                                 {
@@ -6872,11 +6890,7 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Temporarily make this pane active to run LoadDirectory through it.
-        auto const savedActivePane = m_activePaneIndex;
-        m_activePaneIndex = paneIndex;
-        LoadDirectory(startPath);
-        m_activePaneIndex = savedActivePane;
+        LoadDirectoryInPane(paneIndex, startPath);
     }
 
     winrt::Microsoft::UI::Xaml::Controls::TabView MainWindow::ActiveTabView()
@@ -7993,25 +8007,8 @@ namespace winrt::FileScoutNative::implementation
         if (m_dualPaneVisible && m_deferredRightPanePath.has_value())
         {
             auto const path = *std::exchange(m_deferredRightPanePath, std::nullopt);
-            auto const savedActivePane = m_activePaneIndex;
-            m_activePaneIndex = 1;
-            LoadDirectory(path);
-            m_activePaneIndex = savedActivePane;
-            // LoadDirectory updated the shared toolbar for pane 1 while it was active; show the
-            // active pane's location and history again.
-            auto const& active = ActivePane();
-            if (active.is_drives_view || active.current_path.empty())
-            {
-                // This PC has no path: same chrome as LoadDrivesView.
-                BreadcrumbPanel().Children().Clear();
-                SearchTextBox().PlaceholderText(L"Search This PC\u2026");
-            }
-            else
-            {
-                UpdateBreadcrumbs(active.current_path);
-                UpdateSearchPlaceholder(active.current_path);
-            }
-            UpdateNavButtons();
+            // Pane 1 loads by index; the shared toolbar keeps showing the active pane (UB-07).
+            LoadDirectoryInPane(1, path);
         }
         StatusTextBlock().Text(m_dualPaneVisible
             ? L"Dual pane enabled."
