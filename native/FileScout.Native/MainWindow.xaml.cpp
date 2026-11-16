@@ -7386,8 +7386,10 @@ namespace winrt::FileScoutNative::implementation
         auto const tabCount = (std::min)(pane.tabs.size(), pane.tab_rows.size());
         for (std::size_t i = 0; i < tabCount; ++i)
         {
+            // The active tab shows DisplayedItems (the filtered list during a search): build its
+            // rows from the same list, or row indices and DisplayedItems disagree.
             auto const& source = (static_cast<int32_t>(i) == pane.active_tab_index)
-                ? pane.items
+                ? DisplayedItems(pane)
                 : pane.tabs[i].items;
 
             auto& rows = pane.tab_rows[i];
