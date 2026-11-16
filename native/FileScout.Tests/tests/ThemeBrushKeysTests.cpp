@@ -29,7 +29,14 @@ namespace
 
     std::string Narrow(std::wstring_view const value)
     {
-        return std::string(value.begin(), value.end());
+        // Brush keys are ASCII, so each wchar_t fits in a char.
+        std::string narrow;
+        narrow.reserve(value.size());
+        for (auto const ch : value)
+        {
+            narrow.push_back(static_cast<char>(ch));
+        }
+        return narrow;
     }
 
     // The WinUI generic.xaml of the package version the app builds against (packages.config).
