@@ -365,7 +365,8 @@ namespace winrt::FileScoutNative::implementation
         void UpdateSearchPlaceholder(std::filesystem::path const& path);
         // R18c: keyboard type-ahead in file list.
         void ApplyPendingFilter(int32_t paneIndex);
-        void EndSearchOnNavigation(int32_t paneIndex);
+        // restoreSnapshot=false when the caller replaces the rows at once (This PC).
+        void EndSearchOnNavigation(int32_t paneIndex, bool restoreSnapshot = true);
         void FileRowsListView_KeyDown(
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args);
         void FileRowsListView_CharacterReceived(

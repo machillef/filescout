@@ -2366,14 +2366,14 @@ namespace winrt::FileScoutNative::implementation
         ApplyPaneStateToRows(pane, filteredItems, rows, m_iconSourceCache);
     }
 
-    void MainWindow::EndSearchOnNavigation(int32_t const paneIndex)
+    void MainWindow::EndSearchOnNavigation(int32_t const paneIndex, bool const restoreSnapshot)
     {
         // Navigation, a tab change or a pane switch ends the search, including a filter that is
         // still waiting for a load to finish (UA-05): it must not filter the next folder.
         auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
         if (pane.search_mode != SearchMode::None)
         {
-            ResetSearchState(paneIndex, true);
+            ResetSearchState(paneIndex, restoreSnapshot);
         }
         else if (pane.pending_filter.HasPending())
         {
@@ -7860,7 +7860,8 @@ namespace winrt::FileScoutNative::implementation
             // Entering This PC is a navigation: end the search (and any filter waiting for a load),
             // and invalidate a folder load still in flight so its callbacks cannot replace the
             // drive list or apply that filter.
-            EndSearchOnNavigation(m_activePaneIndex);
+            // No snapshot restore: the drive rows replace the list right below.
+            EndSearchOnNavigation(m_activePaneIndex, false);
             ++pane.load_generation;
             pane.awaiting_final_batch = false;
             // This PC has no path; the folder being left still belongs in the recents. The sidebar is
