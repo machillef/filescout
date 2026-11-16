@@ -64,16 +64,16 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
-        void AppendStartupLog(std::wstring const& line)
+        // Best effort, as UTF-8: an error path must still reach its message box (UA-09).
+        void AppendStartupLog(std::wstring const& line) noexcept
         {
-            auto const path = std::filesystem::temp_directory_path() / "FileScout.Native.startup.log";
-            std::wofstream stream{ path, std::ios::app };
-            if (!stream.is_open())
+            try
             {
-                return;
+                AppendUtf8LogLine(std::filesystem::temp_directory_path() / "FileScout.Native.startup.log", line);
             }
-
-            stream << line << L"\n";
+            catch (...)
+            {
+            }
         }
 
         void ShowStartupError(wchar_t const* title, winrt::hresult_error const& error)
