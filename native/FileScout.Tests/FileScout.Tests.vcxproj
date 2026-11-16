@@ -125,6 +125,7 @@
   <ItemGroup>
     <ClCompile Include="..\FileScout.Native\Shell\ContextMenuService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\FavoritesService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\ShellStaWorker.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\DefaultFileManagerService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\TempStagingCleanup.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellCommandVerb.cpp" />
@@ -171,6 +172,7 @@
     <ClCompile Include="tests\ThemeServiceTests.cpp" />
     <ClCompile Include="tests\Wave1FeatureGateTests.cpp" />
     <ClCompile Include="tests\ScopedTimerTests.cpp" />
+    <ClCompile Include="tests\ShellStaWorkerTests.cpp" />
     <ClCompile Include="tests\SourceEncodingTests.cpp" />
     <ClCompile Include="tests\DefaultFileManagerServiceTests.cpp" />
     <ClCompile Include="tests\BenchTests.cpp" />

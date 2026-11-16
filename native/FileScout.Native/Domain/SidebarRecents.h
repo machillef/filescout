@@ -10,6 +10,10 @@ namespace FileScoutNative::Domain
     // excluded_keys sets and for building the shown-path exclusion set in BuildSidebarFavorites.
     [[nodiscard]] std::wstring SidebarPathKey(std::filesystem::path const& path);
 
+    // True when `key` is `rootKey` or lies under it (whole path segments: C:\Root covers
+    // C:\Root\Child but not C:\RootOther). Both are SidebarPathKey values.
+    [[nodiscard]] bool IsSameOrDescendantPathKey(std::wstring const& key, std::wstring const& rootKey);
+
     // Returns up to `max` unique recent paths from `candidates` (oldest-first order, i.e.
     // back_stack order) that do not appear in `excluded_keys`. Newest candidates are returned first.
     [[nodiscard]] std::vector<std::filesystem::path> SelectRecentPaths(

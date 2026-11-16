@@ -1,6 +1,10 @@
 #include "pch.h"
 #include <gtest/gtest.h>
 #include "Shell/ShellClipboardService.h"
+#include "Shell/ShellStaWorker.h"
+
+#include <future>
+#include <thread>
 
 using namespace FileScoutNative::Domain;
 using namespace FileScoutNative::Shell;
@@ -151,4 +155,131 @@ TEST_F(ShellClipboardServiceFixture, PasteIntoMissingDestinationReturnsStructure
     EXPECT_EQ(result.attempted_action, L"Paste copy");
     EXPECT_FALSE(result.failure_detail.empty());
     EXPECT_TRUE(std::filesystem::exists(sourcePath));
+}
+
+// S-03: a paste runs later on the shell worker, behind earlier operations. It must act on the
+// clipboard as it was when the user pressed Paste, not on what the user copied in the meantime.
+TEST_F(ShellClipboardServiceFixture, CapturedPasteUsesTheClipboardAtCaptureTime)
+{
+    auto const sourceDirectory = m_root / L"Source";
+    auto const destination = m_root / L"Dest";
+    std::filesystem::create_directories(sourceDirectory);
+    std::filesystem::create_directories(destination);
+    auto const alpha = MakeShellItemRef(WriteFile(sourceDirectory / L"alpha.txt", "a"));
+    auto const beta = MakeShellItemRef(WriteFile(sourceDirectory / L"beta.txt", "b"));
+
+    m_service.CopyShellItems(std::span<ShellItemRef const>{ &alpha, 1 });
+    auto const snapshot = m_service.CaptureClipboard();
+    m_service.CopyShellItems(std::span<ShellItemRef const>{ &beta, 1 });
+
+    auto const result = m_service.PasteCaptured(nullptr, destination, snapshot);
+
+    EXPECT_TRUE(result.succeeded);
+    EXPECT_EQ(result.item_count, 1u);
+    EXPECT_TRUE(std::filesystem::exists(destination / L"alpha.txt"));
+    EXPECT_FALSE(std::filesystem::exists(destination / L"beta.txt"));
+}
+
+// A cut paste clears the clipboard afterwards, but only the cut it pasted: a newer copy stays.
+TEST_F(ShellClipboardServiceFixture, CapturedCutPasteKeepsANewerClipboard)
+{
+    auto const sourceDirectory = m_root / L"Source";
+    auto const destination = m_root / L"Dest";
+    std::filesystem::create_directories(sourceDirectory);
+    std::filesystem::create_directories(destination);
+    auto const alphaPath = WriteFile(sourceDirectory / L"alpha.txt", "a");
+    auto const alpha = MakeShellItemRef(alphaPath);
+    auto const beta = MakeShellItemRef(WriteFile(sourceDirectory / L"beta.txt", "b"));
+
+    m_service.CutShellItems(std::span<ShellItemRef const>{ &alpha, 1 });
+    auto const snapshot = m_service.CaptureClipboard();
+    m_service.CopyShellItems(std::span<ShellItemRef const>{ &beta, 1 });
+
+    auto const result = m_service.PasteCaptured(nullptr, destination, snapshot);
+
+    EXPECT_TRUE(result.succeeded);
+    EXPECT_TRUE(result.was_move);
+    EXPECT_FALSE(std::filesystem::exists(alphaPath));
+    EXPECT_TRUE(std::filesystem::exists(destination / L"alpha.txt"));
+    EXPECT_TRUE(m_service.CanPasteInto(destination));
+}
+
+// The snapshot is taken on the UI thread and pasted on the shell worker's STA.
+TEST_F(ShellClipboardServiceFixture, CapturedPasteRunsOnTheShellWorker)
+{
+    auto const sourceDirectory = m_root / L"Source";
+    auto const destination = m_root / L"Dest";
+    std::filesystem::create_directories(sourceDirectory);
+    std::filesystem::create_directories(destination);
+    auto const alpha = MakeShellItemRef(WriteFile(sourceDirectory / L"alpha.txt", "a"));
+
+    m_service.CopyShellItems(std::span<ShellItemRef const>{ &alpha, 1 });
+    auto const snapshot = m_service.CaptureClipboard();
+
+    std::promise<ClipboardPasteResult> done;
+    {
+        ShellStaWorker worker;
+        worker.Post([&] { done.set_value(m_service.PasteCaptured(nullptr, destination, snapshot)); });
+    }
+    auto const result = done.get_future().get();
+
+    EXPECT_TRUE(result.succeeded);
+    EXPECT_TRUE(std::filesystem::exists(destination / L"alpha.txt"));
+}
+
+// After a cut is pasted the clipboard is cleared, but only if no writer touched it since the
+// snapshot. The check and the clear run while holding the clipboard open, so a writer that has
+// it open (and may be about to replace the content) makes the clear back off instead of racing.
+TEST_F(ShellClipboardServiceFixture, ClearIfUnchangedClearsOnlyTheSnapshotContent)
+{
+    auto const sourceDirectory = m_root / L"Source";
+    std::filesystem::create_directories(sourceDirectory);
+    auto const alpha = MakeShellItemRef(WriteFile(sourceDirectory / L"alpha.txt", "a"));
+    auto const beta = MakeShellItemRef(WriteFile(sourceDirectory / L"beta.txt", "b"));
+
+    m_service.CutShellItems(std::span<ShellItemRef const>{ &alpha, 1 });
+    auto const stale = GetClipboardSequenceNumber();
+    m_service.CopyShellItems(std::span<ShellItemRef const>{ &beta, 1 });
+    EXPECT_FALSE(ShellClipboardService::ClearClipboardIfUnchanged(stale));
+    EXPECT_TRUE(m_service.CanPasteInto(sourceDirectory));
+
+    EXPECT_TRUE(ShellClipboardService::ClearClipboardIfUnchanged(GetClipboardSequenceNumber()));
+    EXPECT_FALSE(m_service.CanPasteInto(sourceDirectory));
+}
+
+TEST_F(ShellClipboardServiceFixture, ClearIfUnchangedBacksOffWhileAnotherWriterHoldsTheClipboard)
+{
+    auto const sourceDirectory = m_root / L"Source";
+    std::filesystem::create_directories(sourceDirectory);
+    auto const alpha = MakeShellItemRef(WriteFile(sourceDirectory / L"alpha.txt", "a"));
+    m_service.CutShellItems(std::span<ShellItemRef const>{ &alpha, 1 });
+    auto const sequence = GetClipboardSequenceNumber();
+
+    std::promise<void> opened;
+    std::promise<void> release;
+    std::thread writer([&] {
+        // A writer owns the open clipboard through its window (OpenClipboard(nullptr) would share
+        // the open state with every thread of this process).
+        HWND const window = CreateWindowExW(
+            0, L"STATIC", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
+        bool const isOpen = window != nullptr && OpenClipboard(window) != FALSE;
+        EXPECT_TRUE(isOpen);
+        opened.set_value();
+        release.get_future().wait();
+        if (isOpen)
+        {
+            CloseClipboard();
+        }
+        if (window != nullptr)
+        {
+            DestroyWindow(window);
+        }
+    });
+    opened.get_future().wait();
+
+    EXPECT_FALSE(ShellClipboardService::ClearClipboardIfUnchanged(sequence));
+
+    release.set_value();
+    writer.join();
+    EXPECT_TRUE(m_service.CanPasteInto(sourceDirectory));
 }

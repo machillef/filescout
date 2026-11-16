@@ -510,7 +510,7 @@ namespace FileScoutNative::Shell
 
     void ShellFileOperationService::PasteItems(
         HWND const ownerWindow,
-        IDataObject* const clipboardDataObject,
+        IUnknown* const items,
         std::filesystem::path const& destinationDirectory,
         bool const move) const
     {
@@ -523,11 +523,11 @@ namespace FileScoutNative::Shell
 
             if (move)
             {
-                winrt::check_hresult(fileOperation->MoveItems(clipboardDataObject, destinationFolder.get()));
+                winrt::check_hresult(fileOperation->MoveItems(items, destinationFolder.get()));
             }
             else
             {
-                winrt::check_hresult(fileOperation->CopyItems(clipboardDataObject, destinationFolder.get()));
+                winrt::check_hresult(fileOperation->CopyItems(items, destinationFolder.get()));
             }
 
             PerformFileOperation(fileOperation.get(), move ? L"Paste move" : L"Paste copy", destinationDirectory.wstring());

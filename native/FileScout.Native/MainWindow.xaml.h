@@ -17,6 +17,7 @@
 #include "Shell\ShellOverflowMenuService.h"
 #include "Shell\CommandRegistry.h"
 #include "Shell\DefaultFileManagerService.h"
+#include "Shell\ShellStaWorker.h"
 #include "Shell\ShellInteropService.h"
 #include "Search\SearchService.h"
 #include "Domain\FileRowViewModel.h"
@@ -216,6 +217,21 @@ namespace winrt::FileScoutNative::implementation
         ::FileScoutNative::Shell::DefaultFileManagerService m_defaultFileManager;
         ::FileScoutNative::Shell::ShellClipboardService m_shellClipboardService;
         ::FileScoutNative::Shell::ShellFileOperationService m_shellFileOperationService;
+        // S-03: IFileOperation work runs here, never on the UI thread. Declared after the services its
+        // tasks use, so it is destroyed (and joins) first.
+        ::FileScoutNative::Shell::ShellStaWorker m_shellWorker;
+
+        // co_await OnShellThread(fn): fn runs on the shell STA, the coroutine resumes on the UI thread.
+        template <typename Fn>
+        auto OnShellThread(Fn fn)
+        {
+            auto resume = [queue = m_dispatcherQueue](std::function<void()> continuation)
+            {
+                queue.TryEnqueue([continuation = std::move(continuation)] { continuation(); });
+            };
+            return ::FileScoutNative::Shell::RunOnShellThread(m_shellWorker, std::move(resume), std::move(fn));
+        }
+        winrt::fire_and_forget PasteIntoAsync(std::filesystem::path destination);
         ::FileScoutNative::Shell::ShellOverflowMenuService m_shellOverflowMenuService;
         ::FileScoutNative::Shell::ShellInteropService m_shellInterop;
         // UB-10: the sidebar is rebuilt on navigation; the drives (with free space) are read once
@@ -267,6 +283,9 @@ namespace winrt::FileScoutNative::implementation
         [[nodiscard]] bool TryNavigateToAddressInput(std::wstring_view rawInput);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
             std::optional<std::filesystem::path> selectAfter);
+        // Reloads every pane whose current folder is `folder` (a file operation changed it).
+        void RefreshPanesShowing(std::filesystem::path const& folder,
+            std::optional<std::filesystem::path> selectAfter = std::nullopt);
         // S7: backfill real per-extension icons asynchronously after fast rows appear.
         winrt::fire_and_forget BackfillIconsAsync(
             int32_t paneIndex, int32_t tabIndex, uint32_t generation,

@@ -13,6 +13,20 @@ namespace FileScoutNative::Domain
         return FoldCase((ec ? path : absolute).lexically_normal().wstring());
     }
 
+    bool IsSameOrDescendantPathKey(std::wstring const& key, std::wstring const& rootKey)
+    {
+        if (rootKey.empty() || key.size() < rootKey.size() || key.compare(0, rootKey.size(), rootKey) != 0)
+        {
+            return false;
+        }
+        if (key.size() == rootKey.size() || rootKey.back() == L'\\' || rootKey.back() == L'/')
+        {
+            return true;
+        }
+        auto const next = key[rootKey.size()];
+        return next == L'\\' || next == L'/';
+    }
+
     std::vector<std::filesystem::path> SelectRecentPaths(
         std::vector<std::filesystem::path> const& candidates,
         std::unordered_set<std::wstring> const& excluded_keys,
