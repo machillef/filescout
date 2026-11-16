@@ -7,11 +7,10 @@
 
 using FileScoutNative::Domain::CachedValue;
 using FileScoutNative::Domain::IsDriveListChange;
-using FileScoutNative::Domain::KeyedCache;
 
 // UB-10: the sidebar is rebuilt on every navigation that records a recent folder. The drive list
-// (with GetDiskFreeSpaceEx per drive) and the shell icons must be read once and reused, not
-// re-read on each rebuild, or navigation stalls on slow and network drives.
+// (with GetDiskFreeSpaceEx per drive) must be read once and reused, not re-read on each rebuild,
+// or navigation stalls on slow and network drives.
 TEST(SidebarCacheTests, ValueIsLoadedOnceAcrossRebuilds)
 {
     CachedValue<std::vector<int>> drives;
@@ -34,22 +33,6 @@ TEST(SidebarCacheTests, InvalidateReloadsOnNextGet)
     value.Invalidate();
     EXPECT_EQ(value.Get(load), 2);
     EXPECT_EQ(value.Get(load), 2);
-}
-
-TEST(SidebarCacheTests, KeyedValuesAreLoadedOncePerKey)
-{
-    KeyedCache<std::wstring> icons;
-    int loads = 0;
-    auto const load = [&](std::wstring const& key) { ++loads; return L"icon:" + key; };
-
-    EXPECT_EQ(icons.Get(L"c:\\a", load), L"icon:c:\\a");
-    EXPECT_EQ(icons.Get(L"c:\\b", load), L"icon:c:\\b");
-    EXPECT_EQ(icons.Get(L"c:\\a", load), L"icon:c:\\a");
-    EXPECT_EQ(loads, 2);
-
-    icons.Clear();
-    EXPECT_EQ(icons.Get(L"c:\\a", load), L"icon:c:\\a");
-    EXPECT_EQ(loads, 3);
 }
 
 // WM_DEVICECHANGE (0x0219) is broadcast to top-level windows when a volume arrives or leaves.

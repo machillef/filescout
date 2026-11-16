@@ -7268,7 +7268,7 @@ namespace winrt::FileScoutNative::implementation
                     btn,
                     winrt::box_value(ToHString(entry.path.wstring())));
                 ScopedTimer iconTimer{ L"GetItemIcon: " + entry.path.wstring() };
-                entryIcon = SidebarIcon(entry.path);
+                entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
             }
 
             auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
@@ -7372,7 +7372,7 @@ namespace winrt::FileScoutNative::implementation
                 rowGrid.ColumnSpacing(8);
 
                 ScopedTimer recentIconTimer{ L"GetItemIcon(recent): " + recentPath.wstring() };
-                auto const entryIcon = SidebarIcon(recentPath);
+                auto const entryIcon = m_shellInterop.GetItemIcon(recentPath, true);
                 auto iconTile = BuildSidebarTile(
                     BuildSidebarGlyph(entryIcon, L"folder"),
                     20.0);
@@ -7449,7 +7449,7 @@ namespace winrt::FileScoutNative::implementation
             rowGrid.ColumnSpacing(8);
 
             ScopedTimer iconTimer{ L"GetItemIcon(bookmark): " + entry.path.wstring() };
-            auto const entryIcon = SidebarIcon(entry.path);
+            auto const entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
             auto iconTile = BuildSidebarTile(
                 BuildSidebarGlyph(entryIcon, L"folder"),
                 20.0);
@@ -7522,17 +7522,9 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    ::FileScoutNative::Domain::IconBitmap MainWindow::SidebarIcon(std::filesystem::path const& path)
-    {
-        return m_sidebarIcons.Get(
-            ::FileScoutNative::Domain::SidebarPathKey(path),
-            [&](std::wstring const&) { return m_shellInterop.GetItemIcon(path, true); });
-    }
-
     void MainWindow::RefreshSidebarCaches()
     {
         m_sidebarDrives.Invalidate();
-        m_sidebarIcons.Clear();
         BuildSidebarFavorites();
     }
 

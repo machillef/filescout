@@ -216,10 +216,9 @@ namespace winrt::FileScoutNative::implementation
         ::FileScoutNative::Shell::ShellFileOperationService m_shellFileOperationService;
         ::FileScoutNative::Shell::ShellOverflowMenuService m_shellOverflowMenuService;
         ::FileScoutNative::Shell::ShellInteropService m_shellInterop;
-        // UB-10: the sidebar is rebuilt on navigation; drives (with free space) and icons are read
-        // once and reused. Drives reload on a volume change or Refresh, icons on Refresh.
+        // UB-10: the sidebar is rebuilt on navigation; the drives (with free space) are read once
+        // and reload on a volume change or Refresh. Sidebar icons are cached by ShellInteropService.
         ::FileScoutNative::Domain::CachedValue<std::vector<::FileScoutNative::Domain::SidebarDriveUsage>> m_sidebarDrives;
-        ::FileScoutNative::Domain::KeyedCache<::FileScoutNative::Domain::IconBitmap> m_sidebarIcons;
         ::FileScoutNative::Shell::CommandRegistry m_commandRegistry;
         POINT m_lastContextMenuPoint{};
         bool m_hasLastContextMenuPoint{ false };
@@ -325,7 +324,6 @@ namespace winrt::FileScoutNative::implementation
 
         void BuildSidebarFavorites();
         void UpdateThisPCSection();
-        ::FileScoutNative::Domain::IconBitmap SidebarIcon(std::filesystem::path const& path);
         void RefreshSidebarCaches();
         void UpdateBookmarksSection();
         void LoadDrivesView();
