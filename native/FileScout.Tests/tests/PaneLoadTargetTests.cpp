@@ -59,7 +59,9 @@ TEST(PaneLoadTarget, MainWindowNoLongerSwapsTheActivePaneToLoad)
     ASSERT_TRUE(stream.is_open()) << path.string();
     std::ostringstream buffer;
     buffer << stream.rdbuf();
-    auto const source = buffer.str();
+    // CI checks out with CRLF line endings; drop the CRs so the body delimiter matches either way.
+    auto source = buffer.str();
+    std::erase(source, '\r');
 
     std::regex const assignsActiveIndex{ R"(m_activePaneIndex\s*=[^=])" };
     for (auto const* signature : { "void MainWindow::InitPane(", "void MainWindow::ToggleDualPane(" })
