@@ -117,3 +117,18 @@ TEST(SidebarRecents, RecordRecentFolder_DropsOldestAtCapacityAndIgnoresEmpty)
     EXPECT_EQ(recents.front(), std::filesystem::path(L"C:\\2"));
     EXPECT_EQ(recents.back(), std::filesystem::path(L"C:\\3"));
 }
+
+// A recursive search rooted at a folder shows results from its subfolders, so a file operation
+// in a subfolder must refresh that search (S-03). Path keys are SidebarPathKey values.
+TEST(SidebarRecents, DescendantPathKeyMatchesOnlyWholeSegmentsUnderTheRoot)
+{
+    using FileScoutNative::Domain::IsSameOrDescendantPathKey;
+    using FileScoutNative::Domain::SidebarPathKey;
+    auto const root = SidebarPathKey(L"C:\\Root");
+    EXPECT_TRUE(IsSameOrDescendantPathKey(SidebarPathKey(L"C:\\Root"), root));
+    EXPECT_TRUE(IsSameOrDescendantPathKey(SidebarPathKey(L"C:\\root\\Child"), root));
+    EXPECT_TRUE(IsSameOrDescendantPathKey(SidebarPathKey(L"C:\\Root\\Child\\Deep"), root));
+    EXPECT_FALSE(IsSameOrDescendantPathKey(SidebarPathKey(L"C:\\RootOther"), root));
+    EXPECT_FALSE(IsSameOrDescendantPathKey(SidebarPathKey(L"C:\\"), root));
+    EXPECT_TRUE(IsSameOrDescendantPathKey(SidebarPathKey(L"C:\\Root"), SidebarPathKey(L"C:\\")));
+}
