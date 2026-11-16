@@ -2357,6 +2357,25 @@ namespace winrt::FileScoutNative::implementation
         ApplyPaneStateToRows(pane, filteredItems, rows, m_iconSourceCache);
     }
 
+    void MainWindow::EndSearchOnNavigation(int32_t const paneIndex)
+    {
+        // Navigation, a tab change or a pane switch ends the search, including a filter that is
+        // still waiting for a load to finish (UA-05): it must not filter the next folder.
+        auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
+        if (pane.search_mode != SearchMode::None)
+        {
+            ResetSearchState(paneIndex, true);
+        }
+        else if (pane.pending_filter.HasPending())
+        {
+            pane.pending_filter.Clear();
+            if (paneIndex == m_activePaneIndex)
+            {
+                SearchTextBox().Text(L"");
+            }
+        }
+    }
+
     void MainWindow::ApplyPendingFilter(int32_t const paneIndex)
     {
         auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
@@ -2858,10 +2877,7 @@ namespace winrt::FileScoutNative::implementation
         auto const paneIndex = PaneIndexForTabView(tabView);
         auto& pane = m_panes[paneIndex];
 
-        if (pane.search_mode != SearchMode::None)
-        {
-            ResetSearchState(paneIndex, true);
-        }
+        EndSearchOnNavigation(paneIndex);
 
         if (pane.tab_switching || pane.tabs.empty())
         {
@@ -3163,10 +3179,7 @@ namespace winrt::FileScoutNative::implementation
         // The Recycle Bin is a view chosen by the target, so Back/Forward/sidebar clicks leave it.
         pane.is_recycle_bin_view = ::FileScoutNative::Domain::IsRecycleBinLocation(absolutePath);
         UpdateNavButtons();
-        if (pane.search_mode != SearchMode::None)
-        {
-            ResetSearchState(m_activePaneIndex, true);
-        }
+        EndSearchOnNavigation(m_activePaneIndex);
 
         // Capture pane/tab index synchronously so async work targets the right pane
         // even if the user switches panes before the enumeration finishes.
@@ -6873,11 +6886,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         // Exit search mode on the outgoing pane before switching.
-        auto& outgoing = m_panes[m_activePaneIndex];
-        if (outgoing.search_mode != SearchMode::None)
-        {
-            ResetSearchState(m_activePaneIndex, true);
-        }
+        EndSearchOnNavigation(m_activePaneIndex);
 
         m_activePaneIndex = paneIndex;
         UpdateActivePaneIndicator();
@@ -7355,6 +7364,9 @@ namespace winrt::FileScoutNative::implementation
     {
         auto& pane = m_panes[paneIndex];
         // Cancel any pending staged-publish dispatch — this rebuild replaces it entirely.
+        // The staged final publish then returns early, so a filter typed meanwhile (UA-05) is
+        // applied after this rebuild instead, once the listing is complete.
+        bool const replacesFinalPublish = pane.awaiting_final_batch && !pane.items.empty();
         pane.awaiting_final_batch = false;
 
         // Use (std::min)() to prevent expansion of the Windows.h min() macro.
@@ -7402,6 +7414,11 @@ namespace winrt::FileScoutNative::implementation
             {
                 UpdateRowSelectionVisuals(pane);
             }
+        }
+
+        if (replacesFinalPublish)
+        {
+            ApplyPendingFilter(paneIndex);
         }
     }
 
