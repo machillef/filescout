@@ -156,11 +156,13 @@ namespace FileScoutNative::Domain
     // _wcsicmp for ASCII).
     [[nodiscard]] inline int CompareIgnoreCase(std::wstring_view const left, std::wstring_view const right) noexcept
     {
+        // One table lookup per comparison, not per character (a sort makes millions of these).
+        auto const& fold = detail::FoldTable();
         auto const common = (std::min)(left.size(), right.size());
         for (std::size_t index = 0; index < common; ++index)
         {
-            auto const l = FoldChar(left[index]);
-            auto const r = FoldChar(right[index]);
+            auto const l = fold[static_cast<std::size_t>(left[index])];
+            auto const r = fold[static_cast<std::size_t>(right[index])];
             if (l != r)
             {
                 return l < r ? -1 : 1;

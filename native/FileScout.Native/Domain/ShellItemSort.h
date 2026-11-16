@@ -108,15 +108,33 @@ namespace FileScoutNative::Domain
         ShellItemSortColumn const column,
         ShellItemSortDirection const direction)
     {
-        std::stable_sort(
-            items.begin(),
-            items.end(),
-            [column, direction](ShellItemRef const& left, ShellItemRef const& right)
+        // The comparison is a total order (it ends in the full path), so a plain sort gives the same
+        // result as a stable one. Sorting pointers and moving each item once avoids the n log n moves
+        // of a ShellItemRef (several strings and a path) that sorting the items in place costs.
+        std::vector<ShellItemRef*> order;
+        order.reserve(items.size());
+        for (auto& item : items)
+        {
+            order.push_back(&item);
+        }
+
+        std::sort(
+            order.begin(),
+            order.end(),
+            [column, direction](ShellItemRef const* left, ShellItemRef const* right)
             {
-                auto const comparison = CompareShellItems(left, right, column);
+                auto const comparison = CompareShellItems(*left, *right, column);
                 return direction == ShellItemSortDirection::Ascending
                     ? comparison < 0
                     : comparison > 0;
             });
+
+        std::vector<ShellItemRef> sorted;
+        sorted.reserve(items.size());
+        for (auto* const item : order)
+        {
+            sorted.push_back(std::move(*item));
+        }
+        items.swap(sorted);
     }
 }
