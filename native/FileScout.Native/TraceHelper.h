@@ -41,18 +41,26 @@ inline void AppendUtf8LogLine(std::filesystem::path const& path, std::wstring_vi
 
 // Persistent, append-only trace log for startup crash diagnosis.
 // Writes to %TEMP%\FileScout.Native.trace.log — never deleted.
-inline void TraceLog(std::wstring const& line)
+inline void TraceLog(std::wstring const& line) noexcept
 {
-    wchar_t tempPath[MAX_PATH]{};
-    if (GetTempPathW(MAX_PATH, tempPath) == 0) { return; }
-    auto path = std::filesystem::path{ tempPath } / L"FileScout.Native.trace.log";
+    // Best effort as a whole: it runs on error paths (the unhandled-exception handler), where a
+    // throw from building the path or the line would skip the error dialog (UA-09).
+    try
+    {
+        wchar_t tempPath[MAX_PATH]{};
+        if (GetTempPathW(MAX_PATH, tempPath) == 0) { return; }
+        auto path = std::filesystem::path{ tempPath } / L"FileScout.Native.trace.log";
 
-    SYSTEMTIME st{};
-    ::GetLocalTime(&st);
-    wchar_t ts[32]{};
-    swprintf_s(ts, L"%02u:%02u:%02u.%03u", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+        SYSTEMTIME st{};
+        ::GetLocalTime(&st);
+        wchar_t ts[32]{};
+        swprintf_s(ts, L"%02u:%02u:%02u.%03u", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
 
-    AppendUtf8LogLine(path, std::wstring{ ts } + L" [" + std::to_wstring(::GetTickCount64()) + L"] " + line);
+        AppendUtf8LogLine(path, std::wstring{ ts } + L" [" + std::to_wstring(::GetTickCount64()) + L"] " + line);
+    }
+    catch (...)
+    {
+    }
 }
 
 // RAII timer that logs "[TIMER] <label>: done in <N>ms" to sink on destruction.

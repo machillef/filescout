@@ -90,3 +90,12 @@ TEST(TraceLogFile, UnwritablePathDoesNotThrow)
 {
     EXPECT_NO_THROW(AppendUtf8LogLine(L"Z:\\no\\such\\dir\\log.txt", L"line"));
 }
+
+// The unhandled-exception handler calls TraceLog before its error dialog: the whole call, not
+// only the file write, must be unable to throw.
+TEST(TraceLogFile, TraceLogAndAppendCannotThrow)
+{
+    static_assert(noexcept(TraceLog(std::wstring{})));
+    static_assert(noexcept(AppendUtf8LogLine(std::filesystem::path{}, std::wstring_view{})));
+    EXPECT_NO_THROW(TraceLog(L"TraceLogAndAppendCannotThrow"));
+}
