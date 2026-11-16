@@ -6448,6 +6448,8 @@ namespace winrt::FileScoutNative::implementation
     {
         auto& pane = ActivePane();
         auto tabView = ActiveTabView();
+        // Another tab shows other rows: a prefix typed in the previous tab must not carry over.
+        ::FileScoutNative::Domain::ResetTypeAhead(pane.type_ahead);
 
         if (pane.active_tab_index < 0 ||
             pane.active_tab_index >= static_cast<int32_t>(pane.tabs.size()))
