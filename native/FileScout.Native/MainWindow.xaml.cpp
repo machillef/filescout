@@ -3154,8 +3154,18 @@ namespace winrt::FileScoutNative::implementation
         for (int32_t index = 0; index < static_cast<int32_t>(m_panes.size()); ++index)
         {
             auto& pane = m_panes[index];
-            if (pane.is_drives_view || pane.is_recycle_bin_view || pane.current_path.empty() ||
-                ::FileScoutNative::Domain::SidebarPathKey(pane.current_path) != folderKey)
+            if (pane.is_drives_view || pane.is_recycle_bin_view || pane.current_path.empty())
+            {
+                continue;
+            }
+
+            // A recursive search lists results from subfolders of its root, so a change anywhere
+            // under that root makes its results stale too.
+            auto const paneKey = ::FileScoutNative::Domain::SidebarPathKey(pane.current_path);
+            auto const isShown = paneKey == folderKey ||
+                (pane.search_mode != SearchMode::None &&
+                 ::FileScoutNative::Domain::IsSameOrDescendantPathKey(folderKey, paneKey));
+            if (!isShown)
             {
                 continue;
             }
