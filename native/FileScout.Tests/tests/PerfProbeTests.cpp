@@ -30,7 +30,9 @@ TEST(PerfProbe, DISABLED_LoadStages100k)
         ASSERT_NE(h, INVALID_HANDLE_VALUE) << "C:\\fsperf\\100k is not readable";
         std::vector<FILETIME> times;
         do { times.push_back(fd.ftLastWriteTime); times.push_back(fd.ftCreationTime); } while (FindNextFileW(h, &fd));
+        auto const error = GetLastError();
         FindClose(h);
+        ASSERT_EQ(error, static_cast<DWORD>(ERROR_NO_MORE_FILES)) << "enumeration stopped early";
         auto t4 = clock::now();
         FileScoutNative::Shell::LocaleDateTimeFormatter formatter;
         std::size_t total = 0;
