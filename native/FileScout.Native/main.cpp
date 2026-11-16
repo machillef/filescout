@@ -16,15 +16,16 @@ namespace
         return std::filesystem::temp_directory_path() / "FileScout.Native.startup.log";
     }
 
-    void AppendStartupLog(std::wstring const& line)
+    // Best effort, as UTF-8: an error path must still reach its message box (UA-09).
+    void AppendStartupLog(std::wstring const& line) noexcept
     {
-        std::wofstream stream{ StartupLogPath(), std::ios::app };
-        if (!stream.is_open())
+        try
         {
-            return;
+            AppendUtf8LogLine(StartupLogPath(), line);
         }
-
-        stream << line << L"\n";
+        catch (...)
+        {
+        }
     }
 
     int ShowBootstrapFailure(HRESULT const hr)
