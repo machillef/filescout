@@ -23,6 +23,7 @@
 #include "Domain/ShellItemSort.h"
 #include "Domain/SidebarRecents.h"
 #include "Domain/ThemeService.h"
+#include "Domain/TypeAhead.h"
 #include "Domain/Wave1FeatureGate.h"
 #include "Search/SearchFilter.h"
 #include "Search/SearchPresentation.h"
@@ -3159,6 +3160,7 @@ namespace winrt::FileScoutNative::implementation
         pane.items.clear();
         pane.selection.Clear();
         pane.tab_rows[tabIndex].Clear();
+        ::FileScoutNative::Domain::ResetTypeAhead(pane.type_ahead);
         // The tab's cached listing belongs to the folder being left; drop it now that current_path
         // already names the pending target, so a sort or tab switch before the listing arrives
         // cannot pair the new path with the old folder's items (RestoreActiveTab reloads an empty cache).
@@ -6093,6 +6095,12 @@ namespace winrt::FileScoutNative::implementation
                 FileRowsListView_KeyDown(a);
             });
 
+        listView.CharacterReceived([this, paneIndex](auto const&, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                FileRowsListView_CharacterReceived(a);
+            });
+
         listView.Loaded([this, paneIndex](auto const& sender, auto const&)
             {
                 auto const list = sender.as<winrt::Microsoft::UI::Xaml::Controls::ListView>();
@@ -6148,57 +6156,91 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        auto const vk = static_cast<int32_t>(args.Key());
-        // VK codes 65–90 are A–Z.
-        if (vk < 65 || vk > 90) return;
+        // Type-ahead runs from CharacterReceived, which gets the typed character for any keyboard
+        // layout instead of a virtual key (UB-18). Text committed by an IME does not raise
+        // CharacterReceived, so IME type-ahead is not supported.
+    }
 
+    void MainWindow::FileRowsListView_CharacterReceived(
+        winrt::Microsoft::UI::Xaml::Input::CharacterReceivedRoutedEventArgs const& args)
+    {
         auto& pane = ActivePane();
-        if (pane.search_mode != SearchMode::None) return;
-        if (pane.items.empty()) return;
-
-        wchar_t const ch = static_cast<wchar_t>(std::towlower(static_cast<wchar_t>(vk)));
-
-        // Start from the item after the current selection, wrapping around.
-        int32_t const selected = pane.active_list_view ? pane.active_list_view.SelectedIndex() : -1;
-        int32_t const start = (selected >= 0)
-            ? (selected + 1) % static_cast<int32_t>(pane.items.size())
-            : 0;
-
-        for (std::size_t i = 0; i < pane.items.size(); ++i)
+        auto const nowMs = ::GetTickCount64();
+        auto const ch = args.Character();
+        if (!::FileScoutNative::Domain::AcceptsTypeAheadCharacter(
+                ch, ::FileScoutNative::Domain::IsTypeAheadIdle(pane.type_ahead, nowMs)))
         {
-            auto const idx = static_cast<int32_t>((start + i) % static_cast<int32_t>(pane.items.size()));
-            auto const& name = pane.items[static_cast<std::size_t>(idx)].display_name;
-            if (!name.empty() && std::towlower(name[0]) == ch)
-            {
-                SelectItemByIndex(idx);
-                if (pane.active_list_view)
-                {
-                    // Fix bug #2: set ListView SelectedIndex so the next keypress reads the
-                    // correct position from SelectedIndex(). SelectItemByIndex only updates
-                    // the domain model — without this, SelectedIndex() stays stale and every
-                    // press restarts from the same item.
-                    pane.active_list_view.SelectedIndex(idx);
-                    pane.active_list_view.ScrollIntoView(
-                        pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
-                    pane.active_list_view.UpdateLayout();
+            return;
+        }
 
-                    if (auto const container =
-                            pane.active_list_view.ContainerFromIndex(idx)
-                                .try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>())
-                    {
-                        container.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
-                    }
-                    else
-                    {
-                        pane.active_list_view.Focus(
-                            winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
-                    }
-                }
-                StatusTextBlock().Text(ToHString(L"\u2192 " + pane.items[static_cast<std::size_t>(idx)].display_name));
-                args.Handled(true);
-                return;
+        auto const& displayed = DisplayedItems();
+        if (displayed.empty())
+        {
+            return;
+        }
+
+        auto const query = ::FileScoutNative::Domain::AppendTypeAheadCharacter(pane.type_ahead, ch, nowMs);
+        // Search from the focused row (Ctrl+arrows move focus without selecting in Extended mode);
+        // fall back to the selection.
+        int32_t start = -1;
+        if (pane.active_list_view && pane.active_list_view.XamlRoot())
+        {
+            auto const focusedElement = winrt::Microsoft::UI::Xaml::Input::FocusManager::GetFocusedElement(
+                pane.active_list_view.XamlRoot());
+            if (auto const container = focusedElement.try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>())
+            {
+                start = pane.active_list_view.IndexFromContainer(container);
+            }
+            if (start < 0)
+            {
+                start = pane.active_list_view.SelectedIndex();
             }
         }
+        auto const focused = start >= 0
+            ? std::optional<std::size_t>{ static_cast<std::size_t>(start) }
+            : std::nullopt;
+        // During a staged load DisplayedItems() already holds every row while the ListView only has
+        // the first batch; never select a row that has not been published yet.
+        std::size_t const published = pane.active_tab_index >= 0 &&
+                pane.active_tab_index < static_cast<int32_t>(pane.tab_rows.size())
+            ? (std::min)(displayed.size(), static_cast<std::size_t>(pane.tab_rows[pane.active_tab_index].Size()))
+            : displayed.size();
+        auto const match = ::FileScoutNative::Domain::FindTypeAheadMatch(
+            published,
+            [&](std::size_t const i) -> std::wstring_view { return displayed[i].display_name; },
+            focused,
+            query);
+        args.Handled(true);
+        if (!match.has_value())
+        {
+            StatusTextBlock().Text(ToHString(L"No item starts with \u201C" + pane.type_ahead.text + L"\u201D"));
+            return;
+        }
+
+        auto const idx = static_cast<int32_t>(*match);
+        auto const displayName = displayed[*match].display_name;
+        SelectItemByIndex(idx);
+        if (pane.active_list_view)
+        {
+            // Set ListView SelectedIndex so the next keypress starts from this row (SelectItemByIndex
+            // only updates the domain model).
+            pane.active_list_view.SelectedIndex(idx);
+            pane.active_list_view.ScrollIntoView(
+                pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
+            pane.active_list_view.UpdateLayout();
+
+            if (auto const container =
+                    pane.active_list_view.ContainerFromIndex(idx)
+                        .try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>())
+            {
+                container.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+            }
+            else
+            {
+                pane.active_list_view.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+            }
+        }
+        StatusTextBlock().Text(ToHString(L"\u2192 " + displayName));
     }
 
     bool MainWindow::ActivateDisplayedItemByIndex(std::optional<int32_t> const itemIndex)
@@ -6406,6 +6448,8 @@ namespace winrt::FileScoutNative::implementation
     {
         auto& pane = ActivePane();
         auto tabView = ActiveTabView();
+        // Another tab shows other rows: a prefix typed in the previous tab must not carry over.
+        ::FileScoutNative::Domain::ResetTypeAhead(pane.type_ahead);
 
         if (pane.active_tab_index < 0 ||
             pane.active_tab_index >= static_cast<int32_t>(pane.tabs.size()))
