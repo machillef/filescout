@@ -4,6 +4,7 @@
 #include "Shell/ShellStaWorker.h"
 
 #include <future>
+#include <thread>
 
 using namespace FileScoutNative::Domain;
 using namespace FileScoutNative::Shell;
@@ -224,4 +225,53 @@ TEST_F(ShellClipboardServiceFixture, CapturedPasteRunsOnTheShellWorker)
 
     EXPECT_TRUE(result.succeeded);
     EXPECT_TRUE(std::filesystem::exists(destination / L"alpha.txt"));
+}
+
+// After a cut is pasted the clipboard is cleared, but only if no writer touched it since the
+// snapshot. The check and the clear run while holding the clipboard open, so a writer that has
+// it open (and may be about to replace the content) makes the clear back off instead of racing.
+TEST_F(ShellClipboardServiceFixture, ClearIfUnchangedClearsOnlyTheSnapshotContent)
+{
+    auto const sourceDirectory = m_root / L"Source";
+    std::filesystem::create_directories(sourceDirectory);
+    auto const alpha = MakeShellItemRef(WriteFile(sourceDirectory / L"alpha.txt", "a"));
+    auto const beta = MakeShellItemRef(WriteFile(sourceDirectory / L"beta.txt", "b"));
+
+    m_service.CutShellItems(std::span<ShellItemRef const>{ &alpha, 1 });
+    auto const stale = GetClipboardSequenceNumber();
+    m_service.CopyShellItems(std::span<ShellItemRef const>{ &beta, 1 });
+    EXPECT_FALSE(ShellClipboardService::ClearClipboardIfUnchanged(stale));
+    EXPECT_TRUE(m_service.CanPasteInto(sourceDirectory));
+
+    EXPECT_TRUE(ShellClipboardService::ClearClipboardIfUnchanged(GetClipboardSequenceNumber()));
+    EXPECT_FALSE(m_service.CanPasteInto(sourceDirectory));
+}
+
+TEST_F(ShellClipboardServiceFixture, ClearIfUnchangedBacksOffWhileAnotherWriterHoldsTheClipboard)
+{
+    auto const sourceDirectory = m_root / L"Source";
+    std::filesystem::create_directories(sourceDirectory);
+    auto const alpha = MakeShellItemRef(WriteFile(sourceDirectory / L"alpha.txt", "a"));
+    m_service.CutShellItems(std::span<ShellItemRef const>{ &alpha, 1 });
+    auto const sequence = GetClipboardSequenceNumber();
+
+    std::promise<void> opened;
+    std::promise<void> release;
+    std::thread writer([&] {
+        bool const isOpen = OpenClipboard(nullptr) != FALSE;
+        EXPECT_TRUE(isOpen);
+        opened.set_value();
+        release.get_future().wait();
+        if (isOpen)
+        {
+            CloseClipboard();
+        }
+    });
+    opened.get_future().wait();
+
+    EXPECT_FALSE(ShellClipboardService::ClearClipboardIfUnchanged(sequence));
+
+    release.set_value();
+    writer.join();
+    EXPECT_TRUE(m_service.CanPasteInto(sourceDirectory));
 }
