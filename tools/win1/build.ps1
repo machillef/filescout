@@ -16,7 +16,9 @@ param(
     [switch] $Test,
     [string] $TestFilter = '*',
     [string] $PackagesCache = 'C:\fsdev\packages',
-    [string] $Target = 'Build'
+    [string] $Target = 'Build',
+    # Extra MSBuild properties, e.g. 'FileScoutNavDiag=true' for the opt-in diagnostics build.
+    [string[]] $Property = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,8 +36,9 @@ if (-not (Test-Path $packages)) {
 $sln = Join-Path $native 'FileScout.Native.sln'
 $devCmd = Join-Path $vsRoot 'Common7\Tools\VsDevCmd.bat'
 $log = Join-Path $Root "build-$Configuration.log"
+$extra = ($Property | Where-Object { $_ } | ForEach-Object { "/p:$_" }) -join ' '
 $cmdLine = "call `"$devCmd`" -arch=x64 -no_logo && msbuild `"$sln`" /t:$Target /restore " +
-    "/p:RestorePackagesConfig=true /p:Configuration=$Configuration /p:Platform=x64 /m /nologo /v:minimal " +
+    "/p:RestorePackagesConfig=true /p:Configuration=$Configuration /p:Platform=x64 $extra /m /nologo /v:minimal " +
     "/flp:LogFile=`"$log`";Verbosity=normal"
 # win1 has 8 GB RAM: two concurrent WinUI builds exhaust the commit limit (C1076/C3859 PCH errors).
 # An exclusively opened lock file serialises CI (user fsci) and local builds (Administrator); a named

@@ -36,6 +36,7 @@
 
 #include <cassert>
 #include "Bench.h"
+#include "NavDiag.h"
 #include "Domain/ParallelFor.h"
 
 #if __has_include("MainWindow.g.cpp")
@@ -1018,6 +1019,54 @@ namespace
         return fallback;
     }
 
+    winrt::Microsoft::UI::Xaml::FrameworkElement BuildCachedSidebarGlyph(
+        std::filesystem::path const& path,
+        ::FileScoutNative::Shell::ShellInteropService const& shellInterop,
+        std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::Media::ImageSource>& iconSourceCache,
+        std::wstring const& fallbackText,
+        long long* iconDurationUs = nullptr)
+    {
+        if (!path.empty())
+        {
+            auto const cacheKey = L"__sidebar_img__:" + ::FileScoutNative::Domain::SidebarPathKey(path);
+            auto it = iconSourceCache.find(cacheKey);
+            winrt::Microsoft::UI::Xaml::Media::ImageSource source{ nullptr };
+            if (it != iconSourceCache.end())
+            {
+                source = it->second;
+            }
+            else
+            {
+                ScopedTimer iconTimer{ L"GetItemIcon: " + path.wstring() };
+                auto const iconBegin = iconDurationUs ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
+                auto const bitmap = shellInterop.GetItemIcon(path, true);
+                if (iconDurationUs)
+                {
+                    *iconDurationUs += ::FileScoutNative::NavDiag::SpanUs(iconBegin, ::FileScoutNative::NavDiag::Now());
+                }
+                if (auto built = BuildIconSource(bitmap))
+                {
+                    iconSourceCache.emplace(cacheKey, built);
+                    source = std::move(built);
+                }
+            }
+
+            if (source)
+            {
+                auto image = winrt::Microsoft::UI::Xaml::Controls::Image{};
+                image.Width(16);
+                image.Height(16);
+                image.Stretch(winrt::Microsoft::UI::Xaml::Media::Stretch::Uniform);
+                image.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+                image.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+                image.Source(source);
+                return image;
+            }
+        }
+
+        return BuildSidebarGlyph(std::nullopt, fallbackText);
+    }
+
     winrt::Microsoft::UI::Xaml::Media::Brush SolidBrush(
         uint8_t const alpha,
         uint8_t const red,
@@ -1658,7 +1707,7 @@ namespace
             winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer timer{ nullptr };
         };
         auto state = std::make_shared<State>(State{ std::forward<Action>(action) });
-        auto run = [state]()
+        auto run = [state](::FileScoutNative::NavDiag::StagedTrigger const trigger)
         {
             if (state->done)
             {
@@ -1674,21 +1723,109 @@ namespace
                 state->timer = nullptr;
             }
             auto action = std::move(state->action);
-            action();
+            if constexpr (std::is_invocable_v<decltype(action)&, ::FileScoutNative::NavDiag::StagedTrigger>)
+            {
+                action(trigger);
+            }
+            else
+            {
+                action();
+            }
         };
         state->token = winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(
             [state, run](auto&&, auto&&)
             {
                 if (++state->frames >= 2)
                 {
-                    run();
+                    run(::FileScoutNative::NavDiag::StagedTrigger::Rendering2);
                 }
             });
         state->timer = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread().CreateTimer();
         state->timer.Interval(std::chrono::milliseconds(250));
         state->timer.IsRepeating(false);
-        state->timer.Tick([run](auto&&, auto&&) { run(); });
+        state->timer.Tick([run](auto&&, auto&&) { run(::FileScoutNative::NavDiag::StagedTrigger::FallbackTimer); });
         state->timer.Start();
+    }
+
+    // ---- Navigation diagnostics (FILESCOUT_NAVDIAG build + FILESCOUT_NAVDIAG_OUT); see NavDiag.h ----
+
+    // Scope of one sidebar Click handler: the folder load it starts is attributed to the click.
+    struct NavDiagSidebarClick
+    {
+        NavDiagSidebarClick() noexcept { ::FileScoutNative::NavDiag::Recorder::Instance().BeginSidebarClick(); }
+        ~NavDiagSidebarClick()
+        {
+            try { ::FileScoutNative::NavDiag::Recorder::Instance().EndSidebarClick(); }
+            catch (...) {}
+        }
+        NavDiagSidebarClick(NavDiagSidebarClick const&) = delete;
+        NavDiagSidebarClick& operator=(NavDiagSidebarClick const&) = delete;
+    };
+
+    void NavDiagEmit(::FileScoutNative::NavDiag::Trace const& trace)
+    {
+        try { ::FileScoutNative::NavDiag::Recorder::Instance().Emit(trace); }
+        catch (...) {}
+    }
+
+    // UI thread, right after the last publish: stamps the second CompositionTarget::Rendering
+    // callback (a pre-render signal, not a verified present), then writes the record. A window that
+    // renders no frames (minimised) is written after 1 s with frame_observed=false.
+    void NavDiagEmitAfterFrames(::FileScoutNative::NavDiag::Trace trace)
+    {
+        if (!trace.active)
+        {
+            return;
+        }
+        struct State
+        {
+            ::FileScoutNative::NavDiag::Trace trace;
+            int frames = 0;
+            bool done = false;
+            winrt::event_token token{};
+            winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer timer{ nullptr };
+        };
+        auto state = std::make_shared<State>();
+        state->trace = trace;
+        auto finish = [state](bool const observed)
+        {
+            if (state->done)
+            {
+                return;
+            }
+            state->done = true;
+            winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(state->token);
+            if (state->timer)
+            {
+                state->timer.Stop();
+                state->timer = nullptr;
+            }
+            if (observed)
+            {
+                state->trace.frame_after_final = ::FileScoutNative::NavDiag::Now();
+                state->trace.frame_observed = true;
+            }
+            NavDiagEmit(state->trace);
+        };
+        state->token = winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(
+            [state, finish](auto&&, auto&&)
+            {
+                if (++state->frames >= 2)
+                {
+                    finish(true);
+                }
+            });
+        state->timer = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread().CreateTimer();
+        state->timer.Interval(std::chrono::milliseconds(1000));
+        state->timer.IsRepeating(false);
+        state->timer.Tick([finish](auto&&, auto&&) { finish(false); });
+        state->timer.Start();
+    }
+
+    void NavDiagSuperseded(::FileScoutNative::NavDiag::Trace trace)
+    {
+        trace.outcome = ::FileScoutNative::NavDiag::Outcome::Superseded;
+        NavDiagEmit(trace);
     }
 
     // ---- Bench mode (FILESCOUT_BENCH_OUT); measurement only, see Bench.h ----
@@ -3197,11 +3334,25 @@ namespace winrt::FileScoutNative::implementation
         {
             // Recents list the folder being LEFT (BeginNavigation makes the target current at once),
             // for every navigation that leaves a folder, Back/Forward included.
-            if (::FileScoutNative::Domain::NavigateAndRecordRecent(
-                    pane.back_stack, pane.forward_stack, pane.current_path, m_recentFolders,
-                    absolutePath, skipHistoryRecord, kRecentFolderCapacity))
+            auto& navDiagRec = ::FileScoutNative::NavDiag::Recorder::Instance();
+            auto const recentsBegin = navDiagRec.Enabled() ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
+            bool const recentsChanged = ::FileScoutNative::Domain::NavigateAndRecordRecent(
+                pane.back_stack, pane.forward_stack, pane.current_path, m_recentFolders,
+                absolutePath, skipHistoryRecord, kRecentFolderCapacity);
+            if (navDiagRec.Enabled())
             {
-                BuildSidebarFavorites();  // refresh recent paths section
+                navDiagRec.NoteRecentsUpdate(::FileScoutNative::NavDiag::SpanUs(recentsBegin, ::FileScoutNative::NavDiag::Now()));
+            }
+            // Update active highlight in place without tearing down the sidebar XAML tree.
+            // If the visible recents list actually changed, refresh only the recents tail at
+            // Low priority so directory enumeration and first-row publication run first.
+            if (chrome.toolbar)
+            {
+                UpdateSidebarSelectionHighlights();
+            }
+            if (recentsChanged)
+            {
+                ScheduleSidebarRecentsRefresh();
             }
         }
         // The Recycle Bin is a view chosen by the target, so Back/Forward/sidebar clicks leave it.
@@ -3265,12 +3416,17 @@ namespace winrt::FileScoutNative::implementation
         PaneLoadTiming timing{};
         timing.load_start_tick = ::GetTickCount64();
         pane.last_load_timing = timing;
+        auto navDiag = ::FileScoutNative::NavDiag::Recorder::Instance().StartLoad(paneIndex,
+            pane.is_recycle_bin_view ? ::FileScoutNative::NavDiag::Kind::RecycleBin
+                                     : ::FileScoutNative::NavDiag::Kind::Folder);
 
         // Immediately clear stale content on the UI thread so the list goes blank
         // rather than showing outdated rows during enumeration.
         pane.items.clear();
         pane.selection.Clear();
+        if (navDiag.active) { navDiag.pre_reset_begin = ::FileScoutNative::NavDiag::Now(); }
         pane.tab_rows[tabIndex].Clear();
+        if (navDiag.active) { navDiag.pre_reset_end = ::FileScoutNative::NavDiag::Now(); }
         ::FileScoutNative::Domain::ResetTypeAhead(pane.type_ahead);
         // The tab's cached listing belongs to the folder being left; drop it now that current_path
         // already names the pending target, so a sort or tab switch before the listing arrives
@@ -3314,6 +3470,7 @@ namespace winrt::FileScoutNative::implementation
         bool const show_file_extensions = pane.show_file_extensions;
         bool const is_recycle_bin_view = pane.is_recycle_bin_view;
 
+        if (navDiag.active) { navDiag.ui_pre_done = ::FileScoutNative::NavDiag::Now(); }
         // Switch to a thread-pool thread for I/O and shell COM calls.
         co_await winrt::resume_background();
 
@@ -3321,18 +3478,23 @@ namespace winrt::FileScoutNative::implementation
         {
             if (is_recycle_bin_view)
             {
+                if (navDiag.active) { navDiag.enumerate_begin = ::FileScoutNative::NavDiag::Now(); }
                 auto recycleItems = m_shellInterop.EnumerateRecycleBin();
                 timing.enumeration_end_tick = ::GetTickCount64();
+                if (navDiag.active) { navDiag.enumerate_end = navDiag.enqueue = ::FileScoutNative::NavDiag::Now(); }
                 m_dispatcherQueue.TryEnqueue(
                     [this, lifetime, paneIndex, tabIndex, generation,
-                     absolute, selectAfter, timing, items = std::move(recycleItems)]() mutable
+                     absolute, selectAfter, timing, navDiag, items = std::move(recycleItems)]() mutable
                     {
+                        if (navDiag.active) { navDiag.callback = ::FileScoutNative::NavDiag::Now(); }
                         auto& pane = m_panes[paneIndex];
-                        if (pane.load_generation != generation) return;
-                        if (pane.active_tab_index != tabIndex) return;
+                        if (pane.load_generation != generation) { NavDiagSuperseded(navDiag); return; }
+                        if (pane.active_tab_index != tabIndex) { NavDiagSuperseded(navDiag); return; }
                         pane.awaiting_final_batch = false;
 
+                        if (navDiag.active) { navDiag.sort_begin = ::FileScoutNative::NavDiag::Now(); }
                         SortItems(items, pane.sort_column, pane.sort_direction);
+                        if (navDiag.active) { navDiag.sort_end = ::FileScoutNative::NavDiag::Now(); }
                         std::size_t const totalItems = items.size();
                         pane.current_path = absolute;
                         pane.is_drives_view = false;
@@ -3359,11 +3521,15 @@ namespace winrt::FileScoutNative::implementation
                         }
 
                         auto& rows = pane.tab_rows[tabIndex];
+                        if (navDiag.active) { navDiag.reset_begin = ::FileScoutNative::NavDiag::Now(); }
                         pane.tab_switching = true;
                         rows.Clear();
                         pane.tab_switching = false;
+                        if (navDiag.active) { navDiag.reset_end = ::FileScoutNative::NavDiag::Now(); }
+                        // Rows are built and appended in one loop here; the span is "first_append".
                         for (auto const& item : pane.items)
                             rows.Append(MakeFileRowViewModel(item));
+                        if (navDiag.active) { navDiag.first_append_end = ::FileScoutNative::NavDiag::Now(); }
 
                         if (pane.active_list_view)
                         {
@@ -3385,6 +3551,12 @@ namespace winrt::FileScoutNative::implementation
                         timing.final_publish_tick = timing.first_batch_publish_tick;
                         pane.last_load_timing = timing;
                         TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                        if (navDiag.active)
+                        {
+                            navDiag.items = navDiag.first_batch_rows = totalItems;
+                            navDiag.first_publish = navDiag.final_publish = ::FileScoutNative::NavDiag::Now();
+                            NavDiagEmitAfterFrames(navDiag);
+                        }
                         ApplyPendingFilter(paneIndex);
                         if (selectAfter.has_value() &&
                             ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
@@ -3394,18 +3566,24 @@ namespace winrt::FileScoutNative::implementation
             else if (m_shellInterop.IsArchivePath(absolute))
             {
                 // Archive: enumerate all at once, then publish on the UI thread.
+                navDiag.kind = ::FileScoutNative::NavDiag::Kind::Archive;
+                if (navDiag.active) { navDiag.enumerate_begin = ::FileScoutNative::NavDiag::Now(); }
                 auto archiveItems = m_shellInterop.EnumerateArchiveDirectory(absolute);
                 timing.enumeration_end_tick = ::GetTickCount64();
+                if (navDiag.active) { navDiag.enumerate_end = navDiag.enqueue = ::FileScoutNative::NavDiag::Now(); }
                 m_dispatcherQueue.TryEnqueue(
                     [this, lifetime, paneIndex, tabIndex, generation,
-                     absolute, selectAfter, timing, items = std::move(archiveItems)]() mutable
+                     absolute, selectAfter, timing, navDiag, items = std::move(archiveItems)]() mutable
                     {
+                        if (navDiag.active) { navDiag.callback = ::FileScoutNative::NavDiag::Now(); }
                         auto& pane = m_panes[paneIndex];
-                        if (pane.load_generation != generation) return;
-                        if (pane.active_tab_index != tabIndex) return;
+                        if (pane.load_generation != generation) { NavDiagSuperseded(navDiag); return; }
+                        if (pane.active_tab_index != tabIndex) { NavDiagSuperseded(navDiag); return; }
                         pane.awaiting_final_batch = false;
 
+                        if (navDiag.active) { navDiag.sort_begin = ::FileScoutNative::NavDiag::Now(); }
                         SortItems(items, pane.sort_column, pane.sort_direction);
+                        if (navDiag.active) { navDiag.sort_end = ::FileScoutNative::NavDiag::Now(); }
                         std::size_t const totalItems = items.size();
                         pane.current_path = absolute;
                         pane.is_drives_view = false;
@@ -3436,11 +3614,15 @@ namespace winrt::FileScoutNative::implementation
                         }
 
                         auto& rows = pane.tab_rows[tabIndex];
+                        if (navDiag.active) { navDiag.reset_begin = ::FileScoutNative::NavDiag::Now(); }
                         pane.tab_switching = true;
                         rows.Clear();
                         pane.tab_switching = false;
+                        if (navDiag.active) { navDiag.reset_end = ::FileScoutNative::NavDiag::Now(); }
+                        // Rows are built and appended in one loop here; the span is "first_append".
                         for (auto const& item : pane.items)
                             rows.Append(MakeFileRowViewModel(item));
+                        if (navDiag.active) { navDiag.first_append_end = ::FileScoutNative::NavDiag::Now(); }
                         ApplyPaneStateToRows(pane, pane.items, rows, m_iconSourceCache);
 
                         if (pane.active_list_view)
@@ -3463,6 +3645,12 @@ namespace winrt::FileScoutNative::implementation
                         timing.final_publish_tick = timing.first_batch_publish_tick;
                         pane.last_load_timing = timing;
                         TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                        if (navDiag.active)
+                        {
+                            navDiag.items = navDiag.first_batch_rows = totalItems;
+                            navDiag.first_publish = navDiag.final_publish = ::FileScoutNative::NavDiag::Now();
+                            NavDiagEmitAfterFrames(navDiag);
+                        }
                         ApplyPendingFilter(paneIndex);
                         if (selectAfter.has_value() &&
                             ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
@@ -3477,15 +3665,19 @@ namespace winrt::FileScoutNative::implementation
                 // (CollectionChange::Reset) on the finalize path.
                 bool const benchLoad = paneIndex == 0 && BenchTargets(absolute);
                 if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_enumerate_start"); }
+                if (navDiag.active) { navDiag.enumerate_begin = ::FileScoutNative::NavDiag::Now(); }
                 auto items = m_shellInterop.EnumerateDirectory(absolute, show_hidden_files);
                 timing.enumeration_end_tick = ::GetTickCount64();
+                if (navDiag.active) { navDiag.enumerate_end = ::FileScoutNative::NavDiag::Now(); }
                 if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_enumerated"); }
 
                 // L1: Sort and pre-build all ViewModels on the background thread.
                 // MakeFileRowViewModel sets only hstring fields + bool — no WinUI/STA constraints.
                 // The prebuilt objects are handed to the UI thread via lambda capture; after
                 // handoff they are never accessed from the background thread again.
+                if (navDiag.active) { navDiag.sort_begin = ::FileScoutNative::NavDiag::Now(); }
                 SortItems(items, sort_column, sort_direction);
+                if (navDiag.active) { navDiag.sort_end = navDiag.rows_begin = ::FileScoutNative::NavDiag::Now(); }
                 if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_sorted"); }
                 // View models are agile C++/WinRT objects, so they can be built on several threads
                 // (~330 ms on one thread for 100k rows on win1).
@@ -3508,17 +3700,23 @@ namespace winrt::FileScoutNative::implementation
                             prebuilt[i] = std::move(vm);
                         }
                     });
+                if (navDiag.active) { navDiag.rows_end = ::FileScoutNative::NavDiag::Now(); }
                 if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_rows_built"); }
 
-                m_dispatcherQueue.TryEnqueue(
+                if (navDiag.active) { navDiag.enqueue = ::FileScoutNative::NavDiag::Now(); }
+                // The trace is copied into the lambda before TryEnqueue returns, so its result is
+                // recorded on the copy only when it fails (the callback never runs then).
+                auto navDiagOnFailure = navDiag;
+                bool const enqueued = m_dispatcherQueue.TryEnqueue(
                     [this, lifetime, paneIndex, tabIndex, generation,
-                     absolute, selectAfter, timing,
+                     absolute, selectAfter, timing, navDiag,
                      items = std::move(items),
                      prebuilt = std::move(prebuilt)]() mutable
                     {
+                        if (navDiag.active) { navDiag.callback = ::FileScoutNative::NavDiag::Now(); }
                         auto& pane = m_panes[paneIndex];
-                        if (pane.load_generation != generation) return;
-                        if (pane.active_tab_index != tabIndex) return;
+                        if (pane.load_generation != generation) { NavDiagSuperseded(navDiag); return; }
+                        if (pane.active_tab_index != tabIndex) { NavDiagSuperseded(navDiag); return; }
 
                         std::size_t const totalItems = prebuilt.size();
                         pane.current_path = absolute;
@@ -3552,15 +3750,35 @@ namespace winrt::FileScoutNative::implementation
                         }
 
                         auto& rows = pane.tab_rows[tabIndex];
+                        bool const stageLoad = ::FileScoutNative::Domain::ShouldStageDirectoryLoad(totalItems);
+                        std::size_t const firstBatchEnd = stageLoad
+                            ? (std::min)(::FileScoutNative::Domain::kStagedLoadFirstBatch, totalItems)
+                            : totalItems;
+
+                        if (navDiag.active) { navDiag.reset_begin = ::FileScoutNative::NavDiag::Now(); }
                         pane.tab_switching = true;
-                        rows.Clear();
+                        if (firstBatchEnd == 0)
+                        {
+                            rows.Clear();
+                            if (navDiag.active) { navDiag.reset_end = ::FileScoutNative::NavDiag::Now(); }
+                        }
+                        else
+                        {
+                            if (navDiag.active) { navDiag.reset_end = ::FileScoutNative::NavDiag::Now(); }
+                            // Single VectorChanged::Reset instead of N ItemInserted events.
+                            rows.as<winrt::Windows::Foundation::Collections::IVector<
+                                winrt::FileScoutNative::FileRowViewModel>>()
+                                .ReplaceAll(winrt::array_view<winrt::FileScoutNative::FileRowViewModel const>{
+                                    prebuilt.data(),
+                                    prebuilt.data() + firstBatchEnd });
+                        }
                         pane.tab_switching = false;
-
-                        constexpr std::size_t k_first_batch = 150;
-                        std::size_t const firstBatchEnd = (std::min)(k_first_batch, totalItems);
-
-                        for (std::size_t i = 0; i < firstBatchEnd; ++i)
-                            rows.Append(prebuilt[i]);
+                        if (navDiag.active)
+                        {
+                            navDiag.first_append_end = ::FileScoutNative::NavDiag::Now();
+                            navDiag.items = totalItems;
+                            navDiag.first_batch_rows = firstBatchEnd;
+                        }
                         ApplyPaneStateToRows(pane, pane.items, rows, m_iconSourceCache);
 
                         timing.first_batch_publish_tick = ::GetTickCount64();
@@ -3585,8 +3803,9 @@ namespace winrt::FileScoutNative::implementation
                             StatusTextBlock().Text(ToHString(
                                 std::to_wstring(totalItems) + L" items in " + absolute.wstring()));
                         }
+                        if (navDiag.active) { navDiag.first_publish = ::FileScoutNative::NavDiag::Now(); }
 
-                        if (totalItems <= k_first_batch)
+                        if (!stageLoad)
                         {
                             if (benchTarget)
                             {
@@ -3596,6 +3815,11 @@ namespace winrt::FileScoutNative::implementation
                             timing.final_publish_tick = timing.first_batch_publish_tick;
                             pane.last_load_timing = timing;
                             TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                            if (navDiag.active)
+                            {
+                                navDiag.final_publish = navDiag.first_publish;
+                                NavDiagEmitAfterFrames(navDiag);
+                            }
                             ApplyPendingFilter(paneIndex);
                             if (selectAfter.has_value() &&
                             ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
@@ -3610,36 +3834,63 @@ namespace winrt::FileScoutNative::implementation
                             return;
                         }
 
-                        // Large folder — stage the remaining rows after the first batch has been
-                        // presented. A plain second TryEnqueue ran before the next frame, so the
-                        // first rows only appeared together with all 100k (measured on win1).
+                        // Large folder (> kStagedLoadThreshold) — stage the remaining rows after the
+                        // first batch has been presented. A plain second TryEnqueue ran before the
+                        // next frame, so the first rows only appeared together with all 100k.
                         pane.last_load_timing = timing;
+                        navDiag.staged = true;
                         RunAfterFramePresented(
                             [this, lifetime, paneIndex, tabIndex, generation, absolute, selectAfter,
                              items = std::move(items),
                              prebuilt = std::move(prebuilt),
-                             timing]() mutable
+                             timing, navDiag](::FileScoutNative::NavDiag::StagedTrigger const trigger) mutable
                             {
+                                if (navDiag.active)
+                                {
+                                    navDiag.final_callback = ::FileScoutNative::NavDiag::Now();
+                                    navDiag.staged_trigger = trigger;
+                                }
                                 auto& pane = m_panes[paneIndex];
-                                if (pane.load_generation != generation) return;
-                                if (pane.active_tab_index != tabIndex) return;
-                                if (!pane.awaiting_final_batch) return;
+                                if (pane.load_generation != generation) { NavDiagSuperseded(navDiag); return; }
+                                if (pane.active_tab_index != tabIndex) { NavDiagSuperseded(navDiag); return; }
+                                if (!pane.awaiting_final_batch) { NavDiagSuperseded(navDiag); return; }
                                 pane.awaiting_final_batch = false;
 
                                 auto& rows = pane.tab_rows[tabIndex];
                                 std::size_t const totalItems = prebuilt.size();
+                                int32_t const preservedListIndex =
+                                    (pane.user_interacted_after_first_batch && pane.active_list_view)
+                                        ? pane.active_list_view.SelectedIndex()
+                                        : -1;
                                 // L2: single VectorChanged::Reset instead of N ItemInserted events.
-                                // ReplaceAll replaces the first-batch rows + all remaining rows in
-                                // one call; ListView re-virtualises from scratch, instantiating
-                                // DataTemplates only for the visible rows.
+                                // Guard with tab_switching so ListView's Reset does not clear the
+                                // user's first-batch selection via SelectionChanged.
+                                pane.tab_switching = true;
                                 rows.as<winrt::Windows::Foundation::Collections::IVector<
                                     winrt::FileScoutNative::FileRowViewModel>>()
                                     .ReplaceAll(prebuilt);
+                                if (preservedListIndex >= 0 &&
+                                    static_cast<std::size_t>(preservedListIndex) < totalItems &&
+                                    pane.active_list_view)
+                                {
+                                    pane.active_list_view.SelectedIndex(preservedListIndex);
+                                }
+                                pane.tab_switching = false;
+                                if (navDiag.active) { navDiag.replace_end = ::FileScoutNative::NavDiag::Now(); }
                                 ApplyPaneStateToRows(pane, items, rows, m_iconSourceCache);
+                                if (pane.user_interacted_after_first_batch)
+                                {
+                                    UpdateRowSelectionVisuals(pane);
+                                }
 
                                 timing.final_publish_tick = ::GetTickCount64();
                                 pane.last_load_timing = timing;
                                 TraceLog(FormatLoadTimingTrace(absolute, totalItems, timing));
+                                if (navDiag.active)
+                                {
+                                    navDiag.final_publish = ::FileScoutNative::NavDiag::Now();
+                                    NavDiagEmitAfterFrames(navDiag);
+                                }
                                 ApplyPendingFilter(paneIndex);
                                 if (paneIndex == 0 && BenchTargets(absolute))
                                 {
@@ -3657,12 +3908,20 @@ namespace winrt::FileScoutNative::implementation
                                 }
                             });
                     });
+                if (!enqueued && navDiagOnFailure.active)
+                {
+                    navDiagOnFailure.enqueue_ok = false;
+                    navDiagOnFailure.outcome = ::FileScoutNative::NavDiag::Outcome::Failed;
+                    NavDiagEmit(navDiagOnFailure);
+                }
             }
         }
         catch (...)
         {
-            m_dispatcherQueue.TryEnqueue([this, lifetime, paneIndex, generation]()
+            m_dispatcherQueue.TryEnqueue([this, lifetime, paneIndex, generation, navDiag]() mutable
             {
+                navDiag.outcome = ::FileScoutNative::NavDiag::Outcome::Failed;
+                NavDiagEmit(navDiag);
                 if (m_panes[paneIndex].load_generation != generation) return;
                 m_panes[paneIndex].awaiting_final_batch = false;
                 if (m_activePaneIndex == paneIndex)
@@ -6980,6 +7239,15 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::UpdateBreadcrumbs(std::filesystem::path const& path)
     {
         auto const panel = BreadcrumbPanel();
+        if (!path.empty() && !m_lastBreadcrumbPath.empty() &&
+            SidebarPathsEqual(path, m_lastBreadcrumbPath) &&
+            panel.Children().Size() > 0)
+        {
+            UpdateNavButtons();
+            return;
+        }
+
+        m_lastBreadcrumbPath = path;
         panel.Children().Clear();
 
         if (path.empty()) return;
@@ -7466,12 +7734,24 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::BuildSidebarFavorites()
     {
         ScopedTimer totalTimer{ L"BuildSidebarFavorites" };
+        auto& navDiagRec = ::FileScoutNative::NavDiag::Recorder::Instance();
+        bool const navDiagOn = navDiagRec.Enabled();
+        auto const sbBegin = navDiagOn ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
+        long long iconsUs = 0;
+
         auto const panel = SidebarPlacesPanel();
         panel.Children().Clear();
+        m_sidebarPlaceRows.clear();
+        m_sidebarRecentRows.clear();
+        m_sidebarShownPathKeys.clear();
+        m_renderedRecentKeys.clear();
+
         auto const& activePane = ActivePane();
-        // Tracks paths already shown so recent paths can be deduplicated against them.
-        std::unordered_set<std::wstring> shownPathKeys;
+        auto const favFetchBegin = navDiagOn ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
         auto const favorites = m_favoritesService.GetSidebarFavorites();
+        long long const favFetchUs = navDiagOn
+            ? ::FileScoutNative::NavDiag::SpanUs(favFetchBegin, ::FileScoutNative::NavDiag::Now())
+            : -1;
         std::filesystem::path activeFavoritePath;
         std::size_t activeFavoriteScore = 0;
 
@@ -7503,7 +7783,7 @@ namespace winrt::FileScoutNative::implementation
             {
                 // Pinned entries render in BookmarksPanel — exclude from recents dedup.
                 if (!entry.path.empty())
-                    shownPathKeys.insert(::FileScoutNative::Domain::SidebarPathKey(entry.path));
+                    m_sidebarShownPathKeys.insert(::FileScoutNative::Domain::SidebarPathKey(entry.path));
                 continue;
             }
 
@@ -7511,14 +7791,11 @@ namespace winrt::FileScoutNative::implementation
             StyleSidebarButtonBase(btn);
             btn.Margin({ 0, 0, 0, 2 });
 
-            std::optional<::FileScoutNative::Domain::IconBitmap> entryIcon;
             if (!entry.path.empty())
             {
                 winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
                     btn,
                     winrt::box_value(ToHString(entry.path.wstring())));
-                ScopedTimer iconTimer{ L"GetItemIcon: " + entry.path.wstring() };
-                entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
             }
 
             auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
@@ -7534,7 +7811,12 @@ namespace winrt::FileScoutNative::implementation
             rowGrid.ColumnSpacing(8);
 
             auto iconTile = BuildSidebarTile(
-                BuildSidebarGlyph(entryIcon, SidebarFavoriteFallbackLabel(entry)),
+                BuildCachedSidebarGlyph(
+                    entry.path,
+                    m_shellInterop,
+                    m_iconSourceCache,
+                    SidebarFavoriteFallbackLabel(entry),
+                    navDiagOn ? &iconsUs : nullptr),
                 20.0);
 
             auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
@@ -7568,6 +7850,7 @@ namespace winrt::FileScoutNative::implementation
             {
                 btn.Click([this](auto const&, auto const&)
                 {
+                    NavDiagSidebarClick const navDiagClick;
                     // LoadDirectory records the folder being left and switches to the Recycle Bin view.
                     LoadDirectory(std::filesystem::path{ ::FileScoutNative::Domain::kRecycleBinLocation });
                 });
@@ -7577,87 +7860,253 @@ namespace winrt::FileScoutNative::implementation
                 auto const targetPath = entry.path;
                 btn.Click([this, targetPath](auto const&, auto const&)
                 {
+                    NavDiagSidebarClick const navDiagClick;
                     LoadDirectory(targetPath);
                 });
             }
 
             if (!entry.path.empty())
-                shownPathKeys.insert(::FileScoutNative::Domain::SidebarPathKey(entry.path));
+                m_sidebarShownPathKeys.insert(::FileScoutNative::Domain::SidebarPathKey(entry.path));
+            m_sidebarPlaceRows.push_back(SidebarRowSurfaceEntry{
+                .path = entry.path,
+                .is_drives_view = entry.is_drives_view,
+                .is_recycle_bin = entry.is_recycle_bin,
+                .emphasized = isSelected,
+                .surface = surface,
+            });
             panel.Children().Append(btn);
         }
 
-        // Recent paths: last 5 folders left in either pane, not already shown above.
-        auto const recents = ::FileScoutNative::Domain::SelectRecentPaths(
-            m_recentFolders, shownPathKeys, 5);
+        m_sidebarPlacesStaticCount = panel.Children().Size();
+        RefreshSidebarRecentsSection(/*forceRebuild=*/true);
 
-        if (!recents.empty())
+        auto const placesEnd = navDiagOn ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
+        // Refresh the Bookmarks expander with user-pinned folders.
+        UpdateBookmarksSection();
+        auto const bookmarksEnd = navDiagOn ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
+        // Refresh the This PC expander to reflect the current active pane's drive.
+        UpdateThisPCSection();
+        if (navDiagOn)
         {
-            auto recentSep = winrt::Microsoft::UI::Xaml::Controls::Border{};
-            recentSep.Height(1);
-            recentSep.Margin({ 0, 6, 0, 6 });
-            recentSep.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
-            panel.Children().Append(recentSep);
+            auto const sbEnd = ::FileScoutNative::NavDiag::Now();
+            long long const placesTotalUs = ::FileScoutNative::NavDiag::SpanUs(sbBegin, placesEnd);
+            long long const placesUiUs = (std::max)(0LL, placesTotalUs - (std::max)(0LL, favFetchUs) - iconsUs);
+            ::FileScoutNative::NavDiag::SidebarRebuildTiming sbTiming{};
+            sbTiming.total_us = ::FileScoutNative::NavDiag::SpanUs(sbBegin, sbEnd);
+            sbTiming.favorites_fetch_us = favFetchUs;
+            sbTiming.icons_us = iconsUs;
+            sbTiming.places_ui_us = placesUiUs;
+            sbTiming.bookmarks_us = ::FileScoutNative::NavDiag::SpanUs(placesEnd, bookmarksEnd);
+            sbTiming.thispc_us = ::FileScoutNative::NavDiag::SpanUs(bookmarksEnd, sbEnd);
+            navDiagRec.NoteSidebarRebuilt(sbTiming);
+        }
+    }
 
-            for (auto const& recentPath : recents)
+    void MainWindow::UpdateSidebarSelectionHighlights()
+    {
+        auto const& activePane = ActivePane();
+        std::filesystem::path activeFavoritePath;
+        std::size_t activeFavoriteScore = 0;
+
+        if (!activePane.is_drives_view && !activePane.current_path.empty())
+        {
+            auto consider = [&](std::filesystem::path const& candidate)
             {
-                auto displayName = recentPath.filename().wstring();
-                if (displayName.empty())
-                    displayName = recentPath.root_name().wstring();
-                if (displayName.empty())
-                    displayName = recentPath.wstring();
-
-                auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
-                StyleSidebarButtonBase(btn);
-                btn.Margin({ 0, 0, 0, 2 });
-                winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
-                    btn, winrt::box_value(ToHString(recentPath.wstring())));
-
-                auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
-                auto iconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-                iconColumn.Width({ 20, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
-                auto labelColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-                labelColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
-                rowGrid.ColumnDefinitions().Append(iconColumn);
-                rowGrid.ColumnDefinitions().Append(labelColumn);
-                rowGrid.ColumnSpacing(8);
-
-                ScopedTimer recentIconTimer{ L"GetItemIcon(recent): " + recentPath.wstring() };
-                auto const entryIcon = m_shellInterop.GetItemIcon(recentPath, true);
-                auto iconTile = BuildSidebarTile(
-                    BuildSidebarGlyph(entryIcon, L"folder"),
-                    20.0);
-
-                auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
-                label.Text(ToHString(displayName));
-                label.FontWeight(winrt::Microsoft::UI::Text::FontWeights::Normal());
-                label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
-                label.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
-                label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
-
-                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
-                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(label, 1);
-                rowGrid.Children().Append(iconTile);
-                rowGrid.Children().Append(label);
-
-                auto const isSelected = activeFavoriteScore > 0 &&
-                    SidebarPathsEqual(recentPath, activeFavoritePath);
-                auto surface = BuildSidebarRowSurface(isSelected);
-                surface.Child(rowGrid);
-                btn.Content(surface);
-
-                auto const targetPath = recentPath;
-                btn.Click([this, targetPath](auto const&, auto const&)
+                if (candidate.empty())
                 {
-                    LoadDirectory(targetPath);
-                });
-                panel.Children().Append(btn);
+                    return;
+                }
+                auto const score = SidebarPathMatchScore(candidate, activePane.current_path);
+                if (score > activeFavoriteScore)
+                {
+                    activeFavoriteScore = score;
+                    activeFavoritePath = candidate;
+                }
+            };
+            for (auto const& row : m_sidebarPlaceRows)
+            {
+                if (!row.is_drives_view)
+                {
+                    consider(row.path);
+                }
+            }
+            for (auto const& row : m_sidebarBookmarkRows)
+            {
+                consider(row.path);
             }
         }
 
-        // Refresh the Bookmarks expander with user-pinned folders.
-        UpdateBookmarksSection();
-        // Refresh the This PC expander to reflect the current active pane's drive.
-        UpdateThisPCSection();
+        auto applyEmphasis = [](SidebarRowSurfaceEntry& row, bool const emphasized)
+        {
+            if (row.emphasized == emphasized || !row.surface)
+            {
+                return;
+            }
+            row.emphasized = emphasized;
+            row.surface.Background(emphasized
+                ? LookupBrush(L"SubtleFillColorSecondaryBrush")
+                : SolidBrush(0x00, 0x00, 0x00, 0x00));
+        };
+
+        for (auto& row : m_sidebarPlaceRows)
+        {
+            bool const isSelected =
+                (row.is_drives_view && activePane.is_drives_view) ||
+                (!row.path.empty() && activeFavoriteScore > 0 &&
+                    SidebarPathsEqual(row.path, activeFavoritePath));
+            applyEmphasis(row, isSelected);
+        }
+
+        for (auto& row : m_sidebarRecentRows)
+        {
+            bool const isSelected =
+                !row.path.empty() && activeFavoriteScore > 0 &&
+                SidebarPathsEqual(row.path, activeFavoritePath);
+            applyEmphasis(row, isSelected);
+        }
+
+        for (auto& row : m_sidebarBookmarkRows)
+        {
+            bool const isSelected =
+                !row.path.empty() &&
+                !activePane.is_drives_view &&
+                !activePane.current_path.empty() &&
+                SidebarPathsEqual(row.path, activePane.current_path);
+            applyEmphasis(row, isSelected);
+        }
+
+        for (auto& row : m_sidebarDriveRows)
+        {
+            bool const driveSelected =
+                !activePane.is_drives_view &&
+                !activePane.current_path.empty() &&
+                !row.path.empty() &&
+                _wcsnicmp(
+                    activePane.current_path.root_path().wstring().c_str(),
+                    row.path.wstring().c_str(),
+                    row.path.wstring().size()) == 0;
+            applyEmphasis(row, driveSelected);
+        }
+    }
+
+    void MainWindow::RefreshSidebarRecentsSection(bool const forceRebuild)
+    {
+        auto const newKeys = ::FileScoutNative::Domain::VisibleRecentPathKeys(
+            m_recentFolders, m_sidebarShownPathKeys, 5);
+        if (!forceRebuild && newKeys == m_renderedRecentKeys)
+        {
+            return;
+        }
+
+        auto const panel = SidebarPlacesPanel();
+        while (panel.Children().Size() > m_sidebarPlacesStaticCount)
+        {
+            panel.Children().RemoveAtEnd();
+        }
+        m_sidebarRecentRows.clear();
+        m_renderedRecentKeys = newKeys;
+
+        auto const recents = ::FileScoutNative::Domain::SelectRecentPaths(
+            m_recentFolders, m_sidebarShownPathKeys, 5);
+        if (recents.empty())
+        {
+            return;
+        }
+
+        auto recentSep = winrt::Microsoft::UI::Xaml::Controls::Border{};
+        recentSep.Height(1);
+        recentSep.Margin({ 0, 6, 0, 6 });
+        recentSep.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+        panel.Children().Append(recentSep);
+
+        for (auto const& recentPath : recents)
+        {
+            auto displayName = recentPath.filename().wstring();
+            if (displayName.empty())
+                displayName = recentPath.root_name().wstring();
+            if (displayName.empty())
+                displayName = recentPath.wstring();
+
+            auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
+            StyleSidebarButtonBase(btn);
+            btn.Margin({ 0, 0, 0, 2 });
+            winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+                btn, winrt::box_value(ToHString(recentPath.wstring())));
+
+            auto rowGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+            auto iconColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            iconColumn.Width({ 20, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+            auto labelColumn = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            labelColumn.Width({ 1, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+            rowGrid.ColumnDefinitions().Append(iconColumn);
+            rowGrid.ColumnDefinitions().Append(labelColumn);
+            rowGrid.ColumnSpacing(8);
+
+            auto iconTile = BuildSidebarTile(
+                BuildCachedSidebarGlyph(
+                    recentPath,
+                    m_shellInterop,
+                    m_iconSourceCache,
+                    L"folder"),
+                20.0);
+
+            auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
+            label.Text(ToHString(displayName));
+            label.FontWeight(winrt::Microsoft::UI::Text::FontWeights::Normal());
+            label.TextWrapping(winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap);
+            label.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
+            label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(iconTile, 0);
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(label, 1);
+            rowGrid.Children().Append(iconTile);
+            rowGrid.Children().Append(label);
+
+            auto surface = BuildSidebarRowSurface(false);
+            surface.Child(rowGrid);
+            btn.Content(surface);
+
+            auto const targetPath = recentPath;
+            btn.Click([this, targetPath](auto const&, auto const&)
+            {
+                NavDiagSidebarClick const navDiagClick;
+                LoadDirectory(targetPath);
+            });
+            m_sidebarRecentRows.push_back(SidebarRowSurfaceEntry{
+                .path = recentPath,
+                .emphasized = false,
+                .surface = surface,
+            });
+            panel.Children().Append(btn);
+        }
+
+        UpdateSidebarSelectionHighlights();
+    }
+
+    void MainWindow::ScheduleSidebarRecentsRefresh()
+    {
+        auto const newKeys = ::FileScoutNative::Domain::VisibleRecentPathKeys(
+            m_recentFolders, m_sidebarShownPathKeys, 5);
+        if (newKeys == m_renderedRecentKeys)
+        {
+            return;
+        }
+        if (m_sidebarRecentsRefreshPending || !m_dispatcherQueue)
+        {
+            return;
+        }
+        m_sidebarRecentsRefreshPending = true;
+        auto const weakThis = get_weak();
+        m_dispatcherQueue.TryEnqueue(
+            winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Low,
+            [weakThis]()
+            {
+                if (auto self = weakThis.get())
+                {
+                    self->m_sidebarRecentsRefreshPending = false;
+                    self->RefreshSidebarRecentsSection(/*forceRebuild=*/false);
+                }
+            });
     }
 
     void MainWindow::UpdateBookmarksSection()
@@ -7665,6 +8114,7 @@ namespace winrt::FileScoutNative::implementation
         ScopedTimer totalTimer{ L"UpdateBookmarksSection" };
         auto const panel = BookmarksPanel();
         panel.Children().Clear();
+        m_sidebarBookmarkRows.clear();
 
         auto const& activePane = ActivePane();
         auto const bookmarks = m_favoritesService.GetPinnedFavorites();
@@ -7698,10 +8148,8 @@ namespace winrt::FileScoutNative::implementation
             rowGrid.ColumnDefinitions().Append(unpinColumn);
             rowGrid.ColumnSpacing(8);
 
-            ScopedTimer iconTimer{ L"GetItemIcon(bookmark): " + entry.path.wstring() };
-            auto const entryIcon = m_shellInterop.GetItemIcon(entry.path, true);
             auto iconTile = BuildSidebarTile(
-                BuildSidebarGlyph(entryIcon, L"folder"),
+                BuildCachedSidebarGlyph(entry.path, m_shellInterop, m_iconSourceCache, L"folder"),
                 20.0);
 
             auto label = winrt::Microsoft::UI::Xaml::Controls::TextBlock{};
@@ -7766,7 +8214,13 @@ namespace winrt::FileScoutNative::implementation
 
             btn.Click([this, pinnedPath](auto const&, auto const&)
             {
+                NavDiagSidebarClick const navDiagClick;
                 LoadDirectory(pinnedPath);
+            });
+            m_sidebarBookmarkRows.push_back(SidebarRowSurfaceEntry{
+                .path = entry.path,
+                .emphasized = isSelected,
+                .surface = surface,
             });
             panel.Children().Append(btn);
         }
@@ -7783,6 +8237,7 @@ namespace winrt::FileScoutNative::implementation
         ScopedTimer totalTimer{ L"UpdateThisPCSection" };
         auto const panel = ThisPCPanel();
         panel.Children().Clear();
+        m_sidebarDriveRows.clear();
 
         auto const& activePane = ActivePane();
         auto const& drives = m_sidebarDrives.Get([this] { return BuildSidebarDriveUsage(m_shellInterop); });
@@ -7868,9 +8323,15 @@ namespace winrt::FileScoutNative::implementation
             auto const drivePath = drive.path;
             button.Click([this, drivePath](auto const&, auto const&)
             {
+                NavDiagSidebarClick const navDiagClick;
                 LoadDirectory(drivePath);
             });
             button.Content(card);
+            m_sidebarDriveRows.push_back(SidebarRowSurfaceEntry{
+                .path = drive.path,
+                .emphasized = driveSelected,
+                .surface = card,
+            });
             panel.Children().Append(button);
         }
     }

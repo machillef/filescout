@@ -115,4 +115,15 @@ namespace FileScoutNative::Domain
         }
         return false;
     }
+
+    // Two-batch directory publication policy: small and medium folders publish in one ReplaceAll
+    // without waiting for two extra CompositionTarget::Rendering frames; very large folders
+    // (e.g. 100k items) publish the first batch immediately and stage the full list after present.
+    inline constexpr std::size_t kStagedLoadFirstBatch = 150;
+    inline constexpr std::size_t kStagedLoadThreshold = 2000;
+
+    [[nodiscard]] inline bool ShouldStageDirectoryLoad(std::size_t const totalItems) noexcept
+    {
+        return totalItems > kStagedLoadThreshold;
+    }
 }

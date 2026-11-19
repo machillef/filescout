@@ -47,6 +47,21 @@ namespace FileScoutNative::Domain
         return results;
     }
 
+    std::vector<std::wstring> VisibleRecentPathKeys(
+        std::vector<std::filesystem::path> const& candidates,
+        std::unordered_set<std::wstring> const& excluded_keys,
+        std::size_t const max)
+    {
+        auto const paths = SelectRecentPaths(candidates, excluded_keys, max);
+        std::vector<std::wstring> keys;
+        keys.reserve(paths.size());
+        for (auto const& path : paths)
+        {
+            keys.push_back(SidebarPathKey(path));
+        }
+        return keys;
+    }
+
     void RecordRecentFolder(
         std::vector<std::filesystem::path>& recents,
         std::filesystem::path const& folder,

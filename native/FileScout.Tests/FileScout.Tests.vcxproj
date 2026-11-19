@@ -176,6 +176,7 @@
     <ClCompile Include="tests\SourceEncodingTests.cpp" />
     <ClCompile Include="tests\DefaultFileManagerServiceTests.cpp" />
     <ClCompile Include="tests\BenchTests.cpp" />
+    <ClCompile Include="tests\NavDiagTests.cpp" />
     <ClCompile Include="tests\ParallelForTests.cpp" />
     <ClCompile Include="tests\BatchRenameInputTests.cpp" />
     <ClCompile Include="tests\RenamePolicyTests.cpp" />

@@ -21,6 +21,13 @@ namespace FileScoutNative::Domain
         std::unordered_set<std::wstring> const& excluded_keys,
         std::size_t max);
 
+    // Normalized keys of the visible recent paths in display order; used to detect whether
+    // the sidebar recents section actually needs to be updated after a navigation.
+    [[nodiscard]] std::vector<std::wstring> VisibleRecentPathKeys(
+        std::vector<std::filesystem::path> const& candidates,
+        std::unordered_set<std::wstring> const& excluded_keys,
+        std::size_t max);
+
     // Records `folder` as the newest entry of the window-wide recent-folder list (oldest first, the
     // order SelectRecentPaths expects). Both panes feed the same list, so the sidebar shows what the
     // user left recently in either pane. A folder already in the list moves to the newest end; the

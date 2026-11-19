@@ -249,6 +249,26 @@ namespace winrt::FileScoutNative::implementation
         // Avoids one WriteableBitmap allocation per item — one per unique extension per session.
         std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::Media::ImageSource> m_iconSourceCache;
 
+        // Lightweight sidebar row tracking so navigation updates selection highlights in place
+        // and only touches the Recents tail when the visible recents list actually changes.
+        struct SidebarRowSurfaceEntry
+        {
+            std::filesystem::path path;
+            bool is_drives_view{ false };
+            bool is_recycle_bin{ false };
+            bool emphasized{ false };
+            winrt::Microsoft::UI::Xaml::Controls::Border surface{ nullptr };
+        };
+        std::vector<SidebarRowSurfaceEntry> m_sidebarPlaceRows;
+        std::vector<SidebarRowSurfaceEntry> m_sidebarRecentRows;
+        std::vector<SidebarRowSurfaceEntry> m_sidebarBookmarkRows;
+        std::vector<SidebarRowSurfaceEntry> m_sidebarDriveRows;
+        std::unordered_set<std::wstring> m_sidebarShownPathKeys;
+        std::vector<std::wstring> m_renderedRecentKeys;
+        uint32_t m_sidebarPlacesStaticCount{ 0 };
+        bool m_sidebarRecentsRefreshPending{ false };
+        std::filesystem::path m_lastBreadcrumbPath;
+
         // Paths of items currently in cut state (for faded icon feedback).
         std::unordered_set<std::wstring> m_cutItemPaths;
 
@@ -357,6 +377,9 @@ namespace winrt::FileScoutNative::implementation
             bool revealAfterExtract);
 
         void BuildSidebarFavorites();
+        void UpdateSidebarSelectionHighlights();
+        void RefreshSidebarRecentsSection(bool forceRebuild = false);
+        void ScheduleSidebarRecentsRefresh();
         void UpdateThisPCSection();
         void RefreshSidebarCaches();
         void UpdateBookmarksSection();
