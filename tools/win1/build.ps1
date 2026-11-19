@@ -37,7 +37,8 @@ $sln = Join-Path $native 'FileScout.Native.sln'
 $devCmd = Join-Path $vsRoot 'Common7\Tools\VsDevCmd.bat'
 $log = Join-Path $Root "build-$Configuration.log"
 $extra = ($Property | Where-Object { $_ } | ForEach-Object {
-    $escaped = $_ -replace '"', '\"'
+    $escaped = $_ -replace '(\\+)(?=$|")', '$1$1'
+    $escaped = $escaped -replace '"', '\"'
     '"/p:' + $escaped + '"'
 }) -join ' '
 $cmdLine = "call `"$devCmd`" -arch=x64 -no_logo && msbuild `"$sln`" /t:$Target /restore " +
