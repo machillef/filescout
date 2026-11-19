@@ -41,3 +41,8 @@ jobs:
           -Target Rebuild
           -PackagesCache C:\fsdev\packages
           -Test
+
+      - name: Auto-cleanup build artifacts on win1
+        if: always()
+        shell: pwsh
+        run: git clean -ffdx -e native/packages
