@@ -31,15 +31,18 @@ if ($WithEtw) {
     else { Write-Warning "wpr.exe failed (run PowerShell as Administrator for ETW). Continuing with NavDiag + TraceLog." }
 }
 
-$psi = New-Object System.Diagnostics.ProcessStartInfo $exe
-if ($StartPath) { $psi.Arguments = "`"$StartPath`"" }
-$psi.UseShellExecute = $false
-$psi.WorkingDirectory = $here
-$psi.EnvironmentVariables['FILESCOUT_NAVDIAG_OUT'] = $navOut
-
-Write-Host "[diag] Launching FileScoutNative.exe (NavDiag -> $navOut)"
-$p = [System.Diagnostics.Process]::Start($psi)
 try {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo $exe
+    if ($StartPath) {
+        $escapedStartPath = ($StartPath -replace '(\\+)(?=$|")', '$1$1') -replace '"', '\"'
+        $psi.Arguments = "`"$escapedStartPath`""
+    }
+    $psi.UseShellExecute = $false
+    $psi.WorkingDirectory = $here
+    $psi.EnvironmentVariables['FILESCOUT_NAVDIAG_OUT'] = $navOut
+
+    Write-Host "[diag] Launching FileScoutNative.exe (NavDiag -> $navOut)"
+    $p = [System.Diagnostics.Process]::Start($psi)
     $p.WaitForExit()
 }
 finally {
@@ -50,7 +53,7 @@ finally {
     if (Test-Path $tempTrace) {
         $fs = [IO.File]::OpenRead($tempTrace)
         try {
-            if ($traceOffset -gt 0 -and $fs.Length -gt $traceOffset) { $fs.Seek($traceOffset, [IO.SeekOrigin]::Begin) | Out-Null }
+            if ($traceOffset -gt 0 -and $fs.Length -ge $traceOffset) { $fs.Seek($traceOffset, [IO.SeekOrigin]::Begin) | Out-Null }
             $outFs = [IO.File]::Create($traceOut)
             try { $fs.CopyTo($outFs) } finally { $outFs.Dispose() }
         } finally { $fs.Dispose() }

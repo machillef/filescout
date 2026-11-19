@@ -43,7 +43,21 @@ jobs:
 
       - name: Pre-clean untracked files (keep package junction)
         shell: pwsh
-        run: git clean -ffdx -e native/packages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clean -ffdx -e native/packages
+          if ($env:EVENT_NAME -eq 'workflow_dispatch' -and -not [string]::IsNullOrWhiteSpace($env:INPUT_TAG)) {
+            $tag = $env:INPUT_TAG.Trim()
+            git fetch --tags --quiet origin
+            $existing = git rev-list -n 1 "refs/tags/$tag" 2>$null
+            $head = (git rev-parse HEAD).Trim()
+            if ($existing -and ($existing.Trim() -ne $head)) {
+              throw "Tag '$tag' already exists on commit $($existing.Trim()), which does not match HEAD ($head). Dispatch from that tag or pick a new tag name."
+            }
+          }
 
       - name: Build Release x64
         shell: pwsh
@@ -119,7 +133,7 @@ jobs:
             target_commitish = $env:GITHUB_SHA
             name             = "FileScout $tag (Release x64)"
             body             = $notes
-            draft            = $false
+            draft            = $true
             prerelease       = ($env:INPUT_PRERELEASE -eq 'true')
           } | ConvertTo-Json -Depth 4
 
@@ -130,19 +144,37 @@ jobs:
             -ContentType 'application/json; charset=utf-8' `
             -Body $payload
 
-          $zipName = Split-Path -Leaf $zip
-          $uploadBase = ($release.upload_url -replace '\{.*$', '')
-          $uploadUrl = "${uploadBase}?name=$([Uri]::EscapeDataString($zipName))"
-          $uploadHeaders = $headers.Clone()
-          $uploadHeaders['Content-Type'] = 'application/zip'
+          try {
+            $zipName = Split-Path -Leaf $zip
+            $uploadBase = ($release.upload_url -replace '\{.*$', '')
+            $uploadUrl = "${uploadBase}?name=$([Uri]::EscapeDataString($zipName))"
+            $uploadHeaders = $headers.Clone()
+            $uploadHeaders['Content-Type'] = 'application/zip'
 
-          $asset = Invoke-RestMethod `
-            -Method Post `
-            -Uri $uploadUrl `
-            -Headers $uploadHeaders `
-            -InFile $zip
+            $asset = Invoke-RestMethod `
+              -Method Post `
+              -Uri $uploadUrl `
+              -Headers $uploadHeaders `
+              -InFile $zip
 
-          Write-Host "Published release: $($release.html_url)"
+            $publishPayload = @{ draft = $false } | ConvertTo-Json
+            $published = Invoke-RestMethod `
+              -Method Patch `
+              -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/$($release.id)" `
+              -Headers $headers `
+              -ContentType 'application/json; charset=utf-8' `
+              -Body $publishPayload
+          }
+          catch {
+            Invoke-RestMethod `
+              -Method Delete `
+              -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/$($release.id)" `
+              -Headers $headers `
+              -ErrorAction SilentlyContinue | Out-Null
+            throw
+          }
+
+          Write-Host "Published release: $($published.html_url)"
           Write-Host "Uploaded asset   : $($asset.browser_download_url)"
 
       - name: Auto-cleanup build artifacts on win1
