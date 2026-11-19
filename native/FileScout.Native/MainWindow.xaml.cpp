@@ -4445,7 +4445,14 @@ namespace winrt::FileScoutNative::implementation
 
         SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
-        SelectionPathTextBlock().Text(ToHString(ActivePane().current_path.wstring()));
+        auto const multiPath = ToHString(ActivePane().current_path.wstring());
+        SelectionPathTextBlock().Text(multiPath);
+        winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+            SelectionPathTextBlock(), winrt::box_value(multiPath));
+        SelectionPathTextBlock().Visibility(
+            multiPath.empty()
+                ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                : winrt::Microsoft::UI::Xaml::Visibility::Visible);
         StatusTextBlock().Text(ToHString(
             std::to_wstring(itemCount) + (itemCount == 1 ? L" item selected." : L" items selected.")));
     }
@@ -4468,13 +4475,14 @@ namespace winrt::FileScoutNative::implementation
         TraceLog(L"ResetSelectionDetails: SelectionTitleTextBlock...");
         SelectionTitleTextBlock().Text(L"No item selected");
         TraceLog(L"ResetSelectionDetails: SelectionMetaTextBlock...");
-        SelectionMetaTextBlock().Text(L"Choose a folder or file to inspect its details, dates, and path.");
+        SelectionMetaTextBlock().Text(L"Pick a file or folder to inspect.");
         TraceLog(L"ResetSelectionDetails: SelectionCreatedTextBlock...");
         SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         TraceLog(L"ResetSelectionDetails: SelectionAttributesTextBlock...");
         SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         TraceLog(L"ResetSelectionDetails: SelectionPathTextBlock...");
-        SelectionPathTextBlock().Text(L"Selection details follow the active pane.");
+        SelectionPathTextBlock().Text(L"");
+        SelectionPathTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         TraceLog(L"ResetSelectionDetails: done.");
     }
 
@@ -4536,10 +4544,10 @@ namespace winrt::FileScoutNative::implementation
                 attrStr += label;
             };
 
+            // Surface meaningful flags only (skip FILE_ATTRIBUTE_ARCHIVE, which is set on most files).
             if (item.file_attributes & FILE_ATTRIBUTE_READONLY) { appendAttr(L"Read-only"); }
             if (item.file_attributes & FILE_ATTRIBUTE_HIDDEN)   { appendAttr(L"Hidden");    }
             if (item.file_attributes & FILE_ATTRIBUTE_SYSTEM)   { appendAttr(L"System");    }
-            if (item.file_attributes & FILE_ATTRIBUTE_ARCHIVE)  { appendAttr(L"Archive");   }
 
             if (!attrStr.empty())
             {
@@ -4556,7 +4564,14 @@ namespace winrt::FileScoutNative::implementation
             SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         }
 
-        SelectionPathTextBlock().Text(ToHString(item.path.wstring()));
+        auto const itemPath = ToHString(item.path.wstring());
+        SelectionPathTextBlock().Text(itemPath);
+        winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+            SelectionPathTextBlock(), winrt::box_value(itemPath));
+        SelectionPathTextBlock().Visibility(
+            itemPath.empty()
+                ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
+                : winrt::Microsoft::UI::Xaml::Visibility::Visible);
     }
 
     std::optional<int32_t> MainWindow::ResolveItemIndexFromSource(

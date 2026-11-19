@@ -9,7 +9,7 @@
     mc:Ignorable="d"
     Title="FileScout Native">
 
-    <Grid>
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <Grid.Resources>
             <Style x:Key="CardRowItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -48,7 +48,7 @@
                 <Setter Property="Height" Value="32" />
                 <Setter Property="MinHeight" Value="32" />
                 <Setter Property="FontSize" Value="13" />
-                <Setter Property="Padding" Value="10,0,10,0" />
+                <Setter Property="Padding" Value="10,6,10,6" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
                 <Setter Property="CornerRadius" Value="6" />
                 <Setter Property="BorderThickness" Value="1" />
@@ -59,7 +59,7 @@
                 <Setter Property="Height" Value="30" />
                 <Setter Property="MinHeight" Value="30" />
                 <Setter Property="FontSize" Value="13" />
-                <Setter Property="Padding" Value="4,0,4,0" />
+                <Setter Property="Padding" Value="4,6,4,6" />
                 <Setter Property="Margin" Value="0" />
                 <Setter Property="CornerRadius" Value="0" />
                 <Setter Property="BorderThickness" Value="0" />
@@ -397,9 +397,6 @@
                 </Grid>
             </DataTemplate>
         </Grid.Resources>
-        <Grid.Background>
-            <SolidColorBrush Color="Transparent" />
-        </Grid.Background>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -600,92 +597,121 @@
             </Grid.ColumnDefinitions>
 
             <Border x:Name="SidebarBorder"
-                    Padding="2,4,6,4"
+                    Padding="2,2,6,4"
                     BorderThickness="0"
                     Background="Transparent">
-                <ScrollViewer VerticalScrollBarVisibility="Visible"
-                               VerticalScrollMode="Auto">
-                    <StackPanel Spacing="10">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              VerticalScrollMode="Auto">
+                    <StackPanel Spacing="6">
                         <!-- Quick Access: favorites populated by BuildSidebarFavorites(). -->
                         <Expander x:Name="QuickAccessExpander"
                                   Header="Quick Access"
                                   IsExpanded="True"
-                                  Margin="0,0,0,2"
+                                  Padding="6,4,6,6"
+                                  CornerRadius="8"
+                                  Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                  BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                   HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Stretch">
-                            <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" Margin="0,4,0,0" />
+                            <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" Margin="0,2,0,0" />
                         </Expander>
                         <!-- This PC: drive list populated in S3. -->
                         <Expander x:Name="ThisPCExpander"
                                   Header="This PC"
                                   IsExpanded="True"
-                                  Margin="0,0,0,2"
+                                  Padding="6,4,6,6"
+                                  CornerRadius="8"
+                                  Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                  BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                   HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Stretch">
-                            <StackPanel x:Name="ThisPCPanel" Spacing="2" Margin="0,4,0,0" />
+                            <StackPanel x:Name="ThisPCPanel" Spacing="2" Margin="0,2,0,0" />
                         </Expander>
                         <!-- Bookmarks: pinned folders populated in S4. -->
                         <Expander x:Name="BookmarksExpander"
                                   Header="Bookmarks"
                                   IsExpanded="False"
-                                  Margin="0,0,0,2"
+                                  Padding="6,4,6,6"
+                                  CornerRadius="8"
+                                  Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                  BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                   HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Stretch">
-                            <StackPanel x:Name="BookmarksPanel" Spacing="2" Margin="0,4,0,0" />
+                            <StackPanel x:Name="BookmarksPanel" Spacing="2" Margin="0,2,0,0" />
                         </Expander>
-                        <Border Height="1" Margin="0,4,0,2" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                        <TextBlock Text="Selection"
-                                   FontSize="10"
-                                   FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   CharacterSpacing="80"
-                                   Opacity="0.74" />
-                        <!-- Image preview — shown when an image file is selected (R10). -->
-                        <Border x:Name="PreviewBorder"
-                                MaxHeight="160"
-                                CornerRadius="12"
-                                Background="{ThemeResource LayerFillColorAltBrush}"
-                                Visibility="Collapsed">
-                            <Image x:Name="PreviewImage"
-                                   MaxHeight="160"
-                                   Stretch="Uniform" />
-                        </Border>
-                        <!-- Icon tile — shown when no image preview is available. -->
-                        <Border x:Name="SelectionIconBorder"
-                                Width="52"
-                                Height="52"
-                                CornerRadius="12"
+                        <!-- Compact, themed Selection inspector card -->
+                        <Border x:Name="SelectionInspectorCard"
+                                Margin="0,2,0,0"
+                                Padding="10,8,10,8"
+                                CornerRadius="8"
                                 BorderThickness="1"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                Background="{ThemeResource LayerFillColorAltBrush}">
-                            <Image x:Name="SelectionIconImage"
-                                   Width="20"
-                                   Height="20"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   Stretch="Uniform" />
+                                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                            <StackPanel Spacing="6">
+                                <!-- Image preview — shown when an image file is selected (R10). -->
+                                <Border x:Name="PreviewBorder"
+                                        MaxHeight="120"
+                                        CornerRadius="6"
+                                        Background="{ThemeResource LayerFillColorAltBrush}"
+                                        Visibility="Collapsed">
+                                    <Image x:Name="PreviewImage"
+                                           MaxHeight="120"
+                                           Stretch="Uniform" />
+                                </Border>
+                                <!-- Compact horizontal header: icon tile + title & metadata -->
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border x:Name="SelectionIconBorder"
+                                            Grid.Column="0"
+                                            Width="36"
+                                            Height="36"
+                                            CornerRadius="8"
+                                            VerticalAlignment="Center"
+                                            BorderThickness="1"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                        <Image x:Name="SelectionIconImage"
+                                               Width="18"
+                                               Height="18"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Stretch="Uniform" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock x:Name="SelectionTitleTextBlock"
+                                                   Text="No item selected"
+                                                   FontSize="12.5"
+                                                   FontWeight="SemiBold"
+                                                   MaxLines="2"
+                                                   TextWrapping="Wrap"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="SelectionMetaTextBlock"
+                                                   Text="Pick a file or folder to inspect."
+                                                   FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock x:Name="SelectionCreatedTextBlock"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Visibility="Collapsed" />
+                                <TextBlock x:Name="SelectionAttributesTextBlock"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontSize="11"
+                                           Visibility="Collapsed" />
+                                <TextBlock x:Name="SelectionPathTextBlock"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontSize="11"
+                                           TextWrapping="NoWrap"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="Collapsed" />
+                            </StackPanel>
                         </Border>
-                        <TextBlock x:Name="SelectionTitleTextBlock"
-                                   Text="No item selected"
-                                   FontWeight="SemiBold"
-                                   TextWrapping="Wrap" />
-                        <TextBlock x:Name="SelectionMetaTextBlock"
-                                   Text="Pick a folder or file to inspect its shell-backed details."
-                                   Opacity="0.72"
-                                   TextWrapping="Wrap" />
-                        <TextBlock x:Name="SelectionCreatedTextBlock"
-                                   Opacity="0.58"
-                                   FontSize="12"
-                                   TextWrapping="Wrap"
-                                   Visibility="Collapsed" />
-                        <TextBlock x:Name="SelectionAttributesTextBlock"
-                                   Opacity="0.55"
-                                   FontSize="11"
-                                   Visibility="Collapsed" />
-                        <TextBlock x:Name="SelectionPathTextBlock"
-                                   Text="Selection path will appear here."
-                                   Opacity="0.58"
-                                   TextWrapping="WrapWholeWords" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>
