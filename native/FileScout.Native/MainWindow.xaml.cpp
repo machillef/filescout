@@ -3903,7 +3903,7 @@ namespace winrt::FileScoutNative::implementation
                                     .ReplaceAll(prebuilt);
                                 if (pane.user_interacted_after_first_batch && pane.active_list_view)
                                 {
-                                    auto const focusedId = pane.selection.FocusedItemId();
+                                    auto const focusedId = pane.selection.FocusedId();
                                     std::vector<int32_t> selectedIndices;
                                     std::optional<int32_t> focusedIndex;
                                     std::size_t const scanLimit = (std::min)(items.size(), totalItems);
