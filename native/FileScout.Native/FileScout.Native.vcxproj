@@ -112,6 +112,13 @@
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
+  <!-- Opt-in navigation diagnostics (NavDiag.h): /p:Configuration=Release /p:Platform=x64 /p:FileScoutNavDiag=true.
+       The solution build writes the exe to x64\Release\FileScout.Native\ either way, so build it in its own checkout. -->
+  <ItemDefinitionGroup Condition="'$(FileScoutNavDiag)'=='true' And '$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>FILESCOUT_NAVDIAG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <Manifest Include="app.manifest" />
     <None Include="packages.config" />
@@ -128,6 +135,7 @@
     <ClInclude Include="Domain\ContextMenuModel.h" />
     <ClInclude Include="Domain\ParallelFor.h" />
     <ClInclude Include="Bench.h" />
+    <ClInclude Include="NavDiag.h" />
     <ClInclude Include="Domain\ExplorerCommand.h" />
     <ClInclude Include="Domain\FileRowViewModel.h" />
     <ClInclude Include="Domain\PaneSelectionState.h" />

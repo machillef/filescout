@@ -137,3 +137,20 @@ TEST(NavigationHistory, NavigationFlow_RecentsGetTheFolderLeft)
         EXPECT_EQ(recents.size(), 1u);
     }
 }
+
+TEST(NavigationHistory, ShouldStageDirectoryLoad_OnlyStagesAboveThreshold)
+{
+    using FileScoutNative::Domain::kStagedLoadFirstBatch;
+    using FileScoutNative::Domain::kStagedLoadThreshold;
+    using FileScoutNative::Domain::ShouldStageDirectoryLoad;
+
+    EXPECT_EQ(kStagedLoadFirstBatch, 150u);
+    EXPECT_FALSE(ShouldStageDirectoryLoad(0));
+    EXPECT_FALSE(ShouldStageDirectoryLoad(149));
+    EXPECT_FALSE(ShouldStageDirectoryLoad(150));
+    EXPECT_FALSE(ShouldStageDirectoryLoad(151));
+    EXPECT_FALSE(ShouldStageDirectoryLoad(820));
+    EXPECT_FALSE(ShouldStageDirectoryLoad(kStagedLoadThreshold));
+    EXPECT_TRUE(ShouldStageDirectoryLoad(kStagedLoadThreshold + 1));
+    EXPECT_TRUE(ShouldStageDirectoryLoad(100000));
+}

@@ -132,3 +132,32 @@ TEST(SidebarRecents, DescendantPathKeyMatchesOnlyWholeSegmentsUnderTheRoot)
     EXPECT_FALSE(IsSameOrDescendantPathKey(SidebarPathKey(L"C:\\"), root));
     EXPECT_TRUE(IsSameOrDescendantPathKey(SidebarPathKey(L"C:\\Root"), SidebarPathKey(L"C:\\")));
 }
+
+TEST(SidebarRecents, VisibleRecentPathKeys_UnchangedWhenAlternatingBuiltInOrPinnedFolders)
+{
+    using FileScoutNative::Domain::SidebarPathKey;
+    using FileScoutNative::Domain::VisibleRecentPathKeys;
+
+    std::unordered_set<std::wstring> const shown{
+        SidebarPathKey(L"C:\\Users\\Test\\Downloads"),
+        SidebarPathKey(L"C:\\Users\\Test\\Documents"),
+    };
+    std::vector<std::filesystem::path> recents{ L"C:\\Work\\Alpha" };
+
+    auto const before = VisibleRecentPathKeys(recents, shown, 5);
+    RecordRecentFolder(recents, L"C:\\Users\\Test\\Downloads", 32);
+    auto const afterDownloads = VisibleRecentPathKeys(recents, shown, 5);
+    RecordRecentFolder(recents, L"C:\\Users\\Test\\Documents", 32);
+    auto const afterDocuments = VisibleRecentPathKeys(recents, shown, 5);
+
+    EXPECT_EQ(before, afterDownloads);
+    EXPECT_EQ(before, afterDocuments);
+
+    // Leaving an unpinned folder changes the visible recents list.
+    RecordRecentFolder(recents, L"C:\\Work\\Beta", 32);
+    auto const afterUnpinned = VisibleRecentPathKeys(recents, shown, 5);
+    EXPECT_NE(before, afterUnpinned);
+    ASSERT_EQ(afterUnpinned.size(), 2u);
+    EXPECT_EQ(afterUnpinned[0], SidebarPathKey(L"C:\\Work\\Beta"));
+    EXPECT_EQ(afterUnpinned[1], SidebarPathKey(L"C:\\Work\\Alpha"));
+}
