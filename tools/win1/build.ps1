@@ -36,7 +36,10 @@ if (-not (Test-Path $packages)) {
 $sln = Join-Path $native 'FileScout.Native.sln'
 $devCmd = Join-Path $vsRoot 'Common7\Tools\VsDevCmd.bat'
 $log = Join-Path $Root "build-$Configuration.log"
-$extra = ($Property | Where-Object { $_ } | ForEach-Object { "/p:$_" }) -join ' '
+$extra = ($Property | Where-Object { $_ } | ForEach-Object {
+    $escaped = $_ -replace '"', '\"'
+    '"/p:' + $escaped + '"'
+}) -join ' '
 $cmdLine = "call `"$devCmd`" -arch=x64 -no_logo && msbuild `"$sln`" /t:$Target /restore " +
     "/p:RestorePackagesConfig=true /p:Configuration=$Configuration /p:Platform=x64 $extra /m /nologo /v:minimal " +
     "/flp:LogFile=`"$log`";Verbosity=normal"

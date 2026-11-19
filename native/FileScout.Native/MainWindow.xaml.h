@@ -266,6 +266,7 @@ namespace winrt::FileScoutNative::implementation
         std::unordered_set<std::wstring> m_sidebarShownPathKeys;
         std::vector<std::wstring> m_renderedRecentKeys;
         uint32_t m_sidebarPlacesStaticCount{ 0 };
+        bool m_sidebarRecentsDirty{ false };
         bool m_sidebarRecentsRefreshPending{ false };
         std::filesystem::path m_lastBreadcrumbPath;
 
@@ -378,8 +379,9 @@ namespace winrt::FileScoutNative::implementation
 
         void BuildSidebarFavorites();
         void UpdateSidebarSelectionHighlights();
-        void RefreshSidebarRecentsSection(bool forceRebuild = false);
+        void RefreshSidebarRecentsSection(bool forceRebuild = false, bool updateHighlights = true);
         void ScheduleSidebarRecentsRefresh();
+        void FlushDeferredSidebarRecents();
         void UpdateThisPCSection();
         void RefreshSidebarCaches();
         void UpdateBookmarksSection();

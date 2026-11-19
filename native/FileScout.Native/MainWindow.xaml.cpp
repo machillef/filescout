@@ -1771,7 +1771,11 @@ namespace
     // UI thread, right after the last publish: stamps the second CompositionTarget::Rendering
     // callback (a pre-render signal, not a verified present), then writes the record. A window that
     // renders no frames (minimised) is written after 1 s with frame_observed=false.
-    void NavDiagEmitAfterFrames(::FileScoutNative::NavDiag::Trace trace)
+    // `stillCurrent` is checked on every Rendering callback so a superseded listing never records
+    // a frame observation belonging to a later folder.
+    void NavDiagEmitAfterFrames(
+        ::FileScoutNative::NavDiag::Trace trace,
+        std::function<bool()> stillCurrent)
     {
         if (!trace.active)
         {
@@ -1780,6 +1784,7 @@ namespace
         struct State
         {
             ::FileScoutNative::NavDiag::Trace trace;
+            std::function<bool()> stillCurrent;
             int frames = 0;
             bool done = false;
             winrt::event_token token{};
@@ -1787,6 +1792,7 @@ namespace
         };
         auto state = std::make_shared<State>();
         state->trace = trace;
+        state->stillCurrent = std::move(stillCurrent);
         auto finish = [state](bool const observed)
         {
             if (state->done)
@@ -1810,6 +1816,11 @@ namespace
         state->token = winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(
             [state, finish](auto&&, auto&&)
             {
+                if (state->stillCurrent && !state->stillCurrent())
+                {
+                    finish(false);
+                    return;
+                }
                 if (++state->frames >= 2)
                 {
                     finish(true);
@@ -3344,15 +3355,15 @@ namespace winrt::FileScoutNative::implementation
                 navDiagRec.NoteRecentsUpdate(::FileScoutNative::NavDiag::SpanUs(recentsBegin, ::FileScoutNative::NavDiag::Now()));
             }
             // Update active highlight in place without tearing down the sidebar XAML tree.
-            // If the visible recents list actually changed, refresh only the recents tail at
-            // Low priority so directory enumeration and first-row publication run first.
+            // If recents changed, mark dirty and flush after first-row publication so an uncached
+            // sidebar icon never occupies the UI thread while background enumeration is running.
             if (chrome.toolbar)
             {
                 UpdateSidebarSelectionHighlights();
             }
             if (recentsChanged)
             {
-                ScheduleSidebarRecentsRefresh();
+                m_sidebarRecentsDirty = true;
             }
         }
         // The Recycle Bin is a view chosen by the target, so Back/Forward/sidebar clicks leave it.
@@ -3555,8 +3566,16 @@ namespace winrt::FileScoutNative::implementation
                         {
                             navDiag.items = navDiag.first_batch_rows = totalItems;
                             navDiag.first_publish = navDiag.final_publish = ::FileScoutNative::NavDiag::Now();
-                            NavDiagEmitAfterFrames(navDiag);
+                            auto const weakThis = get_weak();
+                            NavDiagEmitAfterFrames(navDiag, [weakThis, paneIndex, tabIndex, generation]()
+                            {
+                                auto self = weakThis.get();
+                                return self &&
+                                    self->m_panes[paneIndex].load_generation == generation &&
+                                    self->m_panes[paneIndex].active_tab_index == tabIndex;
+                            });
                         }
+                        FlushDeferredSidebarRecents();
                         ApplyPendingFilter(paneIndex);
                         if (selectAfter.has_value() &&
                             ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
@@ -3649,8 +3668,16 @@ namespace winrt::FileScoutNative::implementation
                         {
                             navDiag.items = navDiag.first_batch_rows = totalItems;
                             navDiag.first_publish = navDiag.final_publish = ::FileScoutNative::NavDiag::Now();
-                            NavDiagEmitAfterFrames(navDiag);
+                            auto const weakThis = get_weak();
+                            NavDiagEmitAfterFrames(navDiag, [weakThis, paneIndex, tabIndex, generation]()
+                            {
+                                auto self = weakThis.get();
+                                return self &&
+                                    self->m_panes[paneIndex].load_generation == generation &&
+                                    self->m_panes[paneIndex].active_tab_index == tabIndex;
+                            });
                         }
+                        FlushDeferredSidebarRecents();
                         ApplyPendingFilter(paneIndex);
                         if (selectAfter.has_value() &&
                             ::FileScoutNative::Domain::ChromeUpdatesForLoad(paneIndex, m_activePaneIndex).select_after)
@@ -3804,6 +3831,7 @@ namespace winrt::FileScoutNative::implementation
                                 std::to_wstring(totalItems) + L" items in " + absolute.wstring()));
                         }
                         if (navDiag.active) { navDiag.first_publish = ::FileScoutNative::NavDiag::Now(); }
+                        FlushDeferredSidebarRecents();
 
                         if (!stageLoad)
                         {
@@ -3818,7 +3846,14 @@ namespace winrt::FileScoutNative::implementation
                             if (navDiag.active)
                             {
                                 navDiag.final_publish = navDiag.first_publish;
-                                NavDiagEmitAfterFrames(navDiag);
+                                auto const weakThis = get_weak();
+                                NavDiagEmitAfterFrames(navDiag, [weakThis, paneIndex, tabIndex, generation]()
+                                {
+                                    auto self = weakThis.get();
+                                    return self &&
+                                        self->m_panes[paneIndex].load_generation == generation &&
+                                        self->m_panes[paneIndex].active_tab_index == tabIndex;
+                                });
                             }
                             ApplyPendingFilter(paneIndex);
                             if (selectAfter.has_value() &&
@@ -3858,22 +3893,48 @@ namespace winrt::FileScoutNative::implementation
 
                                 auto& rows = pane.tab_rows[tabIndex];
                                 std::size_t const totalItems = prebuilt.size();
-                                int32_t const preservedListIndex =
-                                    (pane.user_interacted_after_first_batch && pane.active_list_view)
-                                        ? pane.active_list_view.SelectedIndex()
-                                        : -1;
                                 // L2: single VectorChanged::Reset instead of N ItemInserted events.
                                 // Guard with tab_switching so ListView's Reset does not clear the
-                                // user's first-batch selection via SelectionChanged.
+                                // user's first-batch selection via SelectionChanged, then restore
+                                // every selected row from pane.selection (including Ctrl/Shift multi-select).
                                 pane.tab_switching = true;
                                 rows.as<winrt::Windows::Foundation::Collections::IVector<
                                     winrt::FileScoutNative::FileRowViewModel>>()
                                     .ReplaceAll(prebuilt);
-                                if (preservedListIndex >= 0 &&
-                                    static_cast<std::size_t>(preservedListIndex) < totalItems &&
-                                    pane.active_list_view)
+                                if (pane.user_interacted_after_first_batch && pane.active_list_view)
                                 {
-                                    pane.active_list_view.SelectedIndex(preservedListIndex);
+                                    auto const focusedId = pane.selection.FocusedItemId();
+                                    std::vector<int32_t> selectedIndices;
+                                    std::optional<int32_t> focusedIndex;
+                                    std::size_t const scanLimit = (std::min)(items.size(), totalItems);
+                                    for (std::size_t idx = 0; idx < scanLimit; ++idx)
+                                    {
+                                        auto const& parsingName = items[idx].parsing_name;
+                                        if (!pane.selection.IsSelected(parsingName))
+                                        {
+                                            continue;
+                                        }
+                                        auto const i32 = static_cast<int32_t>(idx);
+                                        selectedIndices.push_back(i32);
+                                        if (focusedId.has_value() && parsingName == *focusedId)
+                                        {
+                                            focusedIndex = i32;
+                                        }
+                                    }
+                                    if (!selectedIndices.empty())
+                                    {
+                                        auto const primaryIndex = focusedIndex.value_or(selectedIndices.front());
+                                        pane.active_list_view.SelectedIndex(primaryIndex);
+                                        for (auto const selectedIndex : selectedIndices)
+                                        {
+                                            if (selectedIndex == primaryIndex)
+                                            {
+                                                continue;
+                                            }
+                                            pane.active_list_view.SelectRange(
+                                                winrt::Microsoft::UI::Xaml::Data::ItemIndexRange(selectedIndex, 1));
+                                        }
+                                    }
                                 }
                                 pane.tab_switching = false;
                                 if (navDiag.active) { navDiag.replace_end = ::FileScoutNative::NavDiag::Now(); }
@@ -3889,7 +3950,14 @@ namespace winrt::FileScoutNative::implementation
                                 if (navDiag.active)
                                 {
                                     navDiag.final_publish = ::FileScoutNative::NavDiag::Now();
-                                    NavDiagEmitAfterFrames(navDiag);
+                                    auto const weakThis = get_weak();
+                                    NavDiagEmitAfterFrames(navDiag, [weakThis, paneIndex, tabIndex, generation]()
+                                    {
+                                        auto self = weakThis.get();
+                                        return self &&
+                                            self->m_panes[paneIndex].load_generation == generation &&
+                                            self->m_panes[paneIndex].active_tab_index == tabIndex;
+                                    });
                                 }
                                 ApplyPendingFilter(paneIndex);
                                 if (paneIndex == 0 && BenchTargets(absolute))
@@ -3922,6 +3990,7 @@ namespace winrt::FileScoutNative::implementation
             {
                 navDiag.outcome = ::FileScoutNative::NavDiag::Outcome::Failed;
                 NavDiagEmit(navDiag);
+                FlushDeferredSidebarRecents();
                 if (m_panes[paneIndex].load_generation != generation) return;
                 m_panes[paneIndex].awaiting_final_batch = false;
                 if (m_activePaneIndex == paneIndex)
@@ -7878,7 +7947,8 @@ namespace winrt::FileScoutNative::implementation
         }
 
         m_sidebarPlacesStaticCount = panel.Children().Size();
-        RefreshSidebarRecentsSection(/*forceRebuild=*/true);
+        m_sidebarRecentsDirty = false;
+        RefreshSidebarRecentsSection(/*forceRebuild=*/true, /*updateHighlights=*/false);
 
         auto const placesEnd = navDiagOn ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
         // Refresh the Bookmarks expander with user-pinned folders.
@@ -7886,6 +7956,8 @@ namespace winrt::FileScoutNative::implementation
         auto const bookmarksEnd = navDiagOn ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
         // Refresh the This PC expander to reflect the current active pane's drive.
         UpdateThisPCSection();
+        // Run the highlight pass once all sections (Places, Recents, Bookmarks, This PC) are current.
+        UpdateSidebarSelectionHighlights();
         if (navDiagOn)
         {
             auto const sbEnd = ::FileScoutNative::NavDiag::Now();
@@ -7989,7 +8061,7 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    void MainWindow::RefreshSidebarRecentsSection(bool const forceRebuild)
+    void MainWindow::RefreshSidebarRecentsSection(bool const forceRebuild, bool const updateHighlights)
     {
         auto const newKeys = ::FileScoutNative::Domain::VisibleRecentPathKeys(
             m_recentFolders, m_sidebarShownPathKeys, 5);
@@ -8080,7 +8152,10 @@ namespace winrt::FileScoutNative::implementation
             panel.Children().Append(btn);
         }
 
-        UpdateSidebarSelectionHighlights();
+        if (updateHighlights)
+        {
+            UpdateSidebarSelectionHighlights();
+        }
     }
 
     void MainWindow::ScheduleSidebarRecentsRefresh()
@@ -8107,6 +8182,16 @@ namespace winrt::FileScoutNative::implementation
                     self->RefreshSidebarRecentsSection(/*forceRebuild=*/false);
                 }
             });
+    }
+
+    void MainWindow::FlushDeferredSidebarRecents()
+    {
+        if (!m_sidebarRecentsDirty)
+        {
+            return;
+        }
+        m_sidebarRecentsDirty = false;
+        ScheduleSidebarRecentsRefresh();
     }
 
     void MainWindow::UpdateBookmarksSection()
