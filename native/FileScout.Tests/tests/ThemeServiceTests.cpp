@@ -161,10 +161,14 @@ TEST(ThemeService, BuildThemeResourceEntries_ReturnsExtendedMappedBrushKeys)
         return it->color;
     };
 
-    EXPECT_EQ(entries.size(), 12u);
+    EXPECT_EQ(entries.size(), 18u);
     EXPECT_EQ(colorFor(L"ApplicationPageBackgroundThemeBrush"), 0xFF1A1B26u);
     EXPECT_EQ(colorFor(L"CardBackgroundFillColorSecondaryBrush"), 0xFF1F2335u);
     EXPECT_EQ(colorFor(L"LayerFillColorAltBrush"), 0xFF1F2335u);
+    EXPECT_EQ(colorFor(L"ControlFillColorDefaultBrush"), 0xFF24283Bu);
+    EXPECT_EQ(colorFor(L"ControlStrokeColorDefaultBrush"), 0xFF29293Fu);
+    EXPECT_EQ(colorFor(L"ExpanderHeaderBackground"), 0xFF1F2335u);
+    EXPECT_EQ(colorFor(L"ExpanderContentBackground"), 0xFF1F2335u);
     EXPECT_EQ(colorFor(L"AccentFillColorSecondaryBrush"), 0xFFBB9AF7u);
     EXPECT_EQ(colorFor(L"SubtleFillColorSecondaryBrush"), 0x14C0CAF5u);
 }

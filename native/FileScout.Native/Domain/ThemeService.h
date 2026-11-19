@@ -14,7 +14,7 @@ namespace FileScoutNative::Domain
         std::uint32_t color{ 0 };
     };
 
-    [[nodiscard]] std::array<ThemeResourceEntry, 12> BuildThemeResourceEntries(
+    [[nodiscard]] std::array<ThemeResourceEntry, 18> BuildThemeResourceEntries(
         ThemeDefinition const& theme);
 
     class ThemeService
