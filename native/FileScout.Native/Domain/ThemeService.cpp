@@ -219,7 +219,7 @@ namespace FileScoutNative::Domain
         };
     }
 
-    std::array<ThemeResourceEntry, 18> BuildThemeResourceEntries(
+    std::array<ThemeResourceEntry, 19> BuildThemeResourceEntries(
         ThemeDefinition const& theme)
     {
         return {{
@@ -231,6 +231,7 @@ namespace FileScoutNative::Domain
             { L"ControlFillColorDefaultBrush", theme.surface },
             { L"ControlStrokeColorDefaultBrush", theme.border },
             { L"ExpanderHeaderBackground", theme.surface_alt },
+            { L"ExpanderHeaderForeground", theme.text_primary },
             { L"ExpanderContentBackground", theme.surface_alt },
             { L"ExpanderHeaderBorderBrush", theme.border_subtle },
             { L"ExpanderContentBorderBrush", theme.border_subtle },
