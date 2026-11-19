@@ -3096,7 +3096,9 @@ namespace winrt::FileScoutNative::implementation
         m_appWindow = this->AppWindow();
         auto const titleBar = m_appWindow.TitleBar();
         titleBar.ExtendsContentIntoTitleBar(true);
-        titleBar.PreferredHeightOption(winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Tall);
+        titleBar.PreferredHeightOption(winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Standard);
+        titleBar.ButtonBackgroundColor(winrt::Microsoft::UI::Colors::Transparent());
+        titleBar.ButtonInactiveBackgroundColor(winrt::Microsoft::UI::Colors::Transparent());
 
         SetTitleBar(TitleBarDragHost());
 
@@ -3127,40 +3129,19 @@ namespace winrt::FileScoutNative::implementation
 
         auto const scale = host.XamlRoot().RasterizationScale();
         auto const titleBar = m_appWindow.TitleBar();
-        TitleBarLeftInsetColumn().Width(
-            winrt::Microsoft::UI::Xaml::GridLength{ titleBar.LeftInset() / scale });
+        double const leftInset = scale > 0.0 ? (titleBar.LeftInset() / scale) : 0.0;
+        double const rightInset = scale > 0.0 ? (titleBar.RightInset() / scale) : 0.0;
+        TitleBarLeftInsetColumn().Width(winrt::Microsoft::UI::Xaml::GridLength{ leftInset });
+        // Always reserve at least the standard caption-button width (138 DIPs) in case
+        // RightInset reports 0 during early layout.
         TitleBarRightInsetColumn().Width(
-            winrt::Microsoft::UI::Xaml::GridLength{ titleBar.RightInset() / scale });
+            winrt::Microsoft::UI::Xaml::GridLength{ (std::max)(rightInset, 138.0) });
 
-        std::vector<winrt::Windows::Graphics::RectInt32> passthroughRects;
-        auto const appendRect =
-            [&](winrt::Microsoft::UI::Xaml::FrameworkElement const& element)
-            {
-                if (auto const rect = TryGetElementRect(element, scale))
-                {
-                    passthroughRects.push_back(*rect);
-                }
-            };
-
-        appendRect(BackButton());
-        appendRect(ForwardButton());
-        appendRect(RefreshButton());
-        appendRect(BreadcrumbBarBorder());
-        appendRect(AddressTextBox());
-        appendRect(SearchTextBox());
-        appendRect(DualPaneButton());
-        appendRect(ThemeDropDownButton());
-
-        if (passthroughRects.empty())
-        {
-            m_titleBarPointerSource.ClearRegionRects(
-                winrt::Microsoft::UI::Input::NonClientRegionKind::Passthrough);
-            return;
-        }
-
-        m_titleBarPointerSource.SetRegionRects(
-            winrt::Microsoft::UI::Input::NonClientRegionKind::Passthrough,
-            passthroughRects);
+        // TitleBarDragHost only contains the 32 px drag strip; all navigation, address, search,
+        // and theme controls live in the client-area toolbar below it, so no passthrough rects
+        // are needed.
+        m_titleBarPointerSource.ClearRegionRects(
+            winrt::Microsoft::UI::Input::NonClientRegionKind::Passthrough);
     }
 
     void MainWindow::ConfigureWindow()
@@ -7353,18 +7334,27 @@ namespace winrt::FileScoutNative::implementation
             if (i > 0)
             {
                 MUI::TextBlock sep;
-                sep.Text(L" \u203A ");
+                sep.Text(L"\u203A");
                 sep.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
-                sep.Opacity(0.4);
-                sep.FontSize(18);
+                sep.Margin({ 2, 0, 2, 0 });
+                sep.Foreground(LookupBrush(L"TextFillColorSecondaryBrush"));
+                sep.Opacity(0.65);
+                sep.FontSize(12);
                 panel.Children().Append(sep);
             }
 
-            MUI::HyperlinkButton btn;
-            btn.Padding({ 10, 3, 10, 3 });
+            MUI::Button btn;
+            btn.Background(SolidBrush(0x00, 0x00, 0x00, 0x00));
+            btn.BorderThickness({ 0, 0, 0, 0 });
+            btn.Padding({ 6, 2, 6, 2 });
+            btn.MinHeight(24);
+            btn.MinWidth(0);
+            btn.CornerRadius({ 4, 4, 4, 4 });
+            btn.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
             MUI::TextBlock lbl;
             lbl.Text(winrt::hstring(label));
-            lbl.FontSize(18);
+            lbl.FontSize(13);
+            lbl.Foreground(LookupBrush(L"TextFillColorPrimaryBrush"));
             lbl.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
             btn.Content(lbl);
 
