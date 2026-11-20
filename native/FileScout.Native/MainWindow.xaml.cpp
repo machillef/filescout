@@ -923,13 +923,17 @@ namespace
     {
         using namespace std::literals;
         if (iconKey == L"open"sv)                   return L"\uE838";
+        if (iconKey == L"openInNewTab"sv)           return L"\uE8A7";
         if (iconKey == L"openWith"sv)               return L"\uE7AC";
         if (iconKey == L"rename"sv)                 return L"\uE8AC";
         if (iconKey == L"delete"sv)                 return L"\uE74D";
         if (iconKey == L"copy"sv)                   return L"\uE8C8";
+        if (iconKey == L"copyPath"sv)               return L"\uE71B";
         if (iconKey == L"cut"sv)                    return L"\uE8C6";
         if (iconKey == L"paste"sv)                  return L"\uE77F";
+        if (iconKey == L"terminal"sv)               return L"\uE756";
         if (iconKey == L"newFolder"sv)              return L"\uE8F4";
+        if (iconKey == L"newFile"sv)                return L"\uE8A5";
         if (iconKey == L"refresh"sv)                return L"\uE72C";
         if (iconKey == L"pin"sv)                    return L"\uE840";
         if (iconKey == L"properties"sv)             return L"\uE946";
@@ -2008,6 +2012,7 @@ namespace winrt::FileScoutNative::implementation
             m_currentThemeId = ::FileScoutNative::Domain::ThemeService::LoadSavedThemeId();
             m_dualPaneVisible = !::FileScoutNative::Domain::Wave1UsesSinglePaneFirstLaunch();
             InitializeThemeDropDown();
+            InitializeViewOptionsDropDown();
         }
 
         LeftPaneBorder().ContextRequested([this](auto const& sender, auto const& args)
@@ -2102,6 +2107,37 @@ namespace winrt::FileScoutNative::implementation
     {
         RefreshThemeDropDown();
         ApplyTitleBarCaptionColors();
+    }
+
+    void MainWindow::InitializeViewOptionsDropDown()
+    {
+        RefreshViewOptionsDropDown();
+    }
+
+    void MainWindow::RefreshViewOptionsDropDown()
+    {
+        auto const& pane = ActivePane();
+        auto flyout = winrt::Microsoft::UI::Xaml::Controls::MenuFlyout{};
+
+        auto hiddenItem = winrt::Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem{};
+        hiddenItem.Text(L"Show hidden files (Ctrl+H)");
+        hiddenItem.IsChecked(pane.show_hidden_files);
+        hiddenItem.Click([this](auto const&, auto const&)
+            {
+                ToggleHiddenFiles(m_activePaneIndex);
+            });
+        flyout.Items().Append(hiddenItem);
+
+        auto extItem = winrt::Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem{};
+        extItem.Text(L"Show file extensions");
+        extItem.IsChecked(pane.show_file_extensions);
+        extItem.Click([this](auto const&, auto const&)
+            {
+                ToggleExtensions(m_activePaneIndex);
+            });
+        flyout.Items().Append(extItem);
+
+        ViewOptionsDropDownButton().Flyout(flyout);
     }
 
     void MainWindow::RefreshThemeDropDown()
@@ -4566,16 +4602,18 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::UpdateMultiSelectionDetails(std::vector<int32_t> const& indices)
     {
-        auto const itemCount = indices.size();
         auto const& displayedItems = DisplayedItems();
-        auto const folderCount = static_cast<std::size_t>(std::count_if(
-            indices.begin(),
-            indices.end(),
-            [&displayedItems](int32_t const index)
+        std::vector<::FileScoutNative::Domain::ShellItemRef> selected;
+        selected.reserve(indices.size());
+        for (int32_t const index : indices)
+        {
+            if (index >= 0 && index < static_cast<int32_t>(displayedItems.size()))
             {
-                return displayedItems[static_cast<std::size_t>(index)].is_folder;
-            }));
-        auto const fileCount = itemCount - folderCount;
+                selected.push_back(displayedItems[static_cast<std::size_t>(index)]);
+            }
+        }
+        auto const summary = ::FileScoutNative::Domain::SummarizeSelection(selected);
+        auto const itemCount = summary.total_count;
 
         ++m_previewGeneration;
         PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
@@ -4585,21 +4623,7 @@ namespace winrt::FileScoutNative::implementation
         SelectionTitleTextBlock().Text(ToHString(
             std::to_wstring(itemCount) + (itemCount == 1 ? L" item selected" : L" items selected")));
 
-        std::wstring metadata;
-        if (fileCount > 0)
-        {
-            metadata += std::to_wstring(fileCount) + (fileCount == 1 ? L" file" : L" files");
-        }
-        if (folderCount > 0)
-        {
-            if (!metadata.empty())
-            {
-                metadata += L"  |  ";
-            }
-            metadata += std::to_wstring(folderCount) + (folderCount == 1 ? L" folder" : L" folders");
-        }
-        metadata += L"  |  Rename works one item at a time in the closed beta";
-        SelectionMetaTextBlock().Text(ToHString(metadata));
+        SelectionMetaTextBlock().Text(ToHString(::FileScoutNative::Domain::FormatSelectionMetaText(summary)));
 
         SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         SelectionAttributesTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
@@ -4611,8 +4635,7 @@ namespace winrt::FileScoutNative::implementation
             multiPath.empty()
                 ? winrt::Microsoft::UI::Xaml::Visibility::Collapsed
                 : winrt::Microsoft::UI::Xaml::Visibility::Visible);
-        StatusTextBlock().Text(ToHString(
-            std::to_wstring(itemCount) + (itemCount == 1 ? L" item selected." : L" items selected.")));
+        StatusTextBlock().Text(ToHString(::FileScoutNative::Domain::FormatSelectionStatusText(summary)));
     }
 
     void MainWindow::ResetSelectionDetails()
@@ -4980,7 +5003,8 @@ namespace winrt::FileScoutNative::implementation
             commandId == L"paste" ||
             commandId == L"properties" ||
             commandId == L"moreWindowsActions" ||
-            commandId == L"newFolder";
+            commandId == L"newFolder" ||
+            commandId == L"newFile";
 
         if (ActivePane().is_archive_view && archiveReadOnlyCommand)
         {
@@ -5300,6 +5324,46 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
+        if (commandId == L"newFile")
+        {
+            ShowNewFileDialogAsync();
+            return;
+        }
+
+        if (commandId == L"openInNewTab")
+        {
+            if (ActivePane().is_archive_view || ActivePane().is_recycle_bin_view)
+            {
+                StatusTextBlock().Text(L"Open in new tab is not available in this view.");
+                return;
+            }
+            if (item.has_value() && item->is_folder && !item->path.empty())
+            {
+                AddTab(item->path);
+            }
+            else if (selectedItems.size() == 1 && selectedItems.front().is_folder && !selectedItems.front().path.empty())
+            {
+                AddTab(selectedItems.front().path);
+            }
+            else
+            {
+                StatusTextBlock().Text(L"Open in new tab needs a selected folder.");
+            }
+            return;
+        }
+
+        if (commandId == L"copyPath")
+        {
+            CopySelectedPaths(selectedItems);
+            return;
+        }
+
+        if (commandId == L"openInTerminal")
+        {
+            OpenInTerminalForContext(item);
+            return;
+        }
+
         if (commandId == L"back")
         {
             NavigateBack();
@@ -5312,6 +5376,12 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
+        if (commandId == L"navigateUp" || commandId == L"navigateUpBackspace")
+        {
+            NavigateUp();
+            return;
+        }
+
         if (commandId == L"goToPath")
         {
             ShowAddressTextBox();
@@ -5320,13 +5390,45 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"newTab")
         {
-            AddTab(ActivePane().current_path);
+            if (ActivePane().is_drives_view)
+            {
+                AddTabForDrivesView();
+            }
+            else
+            {
+                AddTab(ActivePane().current_path);
+            }
+            return;
+        }
+
+        if (commandId == L"reopenClosedTab")
+        {
+            ReopenClosedTab();
             return;
         }
 
         if (commandId == L"closeTab")
         {
             CloseTab(ActivePane().active_tab_index);
+            return;
+        }
+
+        if (commandId == L"nextTab")
+        {
+            SwitchToAdjacentTab(1);
+            return;
+        }
+
+        if (commandId == L"prevTab")
+        {
+            SwitchToAdjacentTab(-1);
+            return;
+        }
+
+        if (commandId.size() == 10 && commandId.rfind(L"selectTab", 0) == 0 &&
+            commandId[9] >= L'1' && commandId[9] <= L'9')
+        {
+            SelectTabByNumber(static_cast<int32_t>(commandId[9] - L'0'));
             return;
         }
 
@@ -5516,7 +5618,10 @@ namespace winrt::FileScoutNative::implementation
 
         auto textBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
         textBox.Text(ToHString(item.display_name));
-        textBox.SelectAll();
+        auto const selectionLength = ::FileScoutNative::Domain::ComputeRenameSelectionLength(
+            item.display_name,
+            item.is_folder);
+        textBox.Select(0, selectionLength);
 
         auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
         dialog.XamlRoot(Content().XamlRoot());
@@ -6333,6 +6438,174 @@ namespace winrt::FileScoutNative::implementation
         return candidate;
     }
 
+    std::wstring MainWindow::SuggestNewFileName() const
+    {
+        std::wstring candidate = L"New Text Document.txt";
+        int32_t suffix = 2;
+
+        auto fileNameExists = [this](std::wstring const& name)
+            {
+                return std::ranges::any_of(ActivePane().items, [&name](auto const& item)
+                    {
+                        return ::FileScoutNative::Domain::EqualsIgnoreCase(item.display_name, name) ||
+                            ::FileScoutNative::Domain::EqualsIgnoreCase(item.path.filename().wstring(), name);
+                    });
+            };
+
+        while (fileNameExists(candidate))
+        {
+            candidate = L"New Text Document (" + std::to_wstring(suffix++) + L").txt";
+        }
+
+        return candidate;
+    }
+
+    winrt::fire_and_forget MainWindow::ShowNewFileDialogAsync()
+    {
+        if (m_modalDialogOpen)
+        {
+            co_return;
+        }
+
+        auto const& pane = ActivePane();
+        if (pane.is_drives_view || pane.is_recycle_bin_view || pane.is_archive_view || pane.current_path.empty())
+        {
+            StatusTextBlock().Text(L"New file is only available inside a filesystem folder.");
+            co_return;
+        }
+
+        auto lifetime = get_strong();
+        m_modalDialogOpen = true;
+        auto const parent = pane.current_path;
+        auto const suggestedName = SuggestNewFileName();
+
+        auto textBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
+        textBox.Text(ToHString(suggestedName));
+        textBox.Select(0, ::FileScoutNative::Domain::ComputeRenameSelectionLength(suggestedName, /*isFolder=*/false));
+
+        auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Title(winrt::box_value(L"Create New File"));
+        dialog.PrimaryButtonText(L"Create");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Primary);
+        dialog.Content(textBox);
+
+        winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult dialogResult =
+            winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::None;
+        try
+        {
+            dialogResult = co_await dialog.ShowAsync();
+        }
+        catch (...)
+        {
+            m_modalDialogOpen = false;
+            co_return;
+        }
+        m_modalDialogOpen = false;
+
+        if (dialogResult != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        {
+            co_return;
+        }
+
+        auto const fileName = TrimFileName(textBox.Text().c_str());
+        if (auto const error = ::FileScoutNative::Domain::ValidateWindowsFileName(fileName); error.has_value())
+        {
+            StatusTextBlock().Text(ToHString(*error));
+            co_return;
+        }
+
+        try
+        {
+            auto const owner = GetWindowHandle();
+            auto const createdPath = co_await OnShellThread([this, owner, parent, fileName]
+                {
+                    return m_shellFileOperationService.CreateEmptyFile(owner, parent, fileName);
+                });
+            RefreshPanesShowing(parent, createdPath);
+            StatusTextBlock().Text(ToHString(L"Created file " + createdPath.filename().wstring() + L"."));
+        }
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
+        {
+            StatusTextBlock().Text(ToHString(BuildFileOperationErrorStatus(L"Couldn't create file", error)));
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't create file " + fileName + L". " + winrt::to_hstring(error.what()).c_str()));
+        }
+    }
+
+    void MainWindow::CopySelectedPaths(std::vector<::FileScoutNative::Domain::ShellItemRef> const& selectedItems)
+    {
+        auto const& pane = ActivePane();
+        auto const fallback = (pane.is_drives_view || pane.is_recycle_bin_view)
+            ? std::filesystem::path{}
+            : pane.current_path;
+        auto const payload = ::FileScoutNative::Domain::FormatCopyPathsPayload(selectedItems, fallback);
+        if (payload.empty())
+        {
+            StatusTextBlock().Text(L"No path available to copy.");
+            return;
+        }
+
+        if (::FileScoutNative::Shell::ShellClipboardService::CopyTextToClipboard(payload))
+        {
+            if (selectedItems.empty())
+            {
+                StatusTextBlock().Text(L"Copied current folder path.");
+            }
+            else if (selectedItems.size() == 1)
+            {
+                StatusTextBlock().Text(ToHString(L"Copied path: " + selectedItems.front().path.wstring()));
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(
+                    L"Copied " + std::to_wstring(selectedItems.size()) + L" paths to clipboard."));
+            }
+        }
+        else
+        {
+            StatusTextBlock().Text(L"Couldn't copy path to clipboard.");
+        }
+    }
+
+    void MainWindow::OpenInTerminalForContext(std::optional<::FileScoutNative::Domain::ShellItemRef> const& item)
+    {
+        auto const& pane = ActivePane();
+        std::filesystem::path targetDir;
+        if (item.has_value() && item->is_folder && !item->path.empty() && !pane.is_archive_view && !pane.is_recycle_bin_view)
+        {
+            targetDir = item->path;
+        }
+        else if (!pane.is_drives_view && !pane.is_recycle_bin_view && !pane.is_archive_view && !pane.current_path.empty())
+        {
+            targetDir = pane.current_path;
+        }
+        else
+        {
+            StatusTextBlock().Text(L"Open in Terminal requires a filesystem folder.");
+            return;
+        }
+
+        try
+        {
+            m_shellFileOperationService.OpenInTerminal(GetWindowHandle(), targetDir);
+            StatusTextBlock().Text(ToHString(L"Opened terminal in " + targetDir.wstring()));
+        }
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
+        {
+            StatusTextBlock().Text(ToHString(BuildFileOperationErrorStatus(L"Couldn't open terminal in", error)));
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't open terminal. " + winrt::to_hstring(error.what()).c_str()));
+        }
+    }
+
     void MainWindow::SetupKeyboardAccelerators()
     {
         using VK = winrt::Windows::System::VirtualKey;
@@ -6555,7 +6828,36 @@ namespace winrt::FileScoutNative::implementation
         NavigateForward();
     }
 
+    void MainWindow::UpButton_Click(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
+    {
+        NavigateUp();
+    }
+
     // R13b: Navigation history ────────────────────────────────────────────
+
+    void MainWindow::NavigateUp()
+    {
+        auto const& pane = ActivePane();
+        auto const target = ::FileScoutNative::Domain::ResolveParentNavigationTarget(
+            pane.current_path,
+            pane.is_drives_view,
+            pane.is_recycle_bin_view);
+        if (target.kind == ::FileScoutNative::Domain::ParentNavigationKind::Folder)
+        {
+            LoadDirectory(target.path);
+        }
+        else if (target.kind == ::FileScoutNative::Domain::ParentNavigationKind::DrivesView)
+        {
+            LoadDrivesView();
+        }
+        else
+        {
+            StatusTextBlock().Text(L"Already at the top level.");
+            UpdateNavButtons();
+        }
+    }
 
     void MainWindow::NavigateBack()
     {
@@ -6591,8 +6893,14 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::UpdateNavButtons()
     {
-        BackButton().IsEnabled(!ActivePane().back_stack.empty());
-        ForwardButton().IsEnabled(!ActivePane().forward_stack.empty());
+        auto const& pane = ActivePane();
+        BackButton().IsEnabled(!pane.back_stack.empty());
+        ForwardButton().IsEnabled(!pane.forward_stack.empty());
+        auto const parentTarget = ::FileScoutNative::Domain::ResolveParentNavigationTarget(
+            pane.current_path,
+            pane.is_drives_view,
+            pane.is_recycle_bin_view);
+        UpButton().IsEnabled(parentTarget.kind != ::FileScoutNative::Domain::ParentNavigationKind::None);
         UpdateTitleBarInteractiveRegions();
     }
 
@@ -7009,6 +7317,15 @@ namespace winrt::FileScoutNative::implementation
                 FileRowsListView_RightTapped(s, a);
             });
 
+        listView.AddHandler(
+            winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+            winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                [this, paneIndex](auto const&, auto const& a)
+                {
+                    TryHandleListViewMiddleClick(paneIndex, a);
+                })),
+            /*handledEventsToo=*/true);
+
         listView.ContextRequested([this, paneIndex](auto const& s, auto const& a)
             {
                 SetActivePaneIndex(paneIndex);
@@ -7397,6 +7714,59 @@ namespace winrt::FileScoutNative::implementation
         LoadDirectory(startPath);
     }
 
+    void MainWindow::AddTabForDrivesView()
+    {
+        auto& pane = ActivePane();
+        auto tabView = ActiveTabView();
+
+        if (pane.active_list_view && pane.active_tab_index >= 0 &&
+            pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
+        {
+            pane.tabs[pane.active_tab_index].path = pane.current_path;
+            pane.tabs[pane.active_tab_index].items = pane.items;
+            pane.tabs[pane.active_tab_index].selection = pane.selection;
+            pane.tabs[pane.active_tab_index].selected_item_index =
+                pane.active_list_view.SelectedIndex();
+            pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
+            pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = pane.is_recycle_bin_view;
+        }
+
+        auto newRows = winrt::single_threaded_observable_vector<winrt::FileScoutNative::FileRowViewModel>();
+        pane.tab_rows.push_back(newRows);
+        pane.tabs.push_back({});
+
+        auto const newIndex = static_cast<int32_t>(pane.tabs.size()) - 1;
+        auto const paneIndex = m_activePaneIndex;
+        auto newListView = CreateTabListView(newRows, paneIndex);
+        auto paneSurfaceHost = CreatePaneSurfaceHost(newListView);
+        paneSurfaceHost.RightTapped([this, paneIndex](auto const& s, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                FileRowsListView_RightTapped(s, a);
+            });
+        paneSurfaceHost.ContextRequested([this, paneIndex](auto const& s, auto const& a)
+            {
+                SetActivePaneIndex(paneIndex);
+                PaneSurface_ContextRequested(s, a);
+            });
+
+        auto tabItem = winrt::Microsoft::UI::Xaml::Controls::TabViewItem{};
+        tabItem.Header(winrt::box_value(winrt::hstring{ L"This PC" }));
+        tabItem.Content(paneSurfaceHost);
+        tabView.TabItems().Append(tabItem);
+
+        pane.active_tab_index = newIndex;
+        pane.active_list_view = newListView;
+
+        pane.tab_switching = true;
+        tabView.SelectedIndex(pane.active_tab_index);
+        pane.tab_switching = false;
+
+        UpdateTabCloseability();
+        LoadDrivesView();
+    }
+
     void MainWindow::CloseTab(int32_t const index)
     {
         auto& pane = ActivePane();
@@ -7421,6 +7791,20 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].is_recycle_bin_view = pane.is_recycle_bin_view;
         }
 
+        auto const& closingTab = pane.tabs[static_cast<std::size_t>(index)];
+        if (closingTab.is_drives_view || !closingTab.path.empty())
+        {
+            static constexpr std::size_t kMaxClosedTabs = 20;
+            pane.closed_tabs.push_back(PaneContext::ClosedTabEntry{
+                .path = closingTab.path,
+                .is_drives_view = closingTab.is_drives_view,
+            });
+            if (pane.closed_tabs.size() > kMaxClosedTabs)
+            {
+                pane.closed_tabs.erase(pane.closed_tabs.begin());
+            }
+        }
+
         pane.tab_switching = true;
         pane.tabs.erase(pane.tabs.begin() + index);
         pane.tab_rows.erase(pane.tab_rows.begin() + index);
@@ -7437,6 +7821,87 @@ namespace winrt::FileScoutNative::implementation
         // SelectionChanged fires here with tab_switching = false → RestoreActiveTab.
 
         UpdateTabCloseability();
+    }
+
+    void MainWindow::ReopenClosedTab()
+    {
+        auto& pane = ActivePane();
+        if (pane.closed_tabs.empty())
+        {
+            StatusTextBlock().Text(L"No closed tabs to reopen.");
+            return;
+        }
+
+        auto const entry = pane.closed_tabs.back();
+        pane.closed_tabs.pop_back();
+        if (entry.is_drives_view)
+        {
+            AddTabForDrivesView();
+        }
+        else
+        {
+            AddTab(entry.path);
+        }
+    }
+
+    void MainWindow::SwitchToAdjacentTab(int32_t const delta)
+    {
+        auto const& pane = ActivePane();
+        auto const count = static_cast<int32_t>(pane.tabs.size());
+        if (count <= 1)
+        {
+            return;
+        }
+
+        int32_t const nextIndex = ((pane.active_tab_index + delta) % count + count) % count;
+        ActiveTabView().SelectedIndex(nextIndex);
+    }
+
+    void MainWindow::SelectTabByNumber(int32_t const oneBasedIndex)
+    {
+        auto const& pane = ActivePane();
+        auto const count = static_cast<int32_t>(pane.tabs.size());
+        if (count <= 0 || oneBasedIndex < 1)
+        {
+            return;
+        }
+
+        // Standard browser/Explorer convention: Ctrl+9 jumps to the last tab when >9 tabs exist.
+        int32_t const targetIndex = (oneBasedIndex == 9)
+            ? (count - 1)
+            : (oneBasedIndex - 1);
+        if (targetIndex >= 0 && targetIndex < count && targetIndex != pane.active_tab_index)
+        {
+            ActiveTabView().SelectedIndex(targetIndex);
+        }
+    }
+
+    void MainWindow::TryHandleListViewMiddleClick(
+        int32_t const paneIndex,
+        winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
+    {
+        auto const kind = args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind();
+        if (kind != winrt::Microsoft::UI::Input::PointerUpdateKind::MiddleButtonPressed)
+        {
+            return;
+        }
+
+        SetActivePaneIndex(paneIndex);
+        auto const itemIndex = ResolveItemIndexFromSource(args.OriginalSource());
+        if (!itemIndex.has_value())
+        {
+            return;
+        }
+
+        auto const* item = TryGetDisplayedItemByIndex(*itemIndex);
+        if (item == nullptr || !item->is_folder || item->path.empty() ||
+            ActivePane().is_archive_view || ActivePane().is_recycle_bin_view)
+        {
+            return;
+        }
+
+        args.Handled(true);
+        AddTab(item->path);
     }
 
     void MainWindow::RestoreActiveTab()
@@ -7742,6 +8207,7 @@ namespace winrt::FileScoutNative::implementation
         SearchTextBox().IsReadOnly(ActivePane().search_mode == SearchMode::Recursive);
         SearchTextBox().Text(winrt::hstring(ActivePane().search_query));
         UpdateNavButtons();
+        RefreshViewOptionsDropDown();
     }
 
     void MainWindow::UpdateActivePaneIndicator()
@@ -8517,7 +8983,11 @@ namespace winrt::FileScoutNative::implementation
     {
         auto& pane = m_panes[paneIndex];
         pane.show_hidden_files = !pane.show_hidden_files;
-        LoadDirectory(pane.current_path);
+        if (!pane.is_drives_view && !pane.current_path.empty())
+        {
+            LoadDirectoryInPane(paneIndex, pane.current_path);
+        }
+        RefreshViewOptionsDropDown();
         StatusTextBlock().Text(ToHString(
             pane.show_hidden_files ? L"Hidden files shown." : L"Hidden files hidden."));
     }
@@ -8527,6 +8997,7 @@ namespace winrt::FileScoutNative::implementation
         auto& pane = m_panes[paneIndex];
         pane.show_file_extensions = !pane.show_file_extensions;
         RebuildAllTabRowsForPane(paneIndex);
+        RefreshViewOptionsDropDown();
         StatusTextBlock().Text(ToHString(
             pane.show_file_extensions ? L"File extensions shown." : L"File extensions hidden."));
     }
@@ -8779,15 +9250,42 @@ namespace winrt::FileScoutNative::implementation
             if (entry.is_drives_view)
             {
                 btn.Click([this](auto const&, auto const&) { LoadDrivesView(); });
+                btn.AddHandler(
+                    winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+                    winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                        [this](auto const&, auto const& args)
+                        {
+                            if (args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind() ==
+                                winrt::Microsoft::UI::Input::PointerUpdateKind::MiddleButtonPressed)
+                            {
+                                args.Handled(true);
+                                AddTabForDrivesView();
+                            }
+                        })),
+                    /*handledEventsToo=*/true);
             }
             else if (entry.is_recycle_bin)
             {
-                btn.Click([this](auto const&, auto const&)
+                auto const recycleTarget = std::filesystem::path{ ::FileScoutNative::Domain::kRecycleBinLocation };
+                btn.Click([this, recycleTarget](auto const&, auto const&)
                 {
                     NavDiagSidebarClick const navDiagClick;
                     // LoadDirectory records the folder being left and switches to the Recycle Bin view.
-                    LoadDirectory(std::filesystem::path{ ::FileScoutNative::Domain::kRecycleBinLocation });
+                    LoadDirectory(recycleTarget);
                 });
+                btn.AddHandler(
+                    winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+                    winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                        [this, recycleTarget](auto const&, auto const& args)
+                        {
+                            if (args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind() ==
+                                winrt::Microsoft::UI::Input::PointerUpdateKind::MiddleButtonPressed)
+                            {
+                                args.Handled(true);
+                                AddTab(recycleTarget);
+                            }
+                        })),
+                    /*handledEventsToo=*/true);
             }
             else if (!entry.path.empty())
             {
@@ -8797,6 +9295,19 @@ namespace winrt::FileScoutNative::implementation
                     NavDiagSidebarClick const navDiagClick;
                     LoadDirectory(targetPath);
                 });
+                btn.AddHandler(
+                    winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+                    winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                        [this, targetPath](auto const&, auto const& args)
+                        {
+                            if (args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind() ==
+                                winrt::Microsoft::UI::Input::PointerUpdateKind::MiddleButtonPressed)
+                            {
+                                args.Handled(true);
+                                AddTab(targetPath);
+                            }
+                        })),
+                    /*handledEventsToo=*/true);
             }
 
             if (!entry.path.empty())
@@ -9009,6 +9520,19 @@ namespace winrt::FileScoutNative::implementation
                 NavDiagSidebarClick const navDiagClick;
                 LoadDirectory(targetPath);
             });
+            btn.AddHandler(
+                winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+                winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                    [this, targetPath](auto const&, auto const& args)
+                    {
+                        if (args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind() ==
+                            winrt::Microsoft::UI::Input::PointerUpdateKind::MiddleButtonPressed)
+                        {
+                            args.Handled(true);
+                            AddTab(targetPath);
+                        }
+                    })),
+                /*handledEventsToo=*/true);
             m_sidebarRecentRows.push_back(SidebarRowSurfaceEntry{
                 .path = recentPath,
                 .emphasized = false,
@@ -9167,6 +9691,19 @@ namespace winrt::FileScoutNative::implementation
                 NavDiagSidebarClick const navDiagClick;
                 LoadDirectory(pinnedPath);
             });
+            btn.AddHandler(
+                winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+                winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                    [this, pinnedPath](auto const&, auto const& args)
+                    {
+                        if (args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind() ==
+                            winrt::Microsoft::UI::Input::PointerUpdateKind::MiddleButtonPressed)
+                        {
+                            args.Handled(true);
+                            AddTab(pinnedPath);
+                        }
+                    })),
+                /*handledEventsToo=*/true);
             m_sidebarBookmarkRows.push_back(SidebarRowSurfaceEntry{
                 .path = entry.path,
                 .emphasized = isSelected,
@@ -9276,6 +9813,19 @@ namespace winrt::FileScoutNative::implementation
                 NavDiagSidebarClick const navDiagClick;
                 LoadDirectory(drivePath);
             });
+            button.AddHandler(
+                winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+                winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                    [this, drivePath](auto const&, auto const& args)
+                    {
+                        if (args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind() ==
+                            winrt::Microsoft::UI::Input::PointerUpdateKind::MiddleButtonPressed)
+                        {
+                            args.Handled(true);
+                            AddTab(drivePath);
+                        }
+                    })),
+                /*handledEventsToo=*/true);
             button.Content(card);
             m_sidebarDriveRows.push_back(SidebarRowSurfaceEntry{
                 .path = drive.path,

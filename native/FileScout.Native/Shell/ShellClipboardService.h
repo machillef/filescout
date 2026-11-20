@@ -44,6 +44,8 @@ namespace FileScoutNative::Shell
         // clear run while this thread holds the clipboard open, so no writer can slip in between;
         // if another thread holds it, this backs off and returns false.
         static bool ClearClipboardIfUnchanged(DWORD sequenceNumber);
+        // Copies plain UTF-16 text (e.g. file paths) to the Win32 clipboard with brief retry backoff.
+        static bool CopyTextToClipboard(std::wstring_view text);
 
     private:
         void SetClipboardItems(

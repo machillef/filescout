@@ -48,6 +48,10 @@ namespace FileScoutNative::Shell
     // or permanent deletion bypassing the Recycle Bin (permanent == true).
     [[nodiscard]] DWORD DeleteOperationFlags(bool permanent) noexcept;
 
+    // Formats the Windows Terminal `-d "<dir>"` parameter string with CommandLineToArgvW-safe
+    // escaping for trailing backslashes (e.g. drive roots like "C:\\").
+    [[nodiscard]] std::wstring FormatWindowsTerminalDirectoryArgs(std::filesystem::path const& directory);
+
     struct RenameRequest
     {
         std::filesystem::path path;
@@ -64,6 +68,11 @@ namespace FileScoutNative::Shell
             HWND ownerWindow,
             std::filesystem::path const& parentDirectory,
             std::wstring const& name) const;
+        [[nodiscard]] std::filesystem::path CreateEmptyFile(
+            HWND ownerWindow,
+            std::filesystem::path const& parentDirectory,
+            std::wstring const& name) const;
+        void OpenInTerminal(HWND ownerWindow, std::filesystem::path const& directory) const;
         [[nodiscard]] std::filesystem::path RenameItem(
             HWND ownerWindow,
             std::filesystem::path const& path,

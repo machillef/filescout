@@ -276,6 +276,87 @@ namespace FileScoutNative::Shell
         }
     }
 
+    std::wstring FormatWindowsTerminalDirectoryArgs(std::filesystem::path const& directory)
+    {
+        auto raw = directory.wstring();
+        std::size_t trailingBackslashes = 0;
+        for (auto it = raw.rbegin(); it != raw.rend() && *it == L'\\'; ++it)
+        {
+            ++trailingBackslashes;
+        }
+        // Double trailing backslashes before the closing quote so CommandLineToArgvW
+        // does not treat `\"` as an escaped quote character (e.g. `C:\` -> `-d "C:\\"`).
+        raw.append(trailingBackslashes, L'\\');
+        return L"-d \"" + raw + L"\"";
+    }
+
+    std::filesystem::path ShellFileOperationService::CreateEmptyFile(
+        HWND const,
+        std::filesystem::path const& parentDirectory,
+        std::wstring const& name) const
+    {
+        auto const targetPath = parentDirectory / name;
+        HANDLE const handle = ::CreateFileW(
+            targetPath.c_str(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+        {
+            DWORD const lastError = ::GetLastError();
+            std::wstring detail = (lastError == ERROR_FILE_EXISTS || lastError == ERROR_ALREADY_EXISTS)
+                ? L"A file with that name already exists."
+                : BuildHResultDetail(winrt::hresult_error{ HRESULT_FROM_WIN32(lastError) });
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Create file",
+                .path = targetPath.wstring(),
+                .detail = std::move(detail),
+            });
+        }
+        ::CloseHandle(handle);
+        ::SHChangeNotify(SHCNE_CREATE, SHCNF_PATHW, targetPath.c_str(), nullptr);
+        return targetPath;
+    }
+
+    void ShellFileOperationService::OpenInTerminal(
+        HWND const ownerWindow,
+        std::filesystem::path const& directory) const
+    {
+        auto const dirStr = directory.wstring();
+        auto const wtArgs = FormatWindowsTerminalDirectoryArgs(directory);
+
+        auto tryLaunch = [&](wchar_t const* executable, wchar_t const* params) -> bool
+        {
+            SHELLEXECUTEINFOW sei{};
+            sei.cbSize = sizeof(sei);
+            sei.fMask = SEE_MASK_FLAG_NO_UI;
+            sei.hwnd = ownerWindow;
+            sei.lpVerb = L"open";
+            sei.lpFile = executable;
+            sei.lpParameters = params;
+            sei.lpDirectory = dirStr.c_str();
+            sei.nShow = SW_SHOWNORMAL;
+            return ::ShellExecuteExW(&sei) != FALSE;
+        };
+
+        if (tryLaunch(L"wt.exe", wtArgs.c_str()) ||
+            tryLaunch(L"pwsh.exe", nullptr) ||
+            tryLaunch(L"powershell.exe", nullptr) ||
+            tryLaunch(L"cmd.exe", nullptr))
+        {
+            return;
+        }
+
+        ThrowFileOperationFailure(FileOperationError{
+            .action = L"Open in Terminal",
+            .path = dirStr,
+            .detail = L"Could not launch Windows Terminal, PowerShell, or Command Prompt.",
+        });
+    }
+
     std::filesystem::path ShellFileOperationService::RenameItem(
         HWND const ownerWindow,
         std::filesystem::path const& path,

@@ -116,6 +116,47 @@ namespace FileScoutNative::Domain
         return false;
     }
 
+    enum class ParentNavigationKind
+    {
+        None,
+        Folder,
+        DrivesView,
+    };
+
+    struct ParentNavigationTarget
+    {
+        ParentNavigationKind kind{ ParentNavigationKind::None };
+        std::filesystem::path path;
+    };
+
+    // Resolves the Up (Alt+Up / Backspace) destination for a pane.
+    // From a drive root ("C:\\") or Recycle Bin, navigates to This PC (DrivesView).
+    // From This PC or an empty path, there is no parent.
+    [[nodiscard]] inline ParentNavigationTarget ResolveParentNavigationTarget(
+        std::filesystem::path const& currentPath,
+        bool const isDrivesView,
+        bool const isRecycleBinView)
+    {
+        if (isDrivesView || currentPath.empty())
+        {
+            return {};
+        }
+
+        if (isRecycleBinView || IsRecycleBinLocation(currentPath))
+        {
+            return { ParentNavigationKind::DrivesView, {} };
+        }
+
+        auto const normalized = NormalizeFolderForCompare(currentPath);
+        auto const parent = normalized.parent_path();
+        if (parent.empty() || PathsEqualIgnoringCase(normalized, parent))
+        {
+            return { ParentNavigationKind::DrivesView, {} };
+        }
+
+        return { ParentNavigationKind::Folder, parent };
+    }
+
     // Two-batch directory publication policy: small and medium folders publish in one ReplaceAll
     // without waiting for two extra CompositionTarget::Rendering frames; very large folders
     // (e.g. 100k items) publish the first batch immediately and stage the full list after present.

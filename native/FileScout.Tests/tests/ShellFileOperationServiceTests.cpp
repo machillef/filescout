@@ -546,6 +546,24 @@ TEST_F(ShellFileOperationFixture, PermanentDeleteItemsRemovesMultipleFilesAndFol
     EXPECT_FALSE(std::filesystem::exists(nested));
 }
 
+TEST_F(ShellFileOperationFixture, CreateEmptyFileCreatesNewFileAndRejectsDuplicate)
+{
+    auto const created = m_svc.CreateEmptyFile(nullptr, m_root, L"notes.txt");
+    EXPECT_EQ(created, m_root / L"notes.txt");
+    EXPECT_TRUE(std::filesystem::exists(created));
+    EXPECT_EQ(std::filesystem::file_size(created), 0u);
+
+    EXPECT_THROW(
+        (void)m_svc.CreateEmptyFile(nullptr, m_root, L"notes.txt"),
+        FileOperationException);
+}
+
+TEST(WindowsTerminalArgsTests, DoublesTrailingBackslashForDriveRoot)
+{
+    EXPECT_EQ(FormatWindowsTerminalDirectoryArgs(LR"(C:\Users\Docs)"), LR"(-d "C:\Users\Docs")");
+    EXPECT_EQ(FormatWindowsTerminalDirectoryArgs(LR"(C:\)"), LR"(-d "C:\\")");
+}
+
 TEST_F(ShellFileOperationFixture, ShowPropertiesThrowsForMissingPath)
 {
     auto const missing = m_root / L"missing.txt";
