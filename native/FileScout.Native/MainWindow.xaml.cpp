@@ -1217,6 +1217,36 @@ namespace
         listView.ItemTemplate(tmpl);
     }
 
+    void ApplyListColumnWidthsToContainer(
+        winrt::Microsoft::UI::Xaml::DependencyObject const& container,
+        ::FileScoutNative::Domain::ListColumnWidths const& widths)
+    {
+        auto const selectorItem = container.try_as<winrt::Microsoft::UI::Xaml::Controls::Primitives::SelectorItem>();
+        if (!selectorItem)
+        {
+            return;
+        }
+        auto const root = selectorItem.ContentTemplateRoot().try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>();
+        if (!root)
+        {
+            return;
+        }
+        auto const rowGrid = root.FindName(L"ListRowGrid").try_as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
+        if (!rowGrid)
+        {
+            return;
+        }
+        auto const cols = rowGrid.ColumnDefinitions();
+        if (cols.Size() < 5)
+        {
+            return;
+        }
+        cols.GetAt(1).Width({ widths.name, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+        cols.GetAt(2).Width({ widths.type, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+        cols.GetAt(3).Width({ widths.size, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+        cols.GetAt(4).Width({ widths.date, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+    }
+
     winrt::Microsoft::UI::Xaml::Controls::ListView ResolveTabContentListView(
         winrt::Windows::Foundation::IInspectable const& content)
     {
@@ -6629,6 +6659,23 @@ namespace winrt::FileScoutNative::implementation
         }
         catch (...) {}
 
+        // Apply the pane's current List-view column widths to every realized or recycled row.
+        listView.ContainerContentChanging([this, paneIndex](
+            auto const&,
+            winrt::Microsoft::UI::Xaml::Controls::ContainerContentChangingEventArgs const& args)
+            {
+                if (args.InRecycleQueue())
+                {
+                    return;
+                }
+                auto const& pane = m_panes[paneIndex];
+                if (ResolveRowPresentation(pane) != RowPresentation::List)
+                {
+                    return;
+                }
+                ApplyListColumnWidthsToContainer(args.ItemContainer(), pane.list_column_widths);
+            });
+
         // Wire events with pane-index capture so that interacting with a ListView
         // in the inactive pane activates that pane first.
         listView.SelectionChanged([this, paneIndex](auto const& s, auto const& a)
@@ -7048,6 +7095,7 @@ namespace winrt::FileScoutNative::implementation
         auto const tabItemObj = tabView.TabItems().GetAt(static_cast<uint32_t>(pane.active_tab_index));
         auto const tabItem = tabItemObj.as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>();
         pane.active_list_view = ResolveTabContentListView(tabItem.Content());
+        ApplyListColumnWidthsToPane(m_activePaneIndex);
 
         auto const& tab = pane.tabs[pane.active_tab_index];
         pane.current_path = tab.path;
@@ -7489,47 +7537,135 @@ namespace winrt::FileScoutNative::implementation
         SearchTextBox().PlaceholderText(L"Search " + folderName + L"\u2026");
     }
 
+    void MainWindow::ApplyListColumnWidthsToPane(int32_t const paneIndex)
+    {
+        auto& pane = m_panes[paneIndex];
+        auto const& widths = pane.list_column_widths;
+
+        if (ResolveRowPresentation(pane) != RowPresentation::List)
+        {
+            return;
+        }
+
+        // Update live sort-header ColumnDefinitions in place (no header rebuild during drag).
+        static constexpr std::array<::FileScoutNative::Domain::ListColumnIndex, 4> kCols{{
+            ::FileScoutNative::Domain::ListColumnIndex::Name,
+            ::FileScoutNative::Domain::ListColumnIndex::Type,
+            ::FileScoutNative::Domain::ListColumnIndex::Size,
+            ::FileScoutNative::Domain::ListColumnIndex::DateModified,
+        }};
+        for (std::size_t i = 0; i < kCols.size(); ++i)
+        {
+            if (pane.sort_header_columns[i])
+            {
+                pane.sort_header_columns[i].Width({
+                    ::FileScoutNative::Domain::GetListColumnWidth(widths, kCols[i]),
+                    winrt::Microsoft::UI::Xaml::GridUnitType::Pixel,
+                });
+            }
+        }
+
+        // Update only the currently realized/cached ListViewItem containers (O(visible rows),
+        // keeping 60 fps drag performance even in 100k-item folders).
+        if (!pane.active_list_view)
+        {
+            return;
+        }
+        auto const itemCount = static_cast<int32_t>(pane.active_list_view.Items().Size());
+        if (itemCount <= 0)
+        {
+            return;
+        }
+        int32_t firstIndex = 0;
+        int32_t lastIndex = (std::min)(itemCount - 1, 63);
+        if (auto const stackPanel = pane.active_list_view.ItemsPanelRoot()
+                .try_as<winrt::Microsoft::UI::Xaml::Controls::ItemsStackPanel>())
+        {
+            auto const cacheFirst = stackPanel.FirstCacheIndex();
+            auto const cacheLast = stackPanel.LastCacheIndex();
+            if (cacheFirst >= 0 && cacheLast >= cacheFirst)
+            {
+                firstIndex = cacheFirst;
+                lastIndex = (std::min)(cacheLast, itemCount - 1);
+            }
+        }
+        for (int32_t i = firstIndex; i <= lastIndex; ++i)
+        {
+            if (auto const container = pane.active_list_view.ContainerFromIndex(i))
+            {
+                ApplyListColumnWidthsToContainer(container, widths);
+            }
+        }
+    }
+
     void MainWindow::BuildSortHeader(int32_t const paneIndex)
     {
-        struct ColumnDef { std::wstring_view label; SortColumn column; double widthStar; };
+        struct ColumnDef
+        {
+            std::wstring_view label;
+            SortColumn column;
+            ::FileScoutNative::Domain::ListColumnIndex listIndex;
+            double widthStar;
+            bool rightAlign;
+        };
         static constexpr std::array<ColumnDef, 4> columns{{
-            { L"Name",          SortColumn::Name,         3.4 },
-            { L"Type",          SortColumn::Type,         1.4 },
-            { L"Size",          SortColumn::Size,         1.0 },
-            { L"Date Modified", SortColumn::DateModified, 2.4 },
+            { L"Name",          SortColumn::Name,         ::FileScoutNative::Domain::ListColumnIndex::Name,         3.4, false },
+            { L"Type",          SortColumn::Type,         ::FileScoutNative::Domain::ListColumnIndex::Type,         1.4, false },
+            { L"Size",          SortColumn::Size,         ::FileScoutNative::Domain::ListColumnIndex::Size,         1.0, true  },
+            { L"Date Modified", SortColumn::DateModified, ::FileScoutNative::Domain::ListColumnIndex::DateModified, 2.4, false },
         }};
 
         auto headerBorder = SortHeaderForPane(paneIndex);
-
-        auto headerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
-        auto const& pane = m_panes[paneIndex];
+        auto& pane = m_panes[paneIndex];
         auto const presentation = ResolveRowPresentation(pane);
+        bool const isListMode = (presentation == RowPresentation::List);
+        pane.sort_header_columns = { nullptr, nullptr, nullptr, nullptr };
 
-        // In list mode, prepend a fixed-width column matching the row icon gutter.
-        // This keeps sort button labels approximately aligned with the list row data columns.
+        auto outerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        auto colsHostDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+        colsHostDef.Width({ 1.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+        auto toggleHostDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+        toggleHostDef.Width({ 0.0, winrt::Microsoft::UI::Xaml::GridUnitType::Auto });
+        outerGrid.ColumnDefinitions().Append(colsHostDef);
+        outerGrid.ColumnDefinitions().Append(toggleHostDef);
+
+        auto columnsGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
         int32_t colOffset = 0;
-        if (presentation == RowPresentation::List)
+        if (isListMode)
         {
+            columnsGrid.ColumnSpacing(8);
             auto iconSpacerCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-            iconSpacerCol.Width({ 30.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
-            headerGrid.ColumnDefinitions().Append(iconSpacerCol);
+            iconSpacerCol.Width({ 20.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+            columnsGrid.ColumnDefinitions().Append(iconSpacerCol);
             colOffset = 1;
         }
 
-        // Four sort columns (star-proportioned).
-        for (auto const& col : columns)
+        for (std::size_t idx = 0; idx < columns.size(); ++idx)
         {
             auto colDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-            colDef.Width({ col.widthStar, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
-            headerGrid.ColumnDefinitions().Append(colDef);
+            if (isListMode)
+            {
+                colDef.Width({
+                    ::FileScoutNative::Domain::GetListColumnWidth(pane.list_column_widths, columns[idx].listIndex),
+                    winrt::Microsoft::UI::Xaml::GridUnitType::Pixel,
+                });
+                pane.sort_header_columns[idx] = colDef;
+            }
+            else
+            {
+                colDef.Width({ columns[idx].widthStar, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+            }
+            columnsGrid.ColumnDefinitions().Append(colDef);
         }
 
-        // Trailing Auto column for the view-mode toggle buttons.
-        auto toggleColDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-        toggleColDef.Width({ 0, winrt::Microsoft::UI::Xaml::GridUnitType::Auto });
-        headerGrid.ColumnDefinitions().Append(toggleColDef);
+        if (isListMode)
+        {
+            auto fillerCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            fillerCol.Width({ 1.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
+            columnsGrid.ColumnDefinitions().Append(fillerCol);
+        }
 
-        // Sort column buttons.
+        // Sort column buttons (+ interactive resize dividers in List mode).
         for (int32_t colIdx = 0; colIdx < static_cast<int32_t>(columns.size()); ++colIdx)
         {
             auto const& colDef = columns[static_cast<std::size_t>(colIdx)];
@@ -7544,8 +7680,14 @@ namespace winrt::FileScoutNative::implementation
             auto btn = winrt::Microsoft::UI::Xaml::Controls::Button{};
             btn.Content(winrt::box_value(winrt::hstring{ labelText }));
             btn.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Stretch);
-            btn.HorizontalContentAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
-            btn.Padding({ 6, 5, 6, 5 });
+            btn.HorizontalContentAlignment((isListMode && colDef.rightAlign)
+                ? winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right
+                : winrt::Microsoft::UI::Xaml::HorizontalAlignment::Left);
+            btn.Padding(isListMode
+                ? (colDef.rightAlign
+                    ? winrt::Microsoft::UI::Xaml::Thickness{ 4, 5, 8, 5 }
+                    : winrt::Microsoft::UI::Xaml::Thickness{ 0, 5, 8, 5 })
+                : winrt::Microsoft::UI::Xaml::Thickness{ 6, 5, 6, 5 });
             btn.FontSize(12);
             btn.FontWeight(isActive
                 ? winrt::Microsoft::UI::Text::FontWeights::SemiBold()
@@ -7573,14 +7715,146 @@ namespace winrt::FileScoutNative::implementation
                     SetSortColumn(paneIndex, targetCol);
                 });
 
-            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(btn, colIdx + colOffset);
-            headerGrid.Children().Append(btn);
+            if (isListMode)
+            {
+                auto cellGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+                cellGrid.Children().Append(btn);
+
+                // 8 px interactive resize grip centered over the 8 px column gap,
+                // styled with a crisp 1 px vertical divider hairline like Windows File Explorer.
+                auto grip = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+                grip.Width(8.0);
+                grip.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
+                grip.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Stretch);
+                grip.Margin({ 0, 0, -4, 0 });
+                grip.Background(SolidBrush(0x00, 0x00, 0x00, 0x00));
+                winrt::Microsoft::UI::Xaml::Controls::ToolTipService::SetToolTip(
+                    grip, winrt::box_value(winrt::hstring{ L"Drag to resize column (double-click to reset)" }));
+
+                auto hairline = winrt::Microsoft::UI::Xaml::Controls::Border{};
+                hairline.Width(1.0);
+                hairline.Height(14.0);
+                hairline.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Center);
+                hairline.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+                hairline.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+                hairline.Opacity(0.75);
+                grip.Children().Append(hairline);
+
+                struct ResizeDragState
+                {
+                    bool dragging{ false };
+                    POINT startScreenPt{};
+                    ::FileScoutNative::Domain::ListColumnWidths startWidths{};
+                };
+                auto dragState = std::make_shared<ResizeDragState>();
+                auto const listColIdx = colDef.listIndex;
+
+                grip.PointerEntered([hairline](auto const&, auto const&)
+                    {
+                        hairline.Background(LookupBrush(L"TextFillColorSecondaryBrush"));
+                        hairline.Opacity(1.0);
+                        ::SetCursor(::LoadCursorW(nullptr, IDC_SIZEWE));
+                    });
+                grip.PointerExited([hairline, dragState](auto const&, auto const&)
+                    {
+                        if (!dragState->dragging)
+                        {
+                            hairline.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+                            hairline.Opacity(0.75);
+                        }
+                    });
+                grip.PointerPressed([this, paneIndex, listColIdx, grip, hairline, dragState](
+                    auto const&,
+                    winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
+                    {
+                        auto const props = args.GetCurrentPoint(grip).Properties();
+                        if (!props.IsLeftButtonPressed())
+                        {
+                            return;
+                        }
+                        SetActivePaneIndex(paneIndex);
+                        if (::GetCursorPos(&dragState->startScreenPt) == FALSE)
+                        {
+                            return;
+                        }
+                        dragState->startWidths = m_panes[paneIndex].list_column_widths;
+                        dragState->dragging = true;
+                        (void)grip.CapturePointer(args.Pointer());
+                        hairline.Background(LookupBrush(L"AccentTextFillColorPrimaryBrush"));
+                        hairline.Opacity(1.0);
+                        ::SetCursor(::LoadCursorW(nullptr, IDC_SIZEWE));
+                        args.Handled(true);
+                    });
+                grip.PointerMoved([this, paneIndex, listColIdx, grip, dragState](
+                    auto const&,
+                    winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
+                    {
+                        ::SetCursor(::LoadCursorW(nullptr, IDC_SIZEWE));
+                        if (!dragState->dragging)
+                        {
+                            return;
+                        }
+                        POINT curPt{};
+                        if (::GetCursorPos(&curPt) == FALSE)
+                        {
+                            return;
+                        }
+                        double scale = 1.0;
+                        if (auto const xamlRoot = grip.XamlRoot())
+                        {
+                            auto const s = xamlRoot.RasterizationScale();
+                            if (s > 0.0) { scale = s; }
+                        }
+                        double const deltaDip = static_cast<double>(curPt.x - dragState->startScreenPt.x) / scale;
+                        m_panes[paneIndex].list_column_widths =
+                            ::FileScoutNative::Domain::ResizeListColumn(dragState->startWidths, listColIdx, deltaDip);
+                        ApplyListColumnWidthsToPane(paneIndex);
+                        args.Handled(true);
+                    });
+                auto endDrag = [grip, hairline, dragState](winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
+                {
+                    if (!dragState->dragging)
+                    {
+                        return;
+                    }
+                    dragState->dragging = false;
+                    grip.ReleasePointerCapture(args.Pointer());
+                    hairline.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+                    hairline.Opacity(0.75);
+                    args.Handled(true);
+                };
+                grip.PointerReleased([endDrag](auto const&, auto const& args) { endDrag(args); });
+                grip.PointerCaptureLost([hairline, dragState](auto const&, auto const&)
+                    {
+                        dragState->dragging = false;
+                        hairline.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+                        hairline.Opacity(0.75);
+                    });
+                grip.DoubleTapped([this, paneIndex, listColIdx](auto const&, auto const& args)
+                    {
+                        SetActivePaneIndex(paneIndex);
+                        m_panes[paneIndex].list_column_widths =
+                            ::FileScoutNative::Domain::ResetListColumn(m_panes[paneIndex].list_column_widths, listColIdx);
+                        ApplyListColumnWidthsToPane(paneIndex);
+                        args.Handled(true);
+                    });
+
+                cellGrid.Children().Append(grip);
+                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(cellGrid, colIdx + colOffset);
+                columnsGrid.Children().Append(cellGrid);
+            }
+            else
+            {
+                winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(btn, colIdx + colOffset);
+                columnsGrid.Children().Append(btn);
+            }
         }
 
-        // View-mode toggle buttons: "Cards" and "List".
+        // View-mode toggle buttons: "Group", "Cards", and "List".
         auto toggleStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
         toggleStack.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
         toggleStack.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+        toggleStack.Margin({ 8, 0, 0, 0 });
 
         auto addHeaderButton = [&](std::wstring_view label, bool isActive, auto&& onClick)
         {
@@ -7636,12 +7910,12 @@ namespace winrt::FileScoutNative::implementation
         addToggleBtn(L"Cards", ViewMode::Cards);
         addToggleBtn(L"List",  ViewMode::List);
 
-        // Place the toggle stack in the trailing column.
-        auto const toggleColIdx = static_cast<int32_t>(columns.size()) + colOffset;
-        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(toggleStack, toggleColIdx);
-        headerGrid.Children().Append(toggleStack);
+        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(columnsGrid, 0);
+        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(toggleStack, 1);
+        outerGrid.Children().Append(columnsGrid);
+        outerGrid.Children().Append(toggleStack);
 
-        headerBorder.Child(headerGrid);
+        headerBorder.Child(outerGrid);
     }
 
     void MainWindow::SetSortColumn(int32_t const paneIndex, SortColumn const column)
