@@ -11,6 +11,19 @@ namespace FileScoutNative::Domain
         Forward,
     };
 
+    inline NavigationInputCommand ResolveNonClientXButtonCommand(WPARAM const wParam) noexcept
+    {
+        switch (GET_XBUTTON_WPARAM(wParam))
+        {
+        case XBUTTON1:
+            return NavigationInputCommand::Back;
+        case XBUTTON2:
+            return NavigationInputCommand::Forward;
+        default:
+            return NavigationInputCommand::None;
+        }
+    }
+
     inline NavigationInputCommand ResolveNavigationInputCommand(
         UINT const message,
         WPARAM const wParam,
@@ -18,15 +31,7 @@ namespace FileScoutNative::Domain
     {
         if (message == WM_XBUTTONUP || message == WM_NCXBUTTONUP)
         {
-            switch (GET_XBUTTON_WPARAM(wParam))
-            {
-            case XBUTTON1:
-                return NavigationInputCommand::Back;
-            case XBUTTON2:
-                return NavigationInputCommand::Forward;
-            default:
-                return NavigationInputCommand::None;
-            }
+            return ResolveNonClientXButtonCommand(wParam);
         }
 
         if (message == WM_APPCOMMAND)
@@ -53,19 +58,16 @@ namespace FileScoutNative::Domain
     {
     public:
         static constexpr std::uint64_t kReleaseSuppressWindowMs = 150;
-        static constexpr std::uint64_t kMaxPressHoldSuppressMs = 2000;
 
-        void OnPointerPressed(NavigationInputCommand const command, std::uint64_t const nowMs) noexcept
+        void OnPointerPressed(NavigationInputCommand const command) noexcept
         {
             if (command == NavigationInputCommand::Back)
             {
                 m_pressedMask |= kBackBit;
-                m_lastBackPressMs = nowMs;
             }
             else if (command == NavigationInputCommand::Forward)
             {
                 m_pressedMask |= kForwardBit;
-                m_lastForwardPressMs = nowMs;
             }
         }
 
@@ -82,6 +84,22 @@ namespace FileScoutNative::Domain
                 m_pressedMask &= static_cast<std::uint8_t>(~kForwardBit);
                 m_lastForwardReleaseMs = nowMs;
                 m_hasForwardRelease = true;
+            }
+        }
+
+        // A new WM_NCXBUTTONDOWN begins an independent non-client click (e.g. on the titlebar),
+        // so clear any stale client-area suppression state for that button only.
+        void OnNonClientButtonDown(NavigationInputCommand const command) noexcept
+        {
+            if (command == NavigationInputCommand::Back)
+            {
+                m_pressedMask &= static_cast<std::uint8_t>(~kBackBit);
+                m_hasBackRelease = false;
+            }
+            else if (command == NavigationInputCommand::Forward)
+            {
+                m_pressedMask &= static_cast<std::uint8_t>(~kForwardBit);
+                m_hasForwardRelease = false;
             }
         }
 
@@ -112,13 +130,9 @@ namespace FileScoutNative::Domain
                 if ((m_pressedMask & kBackBit) != 0)
                 {
                     m_pressedMask &= static_cast<std::uint8_t>(~kBackBit);
-                    if (nowMs >= m_lastBackPressMs && (nowMs - m_lastBackPressMs) <= kMaxPressHoldSuppressMs)
-                    {
-                        m_lastBackReleaseMs = nowMs;
-                        m_hasBackRelease = true;
-                        return true;
-                    }
-                    return false;
+                    m_lastBackReleaseMs = nowMs;
+                    m_hasBackRelease = true;
+                    return true;
                 }
                 return m_hasBackRelease &&
                     nowMs >= m_lastBackReleaseMs &&
@@ -128,13 +142,9 @@ namespace FileScoutNative::Domain
             if ((m_pressedMask & kForwardBit) != 0)
             {
                 m_pressedMask &= static_cast<std::uint8_t>(~kForwardBit);
-                if (nowMs >= m_lastForwardPressMs && (nowMs - m_lastForwardPressMs) <= kMaxPressHoldSuppressMs)
-                {
-                    m_lastForwardReleaseMs = nowMs;
-                    m_hasForwardRelease = true;
-                    return true;
-                }
-                return false;
+                m_lastForwardReleaseMs = nowMs;
+                m_hasForwardRelease = true;
+                return true;
             }
             return m_hasForwardRelease &&
                 nowMs >= m_lastForwardReleaseMs &&
@@ -148,8 +158,6 @@ namespace FileScoutNative::Domain
         std::uint8_t m_pressedMask{ 0 };
         bool m_hasBackRelease{ false };
         bool m_hasForwardRelease{ false };
-        std::uint64_t m_lastBackPressMs{ 0 };
-        std::uint64_t m_lastForwardPressMs{ 0 };
         std::uint64_t m_lastBackReleaseMs{ 0 };
         std::uint64_t m_lastForwardReleaseMs{ 0 };
     };

@@ -389,7 +389,7 @@ namespace winrt::FileScoutNative::implementation
         winrt::fire_and_forget ShowDeleteDialogAsync(
             std::vector<::FileScoutNative::Domain::ShellItemRef> items,
             bool permanent = false);
-        bool m_deleteDialogOpen{ false };
+        bool m_modalDialogOpen{ false };
         void SelectItemByPath(std::filesystem::path const& path);
         [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;
         [[nodiscard]] std::wstring SuggestNewFolderName() const;
