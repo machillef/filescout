@@ -223,13 +223,14 @@
                             <Border CornerRadius="4"
                                     Background="{ThemeResource AccentFillColorSecondaryBrush}"
                                     Opacity="{x:Bind SelectionFillOpacity, Mode=OneWay}" />
-                            <Grid ColumnSpacing="8">
+                            <Grid x:Name="ListRowGrid" ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="20" />
-                                    <ColumnDefinition Width="4.2*" />
-                                    <ColumnDefinition Width="1.4*" />
-                                    <ColumnDefinition Width="1.0*" />
-                                    <ColumnDefinition Width="2.6*" />
+                                    <ColumnDefinition Width="240" />
+                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="136" />
+                                    <ColumnDefinition Width="*" MinWidth="168" />
                                 </Grid.ColumnDefinitions>
                                 <Image Width="16"
                                        Height="16"
@@ -254,7 +255,7 @@
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            HorizontalTextAlignment="Right"
-                                           Margin="0,0,16,0"
+                                           Margin="0,0,8,0"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="4"
@@ -732,7 +733,7 @@
                     <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
                     <Border x:Name="LeftPaneSortHeader"
                             Grid.Row="0"
-                            Padding="14,4,14,2"
+                            Padding="12,4,12,2"
                             Background="Transparent" />
                     <!-- Search progress indicator — visible only during Recursive search (R17d). -->
                     <ProgressBar x:Name="LeftPaneSearchProgress"
@@ -766,7 +767,7 @@
                     <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
                     <Border x:Name="RightPaneSortHeader"
                             Grid.Row="0"
-                            Padding="14,4,14,2"
+                            Padding="12,4,12,2"
                             Background="Transparent" />
                     <!-- Search progress indicator — visible only during Recursive search (R17d). -->
                     <ProgressBar x:Name="RightPaneSearchProgress"

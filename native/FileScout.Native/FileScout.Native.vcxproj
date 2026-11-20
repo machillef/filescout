@@ -133,6 +133,7 @@
     </ClInclude>
     <ClInclude Include="Domain\ClipboardService.h" />
     <ClInclude Include="Domain\ContextMenuModel.h" />
+    <ClInclude Include="Domain\ListColumnLayout.h" />
     <ClInclude Include="Domain\ParallelFor.h" />
     <ClInclude Include="Bench.h" />
     <ClInclude Include="NavDiag.h" />

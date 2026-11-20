@@ -5,6 +5,7 @@
 #include "Domain\BatchRenamePlan.h"
 #include "Domain\ContextMenuAnchor.h"
 #include "Domain\ContextMenuModel.h"
+#include "Domain\ListColumnLayout.h"
 #include "Domain\PaneSelectionState.h"
 #include "Domain\PendingFilter.h"
 #include "Domain\ShellItemRef.h"
@@ -73,6 +74,14 @@ namespace winrt::FileScoutNative::implementation
         bool group_by_sort_column{ false };
         // View mode — cards (rich cards) or list (compact rows).
         ViewMode view_mode{ ViewMode::List };
+        // Shared List-view column widths (DIPs) for header and realized rows in this pane.
+        ::FileScoutNative::Domain::ListColumnWidths list_column_widths{};
+        std::array<winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition, 4> sort_header_columns{
+            nullptr, nullptr, nullptr, nullptr
+        };
+        winrt::Microsoft::UI::Xaml::Controls::ScrollViewer sort_header_scroll_viewer{ nullptr };
+        double sort_header_toggle_width{ 168.0 };
+        bool list_header_offset_unreconciled{ false };
         // Per-pane navigation history (back/forward stacks).
         std::vector<std::filesystem::path> back_stack;
         std::vector<std::filesystem::path> forward_stack;
@@ -430,6 +439,8 @@ namespace winrt::FileScoutNative::implementation
 
         // Sort header helpers.
         void BuildSortHeader(int32_t paneIndex);
+        void ApplyListColumnWidthsToPane(int32_t paneIndex);
+        void SyncListHeaderHorizontalOffset(int32_t paneIndex);
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::Border SortHeaderForPane(int32_t paneIndex);
         void SetSortColumn(int32_t paneIndex, SortColumn column);
         static void SortItems(std::vector<::FileScoutNative::Domain::ShellItemRef>& items,
