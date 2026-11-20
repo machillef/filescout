@@ -2001,6 +2001,7 @@ namespace winrt::FileScoutNative::implementation
         {
             ScopedTimer timer{ L"SetupKeyboardAccelerators" };
             SetupKeyboardAccelerators();
+            SetupMouseNavigationHandlers();
         }
         {
             ScopedTimer timer{ L"InitializeThemeDropDown" };
@@ -3322,6 +3323,25 @@ namespace winrt::FileScoutNative::implementation
             return DefSubclassProc(hwnd, message, wParam, lParam);
         }
 
+        if (message == WM_ACTIVATE && LOWORD(wParam) == WA_INACTIVE)
+        {
+            if (auto* const self = reinterpret_cast<MainWindow*>(refData))
+            {
+                self->m_mouseNavDeduplicator.ResetPressedState();
+            }
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
+        if (message == WM_NCXBUTTONDOWN)
+        {
+            if (auto* const self = reinterpret_cast<MainWindow*>(refData))
+            {
+                self->m_mouseNavDeduplicator.OnNonClientButtonDown(
+                    ::FileScoutNative::Domain::ResolveNonClientXButtonCommand(wParam));
+            }
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
         auto const command = ::FileScoutNative::Domain::ResolveNavigationInputCommand(
             message,
             wParam,
@@ -3335,6 +3355,18 @@ namespace winrt::FileScoutNative::implementation
         if (self == nullptr)
         {
             return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
+        if (self->m_mouseNavDeduplicator.ShouldSuppressWin32Command(
+                message, lParam, command, ::GetTickCount64()))
+        {
+            return TRUE;
+        }
+
+        if (self->m_modalDialogOpen ||
+            self->CommandPaletteOverlay().Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible)
+        {
+            return TRUE;
         }
 
         if (command == ::FileScoutNative::Domain::NavigationInputCommand::Back)
@@ -5409,7 +5441,14 @@ namespace winrt::FileScoutNative::implementation
 
     winrt::fire_and_forget MainWindow::ShowNewFolderDialogAsync()
     {
+        if (m_modalDialogOpen)
+        {
+            co_return;
+        }
+
         auto lifetime = get_strong();
+        m_modalDialogOpen = true;
+        auto const parent = ActivePane().current_path;
 
         auto textBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
         textBox.Text(ToHString(SuggestNewFolderName()));
@@ -5423,7 +5462,20 @@ namespace winrt::FileScoutNative::implementation
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Primary);
         dialog.Content(textBox);
 
-        if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult dialogResult =
+            winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::None;
+        try
+        {
+            dialogResult = co_await dialog.ShowAsync();
+        }
+        catch (...)
+        {
+            m_modalDialogOpen = false;
+            co_return;
+        }
+        m_modalDialogOpen = false;
+
+        if (dialogResult != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
         {
             co_return;
         }
@@ -5438,7 +5490,6 @@ namespace winrt::FileScoutNative::implementation
         try
         {
             auto const owner = GetWindowHandle();
-            auto const parent = ActivePane().current_path;
             auto const createdPath = co_await OnShellThread([this, owner, parent, folderName]
                 {
                     return m_shellFileOperationService.CreateFolder(owner, parent, folderName);
@@ -5455,7 +5506,13 @@ namespace winrt::FileScoutNative::implementation
 
     winrt::fire_and_forget MainWindow::ShowRenameDialogAsync(::FileScoutNative::Domain::ShellItemRef item)
     {
+        if (m_modalDialogOpen)
+        {
+            co_return;
+        }
+
         auto lifetime = get_strong();
+        m_modalDialogOpen = true;
 
         auto textBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
         textBox.Text(ToHString(item.display_name));
@@ -5469,7 +5526,20 @@ namespace winrt::FileScoutNative::implementation
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Primary);
         dialog.Content(textBox);
 
-        if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult dialogResult =
+            winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::None;
+        try
+        {
+            dialogResult = co_await dialog.ShowAsync();
+        }
+        catch (...)
+        {
+            m_modalDialogOpen = false;
+            co_return;
+        }
+        m_modalDialogOpen = false;
+
+        if (dialogResult != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
         {
             co_return;
         }
@@ -5930,7 +6000,25 @@ namespace winrt::FileScoutNative::implementation
         paddingBox.TextChanged([refreshPreview](auto const&, auto const&) { refreshPreview(); });
         refreshPreview();
 
-        if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        if (m_modalDialogOpen)
+        {
+            co_return;
+        }
+        m_modalDialogOpen = true;
+        winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult dialogResult =
+            winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::None;
+        try
+        {
+            dialogResult = co_await dialog.ShowAsync();
+        }
+        catch (...)
+        {
+            m_modalDialogOpen = false;
+            co_return;
+        }
+        m_modalDialogOpen = false;
+
+        if (dialogResult != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
         {
             co_return;
         }
@@ -6010,13 +6098,13 @@ namespace winrt::FileScoutNative::implementation
         std::vector<::FileScoutNative::Domain::ShellItemRef> items,
         bool const permanent)
     {
-        if (items.empty() || m_deleteDialogOpen)
+        if (items.empty() || m_modalDialogOpen)
         {
             co_return;
         }
 
         auto lifetime = get_strong();
-        m_deleteDialogOpen = true;
+        m_modalDialogOpen = true;
 
         // Capture the initiating pane's context before awaiting the modal dialog so a background
         // change cannot attribute the delete to another pane or folder.
@@ -6053,10 +6141,10 @@ namespace winrt::FileScoutNative::implementation
         }
         catch (...)
         {
-            m_deleteDialogOpen = false;
+            m_modalDialogOpen = false;
             co_return;
         }
-        m_deleteDialogOpen = false;
+        m_modalDialogOpen = false;
 
         if (dialogResult != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
         {
@@ -6326,6 +6414,91 @@ namespace winrt::FileScoutNative::implementation
                 ShowCommandPalette();
             });
             accelerators.Append(accel);
+        }
+    }
+
+    void MainWindow::SetupMouseNavigationHandlers()
+    {
+        auto const rootElement = Content().as<winrt::Microsoft::UI::Xaml::UIElement>();
+        // WinUI 3 delivers client-area mouse XButton events to its internal InputSite child HWND
+        // rather than the top-level HWND, so listen on the root Grid with handledEventsToo=true
+        // to handle mouse Back/Forward buttons over any control in the window.
+        rootElement.AddHandler(
+            winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
+            winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                [this](winrt::Windows::Foundation::IInspectable const&,
+                       winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
+                {
+                    HandleRootPointerPressed(args);
+                })),
+            /*handledEventsToo=*/true);
+        rootElement.AddHandler(
+            winrt::Microsoft::UI::Xaml::UIElement::PointerReleasedEvent(),
+            winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
+                [this](winrt::Windows::Foundation::IInspectable const&,
+                       winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
+                {
+                    HandleRootPointerReleased(args);
+                })),
+            /*handledEventsToo=*/true);
+    }
+
+    void MainWindow::HandleRootPointerPressed(
+        winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
+    {
+        using PUK = winrt::Microsoft::UI::Input::PointerUpdateKind;
+        auto const kind = args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind();
+        auto command = ::FileScoutNative::Domain::NavigationInputCommand::None;
+        if (kind == PUK::XButton1Pressed)
+        {
+            command = ::FileScoutNative::Domain::NavigationInputCommand::Back;
+        }
+        else if (kind == PUK::XButton2Pressed)
+        {
+            command = ::FileScoutNative::Domain::NavigationInputCommand::Forward;
+        }
+        else
+        {
+            return;
+        }
+
+        m_mouseNavDeduplicator.OnPointerPressed(command);
+        args.Handled(true);
+
+        if (m_modalDialogOpen ||
+            CommandPaletteOverlay().Visibility() == winrt::Microsoft::UI::Xaml::Visibility::Visible)
+        {
+            return;
+        }
+
+        if (command == ::FileScoutNative::Domain::NavigationInputCommand::Back)
+        {
+            NavigateBack();
+        }
+        else
+        {
+            NavigateForward();
+        }
+    }
+
+    void MainWindow::HandleRootPointerReleased(
+        winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
+    {
+        using PUK = winrt::Microsoft::UI::Input::PointerUpdateKind;
+        auto const kind = args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind();
+        if (kind == PUK::XButton1Released)
+        {
+            m_mouseNavDeduplicator.OnPointerReleased(
+                ::FileScoutNative::Domain::NavigationInputCommand::Back,
+                ::GetTickCount64());
+            args.Handled(true);
+        }
+        else if (kind == PUK::XButton2Released)
+        {
+            m_mouseNavDeduplicator.OnPointerReleased(
+                ::FileScoutNative::Domain::NavigationInputCommand::Forward,
+                ::GetTickCount64());
+            args.Handled(true);
         }
     }
 
