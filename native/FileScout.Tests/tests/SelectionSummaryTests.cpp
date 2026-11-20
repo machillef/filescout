@@ -107,3 +107,21 @@ TEST(NavigationHistoryTests, ResolveParentNavigationTargetHandlesSubfolderRootRe
     auto const drives = ResolveParentNavigationTarget({}, true, false);
     EXPECT_EQ(drives.kind, ParentNavigationKind::None);
 }
+
+TEST(NavigationHistoryTests, DrivesViewSentinelPreservesBackForwardHistoryAndSkipsRecents)
+{
+    std::vector<std::filesystem::path> back;
+    std::vector<std::filesystem::path> forward;
+    std::filesystem::path current = LR"(C:\Data)";
+
+    // Up from C:\Data -> C:\ -> This PC
+    BeginNavigation(back, forward, current, LR"(C:\)", /*isHistoryStep=*/false);
+    RecordNavigation(back, forward, current, std::filesystem::path{ kDrivesViewLocation });
+    ASSERT_EQ(back.size(), 2u);
+    EXPECT_EQ(back[0], std::filesystem::path{ LR"(C:\Data)" });
+    EXPECT_EQ(back[1], std::filesystem::path{ LR"(C:\)" });
+
+    EXPECT_TRUE(IsDrivesViewLocation(std::filesystem::path{ kDrivesViewLocation }));
+    EXPECT_FALSE(IsDrivesViewLocation(std::filesystem::path{ LR"(C:\)" }));
+    EXPECT_FALSE(FolderToRecordOnLeave(std::filesystem::path{ kDrivesViewLocation }, LR"(C:\)").has_value());
+}

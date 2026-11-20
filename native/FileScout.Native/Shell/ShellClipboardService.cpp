@@ -374,9 +374,9 @@ namespace FileScoutNative::Shell
         return unchanged;
     }
 
-    bool ShellClipboardService::CopyTextToClipboard(std::wstring_view const text)
+    bool ShellClipboardService::CopyTextToClipboard(HWND const ownerWindow, std::wstring_view const text)
     {
-        if (text.empty())
+        if (text.empty() || ownerWindow == nullptr)
         {
             return false;
         }
@@ -384,7 +384,7 @@ namespace FileScoutNative::Shell
         bool isOpen = false;
         for (int attempt = 0; attempt < 5 && !isOpen; ++attempt)
         {
-            isOpen = OpenClipboard(nullptr) != FALSE;
+            isOpen = OpenClipboard(ownerWindow) != FALSE;
             if (!isOpen)
             {
                 Sleep(10);

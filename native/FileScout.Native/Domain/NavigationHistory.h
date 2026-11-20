@@ -12,6 +12,8 @@ namespace FileScoutNative::Domain
     // The location the sidebar's Recycle Bin row navigates to. std::filesystem::absolute() treats it
     // as a relative path and prefixes the working directory, so recognise it by its last component.
     inline constexpr std::wstring_view kRecycleBinLocation = L"shell:RecycleBinFolder";
+    // Sentinel location used in back/forward history stacks to represent the This PC drives view.
+    inline constexpr std::wstring_view kDrivesViewLocation = L"shell:MyComputerFolder";
 
     [[nodiscard]] inline bool PathsEqualIgnoringCase(
         std::filesystem::path const& left,
@@ -28,6 +30,11 @@ namespace FileScoutNative::Domain
     [[nodiscard]] inline bool IsRecycleBinLocation(std::filesystem::path const& path)
     {
         return !path.empty() && PathsEqualIgnoringCase(path.filename(), std::filesystem::path{ kRecycleBinLocation });
+    }
+
+    [[nodiscard]] inline bool IsDrivesViewLocation(std::filesystem::path const& path)
+    {
+        return !path.empty() && PathsEqualIgnoringCase(path.filename(), std::filesystem::path{ kDrivesViewLocation });
     }
 
     // lexically_normal() keeps a trailing separator ("C:\\Users\\Docs\\"), which made a reload of the
@@ -86,7 +93,7 @@ namespace FileScoutNative::Domain
         std::filesystem::path const& leaving,
         std::filesystem::path const& target)
     {
-        if (leaving.empty() || IsRecycleBinLocation(leaving) ||
+        if (leaving.empty() || IsRecycleBinLocation(leaving) || IsDrivesViewLocation(leaving) ||
             PathsEqualIgnoringCase(NormalizeFolderForCompare(leaving), NormalizeFolderForCompare(target)))
         {
             return std::nullopt;

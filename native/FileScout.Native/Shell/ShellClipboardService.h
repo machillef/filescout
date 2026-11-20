@@ -45,7 +45,8 @@ namespace FileScoutNative::Shell
         // if another thread holds it, this backs off and returns false.
         static bool ClearClipboardIfUnchanged(DWORD sequenceNumber);
         // Copies plain UTF-16 text (e.g. file paths) to the Win32 clipboard with brief retry backoff.
-        static bool CopyTextToClipboard(std::wstring_view text);
+        // Requires a valid application-owned window handle so EmptyClipboard + SetClipboardData succeed.
+        static bool CopyTextToClipboard(HWND ownerWindow, std::wstring_view text);
 
     private:
         void SetClipboardItems(

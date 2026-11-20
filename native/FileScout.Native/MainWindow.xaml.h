@@ -422,7 +422,7 @@ namespace winrt::FileScoutNative::implementation
         void UpdateThisPCSection();
         void RefreshSidebarCaches();
         void UpdateBookmarksSection();
-        void LoadDrivesView();
+        void LoadDrivesView(bool skipHistoryRecord = false);
 
         // R18b: breadcrumb navigation bar + address overlay.
         void UpdateBreadcrumbs(std::filesystem::path const& path);

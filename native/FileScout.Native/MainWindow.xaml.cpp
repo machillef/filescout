@@ -3516,6 +3516,10 @@ namespace winrt::FileScoutNative::implementation
 
         // Record current path in back-stack unless this is a history navigation.
         {
+            if (pane.is_drives_view && pane.current_path.empty())
+            {
+                pane.current_path = std::filesystem::path{ ::FileScoutNative::Domain::kDrivesViewLocation };
+            }
             // Recents list the folder being LEFT (BeginNavigation makes the target current at once),
             // for every navigation that leaves a folder, Back/Forward included.
             auto& navDiagRec = ::FileScoutNative::NavDiag::Recorder::Instance();
@@ -6556,7 +6560,7 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        if (::FileScoutNative::Shell::ShellClipboardService::CopyTextToClipboard(payload))
+        if (::FileScoutNative::Shell::ShellClipboardService::CopyTextToClipboard(GetWindowHandle(), payload))
         {
             if (selectedItems.empty())
             {
@@ -6882,9 +6886,22 @@ namespace winrt::FileScoutNative::implementation
         }
         auto const prev = pane.back_stack.back();
         pane.back_stack.pop_back();
-        pane.forward_stack.push_back(pane.current_path);
+        auto const currentHistoryEntry = pane.is_drives_view
+            ? std::filesystem::path{ ::FileScoutNative::Domain::kDrivesViewLocation }
+            : pane.current_path;
+        if (!currentHistoryEntry.empty())
+        {
+            pane.forward_stack.push_back(currentHistoryEntry);
+        }
         UpdateNavButtons();
-        LoadDirectory(prev, std::nullopt, /*skipHistoryRecord=*/true);
+        if (::FileScoutNative::Domain::IsDrivesViewLocation(prev))
+        {
+            LoadDrivesView(/*skipHistoryRecord=*/true);
+        }
+        else
+        {
+            LoadDirectory(prev, std::nullopt, /*skipHistoryRecord=*/true);
+        }
     }
 
     void MainWindow::NavigateForward()
@@ -6898,9 +6915,22 @@ namespace winrt::FileScoutNative::implementation
         }
         auto const next = pane.forward_stack.back();
         pane.forward_stack.pop_back();
-        pane.back_stack.push_back(pane.current_path);
+        auto const currentHistoryEntry = pane.is_drives_view
+            ? std::filesystem::path{ ::FileScoutNative::Domain::kDrivesViewLocation }
+            : pane.current_path;
+        if (!currentHistoryEntry.empty())
+        {
+            pane.back_stack.push_back(currentHistoryEntry);
+        }
         UpdateNavButtons();
-        LoadDirectory(next, std::nullopt, /*skipHistoryRecord=*/true);
+        if (::FileScoutNative::Domain::IsDrivesViewLocation(next))
+        {
+            LoadDrivesView(/*skipHistoryRecord=*/true);
+        }
+        else
+        {
+            LoadDirectory(next, std::nullopt, /*skipHistoryRecord=*/true);
+        }
     }
 
     void MainWindow::UpdateNavButtons()
@@ -7776,7 +7806,7 @@ namespace winrt::FileScoutNative::implementation
         pane.tab_switching = false;
 
         UpdateTabCloseability();
-        LoadDrivesView();
+        LoadDrivesView(/*skipHistoryRecord=*/true);
     }
 
     void MainWindow::CloseTab(int32_t const index)
@@ -7974,13 +8004,25 @@ namespace winrt::FileScoutNative::implementation
         SortItems(pane.items, pane.sort_column, pane.sort_direction);
         auto& rows = pane.tab_rows[pane.active_tab_index];
         rows.Clear();
+        std::wstring previousGroupLabel;
         for (auto const& item : pane.items)
         {
             auto vm = MakeFileRowViewModel(item);
-            auto impl = vm.as<winrt::FileScoutNative::implementation::FileRowViewModel>();
+            auto impl = winrt::get_self<winrt::FileScoutNative::implementation::FileRowViewModel>(vm);
+            if (!pane.show_file_extensions && !item.is_folder)
+            {
+                auto const dotPos = item.display_name.rfind(L'.');
+                if (dotPos != std::wstring_view::npos && dotPos > 0)
+                {
+                    impl->SetName(item.display_name.substr(0, dotPos));
+                }
+            }
             if (pane.group_by_sort_column)
             {
-                impl->SetGroupHeader(BuildGroupLabel(item, pane.sort_column), true);
+                auto const groupLabel = BuildGroupLabel(item, pane.sort_column);
+                bool const showGroupHeader = previousGroupLabel != groupLabel;
+                impl->SetGroupHeader(groupLabel, showGroupHeader);
+                previousGroupLabel = groupLabel;
             }
             rows.Append(vm);
         }
@@ -9848,7 +9890,7 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    void MainWindow::LoadDrivesView()
+    void MainWindow::LoadDrivesView(bool const skipHistoryRecord)
     {
         try
         {
@@ -9865,6 +9907,14 @@ namespace winrt::FileScoutNative::implementation
             EndSearchOnNavigation(m_activePaneIndex, false);
             ++pane.load_generation;
             pane.awaiting_final_batch = false;
+            if (!skipHistoryRecord && !pane.is_drives_view && !pane.current_path.empty())
+            {
+                ::FileScoutNative::Domain::RecordNavigation(
+                    pane.back_stack,
+                    pane.forward_stack,
+                    pane.current_path,
+                    std::filesystem::path{ ::FileScoutNative::Domain::kDrivesViewLocation });
+            }
             // This PC has no path; the folder being left still belongs in the recents. The sidebar is
             // rebuilt only after the pane state below says "This PC", so it highlights the right row.
             bool recentsChanged = false;
