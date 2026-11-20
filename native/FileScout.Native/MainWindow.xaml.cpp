@@ -3240,6 +3240,17 @@ namespace winrt::FileScoutNative::implementation
         UINT_PTR const,
         DWORD_PTR const refData)
     {
+        if (message == WM_THEMECHANGED ||
+            (message == WM_SETTINGCHANGE && (wParam == SPI_SETHIGHCONTRAST || wParam == 0)))
+        {
+            if (auto* const self = reinterpret_cast<MainWindow*>(refData))
+            {
+                try { self->ApplyTitleBarCaptionColors(); }
+                catch (...) {}
+            }
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
         if (::FileScoutNative::Domain::IsDriveListChange(message, static_cast<std::uintptr_t>(wParam)))
         {
             if (auto* const self = reinterpret_cast<MainWindow*>(refData))
