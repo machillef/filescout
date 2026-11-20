@@ -230,7 +230,7 @@
                                     <ColumnDefinition Width="100" />
                                     <ColumnDefinition Width="76" />
                                     <ColumnDefinition Width="136" />
-                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" MinWidth="168" />
                                 </Grid.ColumnDefinitions>
                                 <Image Width="16"
                                        Height="16"
@@ -733,7 +733,7 @@
                     <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
                     <Border x:Name="LeftPaneSortHeader"
                             Grid.Row="0"
-                            Padding="20,4,12,2"
+                            Padding="12,4,12,2"
                             Background="Transparent" />
                     <!-- Search progress indicator — visible only during Recursive search (R17d). -->
                     <ProgressBar x:Name="LeftPaneSearchProgress"
@@ -767,7 +767,7 @@
                     <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
                     <Border x:Name="RightPaneSortHeader"
                             Grid.Row="0"
-                            Padding="20,4,12,2"
+                            Padding="12,4,12,2"
                             Background="Transparent" />
                     <!-- Search progress indicator — visible only during Recursive search (R17d). -->
                     <ProgressBar x:Name="RightPaneSearchProgress"

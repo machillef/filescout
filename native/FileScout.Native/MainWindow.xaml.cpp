@@ -1206,6 +1206,7 @@ namespace
         winrt::FileScoutNative::implementation::PaneContext const& pane)
     {
         auto const presentation = ResolveRowPresentation(pane);
+        bool const isListMode = (presentation == RowPresentation::List);
         auto const style = rootGrid.Resources()
             .Lookup(winrt::box_value(RowItemStyleKeyForPresentation(presentation)))
             .as<winrt::Microsoft::UI::Xaml::Style>();
@@ -1215,11 +1216,36 @@ namespace
             .Lookup(winrt::box_value(RowTemplateKeyForPresentation(presentation)))
             .as<winrt::Microsoft::UI::Xaml::DataTemplate>();
         listView.ItemTemplate(tmpl);
+
+        auto const hMode = isListMode
+            ? winrt::Microsoft::UI::Xaml::Controls::ScrollMode::Auto
+            : winrt::Microsoft::UI::Xaml::Controls::ScrollMode::Disabled;
+        auto const hVis = isListMode
+            ? winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Auto
+            : winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Disabled;
+        winrt::Microsoft::UI::Xaml::Controls::ScrollViewer::SetHorizontalScrollMode(listView, hMode);
+        winrt::Microsoft::UI::Xaml::Controls::ScrollViewer::SetHorizontalScrollBarVisibility(listView, hVis);
+
+        if (auto const scrollViewer =
+                FindDescendantByType<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>(listView))
+        {
+            scrollViewer.HorizontalScrollMode(hMode);
+            scrollViewer.HorizontalScrollBarVisibility(hVis);
+            if (!isListMode && scrollViewer.HorizontalOffset() > 0.5)
+            {
+                scrollViewer.ChangeView(
+                    winrt::box_value(0.0).as<winrt::Windows::Foundation::IReference<double>>(),
+                    nullptr,
+                    nullptr,
+                    true);
+            }
+        }
     }
 
     void ApplyListColumnWidthsToContainer(
         winrt::Microsoft::UI::Xaml::DependencyObject const& container,
-        ::FileScoutNative::Domain::ListColumnWidths const& widths)
+        ::FileScoutNative::Domain::ListColumnWidths const& widths,
+        double const trailingMinWidth)
     {
         auto const selectorItem = container.try_as<winrt::Microsoft::UI::Xaml::Controls::Primitives::SelectorItem>();
         if (!selectorItem)
@@ -1245,6 +1271,10 @@ namespace
         cols.GetAt(2).Width({ widths.type, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
         cols.GetAt(3).Width({ widths.size, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
         cols.GetAt(4).Width({ widths.date, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+        if (cols.Size() >= 6)
+        {
+            cols.GetAt(5).MinWidth(trailingMinWidth > 0.0 ? trailingMinWidth : 0.0);
+        }
     }
 
     winrt::Microsoft::UI::Xaml::Controls::ListView ResolveTabContentListView(
@@ -6673,7 +6703,10 @@ namespace winrt::FileScoutNative::implementation
                 {
                     return;
                 }
-                ApplyListColumnWidthsToContainer(args.ItemContainer(), pane.list_column_widths);
+                ApplyListColumnWidthsToContainer(
+                    args.ItemContainer(),
+                    pane.list_column_widths,
+                    pane.sort_header_toggle_width);
             });
 
         // Wire events with pane-index capture so that interacting with a ListView
@@ -6741,10 +6774,23 @@ namespace winrt::FileScoutNative::implementation
                 if (auto const scrollViewer =
                         FindDescendantByType<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>(list))
                 {
+                    auto const& pane = m_panes[paneIndex];
+                    bool const isListMode = (ResolveRowPresentation(pane) == RowPresentation::List);
                     scrollViewer.Background(SolidBrush(0x00, 0x00, 0x00, 0x00));
                     scrollViewer.IsRightTapEnabled(true);
                     scrollViewer.VerticalScrollBarVisibility(
                         winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Visible);
+                    scrollViewer.HorizontalScrollMode(isListMode
+                        ? winrt::Microsoft::UI::Xaml::Controls::ScrollMode::Auto
+                        : winrt::Microsoft::UI::Xaml::Controls::ScrollMode::Disabled);
+                    scrollViewer.HorizontalScrollBarVisibility(isListMode
+                        ? winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Auto
+                        : winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Disabled);
+
+                    if (pane.active_list_view == list)
+                    {
+                        SyncListHeaderHorizontalOffset(paneIndex);
+                    }
 
                     auto const existingTag = scrollViewer.Tag();
                     if (auto const tagValue = existingTag.try_as<winrt::hstring>();
@@ -6763,6 +6809,36 @@ namespace winrt::FileScoutNative::implementation
                         {
                             SetActivePaneIndex(paneIndex);
                             PaneSurface_ContextRequested(s, a);
+                        });
+                    auto weakList = winrt::make_weak(list);
+                    scrollViewer.ViewChanged([this, paneIndex, weakList](
+                        auto const& s,
+                        winrt::Microsoft::UI::Xaml::Controls::ScrollViewerViewChangedEventArgs const&)
+                        {
+                            auto const ownerList = weakList.get();
+                            if (!ownerList)
+                            {
+                                return;
+                            }
+                            auto const& curPane = m_panes[paneIndex];
+                            if (curPane.active_list_view != ownerList || !curPane.sort_header_scroll_viewer)
+                            {
+                                return;
+                            }
+                            auto const sv = s.try_as<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>();
+                            if (!sv)
+                            {
+                                return;
+                            }
+                            double const targetOffset = sv.HorizontalOffset();
+                            if (std::abs(curPane.sort_header_scroll_viewer.HorizontalOffset() - targetOffset) > 0.5)
+                            {
+                                curPane.sort_header_scroll_viewer.ChangeView(
+                                    winrt::box_value(targetOffset).as<winrt::Windows::Foundation::IReference<double>>(),
+                                    nullptr,
+                                    nullptr,
+                                    true);
+                            }
                         });
                 }
             });
@@ -7095,7 +7171,17 @@ namespace winrt::FileScoutNative::implementation
         auto const tabItemObj = tabView.TabItems().GetAt(static_cast<uint32_t>(pane.active_tab_index));
         auto const tabItem = tabItemObj.as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>();
         pane.active_list_view = ResolveTabContentListView(tabItem.Content());
+        if (pane.active_list_view)
+        {
+            try
+            {
+                auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
+                ApplyRowPresentation(pane.active_list_view, rootGrid, pane);
+            }
+            catch (...) {}
+        }
         ApplyListColumnWidthsToPane(m_activePaneIndex);
+        SyncListHeaderHorizontalOffset(m_activePaneIndex);
 
         auto const& tab = pane.tabs[pane.active_tab_index];
         pane.current_path = tab.path;
@@ -7593,7 +7679,33 @@ namespace winrt::FileScoutNative::implementation
         {
             if (auto const container = pane.active_list_view.ContainerFromIndex(i))
             {
-                ApplyListColumnWidthsToContainer(container, widths);
+                ApplyListColumnWidthsToContainer(container, widths, pane.sort_header_toggle_width);
+            }
+        }
+    }
+
+    void MainWindow::SyncListHeaderHorizontalOffset(int32_t const paneIndex)
+    {
+        if (paneIndex < 0 || paneIndex >= static_cast<int32_t>(m_panes.size()))
+        {
+            return;
+        }
+        auto const& pane = m_panes[paneIndex];
+        if (!pane.sort_header_scroll_viewer || !pane.active_list_view)
+        {
+            return;
+        }
+        if (auto const listSv =
+                FindDescendantByType<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>(pane.active_list_view))
+        {
+            double const offset = listSv.HorizontalOffset();
+            if (std::abs(pane.sort_header_scroll_viewer.HorizontalOffset() - offset) > 0.5)
+            {
+                pane.sort_header_scroll_viewer.ChangeView(
+                    winrt::box_value(offset).as<winrt::Windows::Foundation::IReference<double>>(),
+                    nullptr,
+                    nullptr,
+                    true);
             }
         }
     }
@@ -7620,6 +7732,7 @@ namespace winrt::FileScoutNative::implementation
         auto const presentation = ResolveRowPresentation(pane);
         bool const isListMode = (presentation == RowPresentation::List);
         pane.sort_header_columns = { nullptr, nullptr, nullptr, nullptr };
+        pane.sort_header_scroll_viewer = nullptr;
 
         auto outerGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
         auto colsHostDef = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
@@ -7630,6 +7743,9 @@ namespace winrt::FileScoutNative::implementation
         outerGrid.ColumnDefinitions().Append(toggleHostDef);
 
         auto columnsGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
+        // Match ListRowTemplate Border.Padding.Left (8 px) so header columns and row columns share
+        // the exact same X origin inside the pane's 12 px left margin.
+        columnsGrid.Margin({ 8, 0, 0, 0 });
         int32_t colOffset = 0;
         if (isListMode)
         {
@@ -7660,9 +7776,12 @@ namespace winrt::FileScoutNative::implementation
 
         if (isListMode)
         {
-            auto fillerCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
-            fillerCol.Width({ 1.0, winrt::Microsoft::UI::Xaml::GridUnitType::Star });
-            columnsGrid.ColumnDefinitions().Append(fillerCol);
+            // Trailing pixel spacer past Date Modified (covers rightmost resize grip overhang,
+            // row right padding/margin, and any non-overlay vertical scrollbar on the ListView)
+            // so the header ScrollViewer never clamps before the ListView's horizontal offset.
+            auto trailingCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
+            trailingCol.Width({ 42.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
+            columnsGrid.ColumnDefinitions().Append(trailingCol);
         }
 
         // Sort column buttons (+ interactive resize dividers in List mode).
@@ -7747,27 +7866,41 @@ namespace winrt::FileScoutNative::implementation
                     ::FileScoutNative::Domain::ListColumnWidths startWidths{};
                 };
                 auto dragState = std::make_shared<ResizeDragState>();
+                auto weakHairline = winrt::make_weak(hairline);
                 auto const listColIdx = colDef.listIndex;
 
-                grip.PointerEntered([hairline](auto const&, auto const&)
+                // Avoid capturing grip or hairline strongly inside grip's own event delegates so
+                // replaced sort headers are released cleanly without C++/WinRT ownership cycles.
+                grip.PointerEntered([weakHairline](auto const&, auto const&)
                     {
-                        hairline.Background(LookupBrush(L"TextFillColorSecondaryBrush"));
-                        hairline.Opacity(1.0);
+                        if (auto const line = weakHairline.get())
+                        {
+                            line.Background(LookupBrush(L"TextFillColorSecondaryBrush"));
+                            line.Opacity(1.0);
+                        }
                         ::SetCursor(::LoadCursorW(nullptr, IDC_SIZEWE));
                     });
-                grip.PointerExited([hairline, dragState](auto const&, auto const&)
+                grip.PointerExited([weakHairline, dragState](auto const&, auto const&)
                     {
                         if (!dragState->dragging)
                         {
-                            hairline.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
-                            hairline.Opacity(0.75);
+                            if (auto const line = weakHairline.get())
+                            {
+                                line.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+                                line.Opacity(0.75);
+                            }
                         }
                     });
-                grip.PointerPressed([this, paneIndex, listColIdx, grip, hairline, dragState](
-                    auto const&,
+                grip.PointerPressed([this, paneIndex, listColIdx, weakHairline, dragState](
+                    auto const& sender,
                     winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
                     {
-                        auto const props = args.GetCurrentPoint(grip).Properties();
+                        auto const gripEl = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
+                        if (!gripEl)
+                        {
+                            return;
+                        }
+                        auto const props = args.GetCurrentPoint(gripEl).Properties();
                         if (!props.IsLeftButtonPressed())
                         {
                             return;
@@ -7779,18 +7912,26 @@ namespace winrt::FileScoutNative::implementation
                         }
                         dragState->startWidths = m_panes[paneIndex].list_column_widths;
                         dragState->dragging = true;
-                        (void)grip.CapturePointer(args.Pointer());
-                        hairline.Background(LookupBrush(L"AccentTextFillColorPrimaryBrush"));
-                        hairline.Opacity(1.0);
+                        (void)gripEl.CapturePointer(args.Pointer());
+                        if (auto const line = weakHairline.get())
+                        {
+                            line.Background(LookupBrush(L"AccentTextFillColorPrimaryBrush"));
+                            line.Opacity(1.0);
+                        }
                         ::SetCursor(::LoadCursorW(nullptr, IDC_SIZEWE));
                         args.Handled(true);
                     });
-                grip.PointerMoved([this, paneIndex, listColIdx, grip, dragState](
-                    auto const&,
+                grip.PointerMoved([this, paneIndex, listColIdx, dragState](
+                    auto const& sender,
                     winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
                     {
                         ::SetCursor(::LoadCursorW(nullptr, IDC_SIZEWE));
                         if (!dragState->dragging)
+                        {
+                            return;
+                        }
+                        auto const gripEl = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
+                        if (!gripEl)
                         {
                             return;
                         }
@@ -7800,7 +7941,7 @@ namespace winrt::FileScoutNative::implementation
                             return;
                         }
                         double scale = 1.0;
-                        if (auto const xamlRoot = grip.XamlRoot())
+                        if (auto const xamlRoot = gripEl.XamlRoot())
                         {
                             auto const s = xamlRoot.RasterizationScale();
                             if (s > 0.0) { scale = s; }
@@ -7811,24 +7952,34 @@ namespace winrt::FileScoutNative::implementation
                         ApplyListColumnWidthsToPane(paneIndex);
                         args.Handled(true);
                     });
-                auto endDrag = [grip, hairline, dragState](winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
-                {
-                    if (!dragState->dragging)
+                grip.PointerReleased([weakHairline, dragState](
+                    auto const& sender,
+                    winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
                     {
-                        return;
-                    }
-                    dragState->dragging = false;
-                    grip.ReleasePointerCapture(args.Pointer());
-                    hairline.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
-                    hairline.Opacity(0.75);
-                    args.Handled(true);
-                };
-                grip.PointerReleased([endDrag](auto const&, auto const& args) { endDrag(args); });
-                grip.PointerCaptureLost([hairline, dragState](auto const&, auto const&)
+                        if (!dragState->dragging)
+                        {
+                            return;
+                        }
+                        dragState->dragging = false;
+                        if (auto const gripEl = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::Grid>())
+                        {
+                            gripEl.ReleasePointerCapture(args.Pointer());
+                        }
+                        if (auto const line = weakHairline.get())
+                        {
+                            line.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+                            line.Opacity(0.75);
+                        }
+                        args.Handled(true);
+                    });
+                grip.PointerCaptureLost([weakHairline, dragState](auto const&, auto const&)
                     {
                         dragState->dragging = false;
-                        hairline.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
-                        hairline.Opacity(0.75);
+                        if (auto const line = weakHairline.get())
+                        {
+                            line.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
+                            line.Opacity(0.75);
+                        }
                     });
                 grip.DoubleTapped([this, paneIndex, listColIdx](auto const&, auto const& args)
                     {
@@ -7855,6 +8006,17 @@ namespace winrt::FileScoutNative::implementation
         toggleStack.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
         toggleStack.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
         toggleStack.Margin({ 8, 0, 0, 0 });
+        toggleStack.SizeChanged([this, paneIndex](
+            auto const&,
+            winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const& args)
+            {
+                double const measured = static_cast<double>(args.NewSize().Width) + 8.0;
+                if (measured > 0.0 && std::abs(m_panes[paneIndex].sort_header_toggle_width - measured) > 1.0)
+                {
+                    m_panes[paneIndex].sort_header_toggle_width = measured;
+                    ApplyListColumnWidthsToPane(paneIndex);
+                }
+            });
 
         auto addHeaderButton = [&](std::wstring_view label, bool isActive, auto&& onClick)
         {
@@ -7910,9 +8072,66 @@ namespace winrt::FileScoutNative::implementation
         addToggleBtn(L"Cards", ViewMode::Cards);
         addToggleBtn(L"List",  ViewMode::List);
 
-        winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(columnsGrid, 0);
+        if (isListMode)
+        {
+            auto headerScroll = winrt::Microsoft::UI::Xaml::Controls::ScrollViewer{};
+            headerScroll.HorizontalScrollMode(winrt::Microsoft::UI::Xaml::Controls::ScrollMode::Enabled);
+            headerScroll.HorizontalScrollBarVisibility(winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Hidden);
+            headerScroll.VerticalScrollMode(winrt::Microsoft::UI::Xaml::Controls::ScrollMode::Disabled);
+            headerScroll.VerticalScrollBarVisibility(winrt::Microsoft::UI::Xaml::Controls::ScrollBarVisibility::Disabled);
+            headerScroll.ZoomMode(winrt::Microsoft::UI::Xaml::Controls::ZoomMode::Disabled);
+            headerScroll.Content(columnsGrid);
+
+            headerScroll.Loaded([this, paneIndex](auto const&, auto const&)
+                {
+                    SyncListHeaderHorizontalOffset(paneIndex);
+                });
+            headerScroll.ViewChanged([this, paneIndex](
+                auto const& sender,
+                winrt::Microsoft::UI::Xaml::Controls::ScrollViewerViewChangedEventArgs const&)
+                {
+                    auto const hdrSv = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>();
+                    auto const& curPane = m_panes[paneIndex];
+                    if (!hdrSv || curPane.sort_header_scroll_viewer != hdrSv || !curPane.active_list_view)
+                    {
+                        return;
+                    }
+                    auto const listSv =
+                        FindDescendantByType<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>(curPane.active_list_view);
+                    if (!listSv)
+                    {
+                        return;
+                    }
+                    double const maxListOffset = listSv.ScrollableWidth();
+                    double const clamped = (std::min)(hdrSv.HorizontalOffset(), maxListOffset);
+                    if (hdrSv.HorizontalOffset() > maxListOffset + 0.5)
+                    {
+                        hdrSv.ChangeView(
+                            winrt::box_value(clamped).as<winrt::Windows::Foundation::IReference<double>>(),
+                            nullptr,
+                            nullptr,
+                            true);
+                    }
+                    if (std::abs(listSv.HorizontalOffset() - clamped) > 0.5)
+                    {
+                        listSv.ChangeView(
+                            winrt::box_value(clamped).as<winrt::Windows::Foundation::IReference<double>>(),
+                            nullptr,
+                            nullptr,
+                            true);
+                    }
+                });
+
+            pane.sort_header_scroll_viewer = headerScroll;
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(headerScroll, 0);
+            outerGrid.Children().Append(headerScroll);
+        }
+        else
+        {
+            winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(columnsGrid, 0);
+            outerGrid.Children().Append(columnsGrid);
+        }
         winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(toggleStack, 1);
-        outerGrid.Children().Append(columnsGrid);
         outerGrid.Children().Append(toggleStack);
 
         headerBorder.Child(outerGrid);
@@ -7984,6 +8203,8 @@ namespace winrt::FileScoutNative::implementation
             }
             catch (...) {}
         }
+        ApplyListColumnWidthsToPane(paneIndex);
+        SyncListHeaderHorizontalOffset(paneIndex);
 
         StatusTextBlock().Text(ToHString(
             std::to_wstring(pane.items.size()) + L" items  |  " +
@@ -8068,6 +8289,8 @@ namespace winrt::FileScoutNative::implementation
             }
             catch (...) {}
         }
+        ApplyListColumnWidthsToPane(paneIndex);
+        SyncListHeaderHorizontalOffset(paneIndex);
 
         StatusTextBlock().Text(ToHString(
             std::to_wstring(pane.items.size()) + L" items  |  " +
