@@ -6691,7 +6691,7 @@ namespace winrt::FileScoutNative::implementation
 
         // Apply the pane's current List-view column widths to every realized or recycled row.
         listView.ContainerContentChanging([this, paneIndex](
-            auto const&,
+            auto const& sender,
             winrt::Microsoft::UI::Xaml::Controls::ContainerContentChangingEventArgs const& args)
             {
                 if (args.InRecycleQueue())
@@ -6707,6 +6707,13 @@ namespace winrt::FileScoutNative::implementation
                     args.ItemContainer(),
                     pane.list_column_widths,
                     pane.sort_header_toggle_width);
+                if (pane.list_header_offset_unreconciled &&
+                    pane.active_list_view &&
+                    sender.try_as<winrt::Microsoft::UI::Xaml::Controls::ListView>() == pane.active_list_view &&
+                    pane.active_list_view.Items().Size() > 0)
+                {
+                    SyncListHeaderHorizontalOffset(paneIndex);
+                }
             });
 
         // Wire events with pane-index capture so that interacting with a ListView
@@ -7692,13 +7699,14 @@ namespace winrt::FileScoutNative::implementation
         {
             return;
         }
-        auto const& pane = m_panes[paneIndex];
+        auto& pane = m_panes[paneIndex];
         if (!pane.sort_header_scroll_viewer ||
             !pane.active_list_view ||
             pane.active_list_view.Items().Size() == 0)
         {
             return;
         }
+        pane.list_header_offset_unreconciled = false;
         if (auto const listSv =
                 FindDescendantByType<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>(pane.active_list_view))
         {
@@ -8104,6 +8112,7 @@ namespace winrt::FileScoutNative::implementation
                     // listSv.ScrollableWidth() is 0 because no row containers are realized).
                     if (curPane.active_list_view.Items().Size() == 0)
                     {
+                        m_panes[paneIndex].list_header_offset_unreconciled = true;
                         return;
                     }
                     auto const listSv =

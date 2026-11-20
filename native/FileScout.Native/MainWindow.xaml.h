@@ -81,6 +81,7 @@ namespace winrt::FileScoutNative::implementation
         };
         winrt::Microsoft::UI::Xaml::Controls::ScrollViewer sort_header_scroll_viewer{ nullptr };
         double sort_header_toggle_width{ 168.0 };
+        bool list_header_offset_unreconciled{ false };
         // Per-pane navigation history (back/forward stacks).
         std::vector<std::filesystem::path> back_stack;
         std::vector<std::filesystem::path> forward_stack;
