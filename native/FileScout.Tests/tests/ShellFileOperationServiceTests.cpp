@@ -503,6 +503,49 @@ TEST_F(ShellFileOperationFixture, DeleteItemsRemovesFilesFromOriginalPaths)
     EXPECT_FALSE(std::filesystem::exists(second));
 }
 
+TEST(DeleteOperationFlagsTests, RecycleVsPermanentFlagsAreDistinct)
+{
+    DWORD const recycleFlags = DeleteOperationFlags(/*permanent=*/false);
+    EXPECT_NE(recycleFlags & FOFX_RECYCLEONDELETE, 0u);
+    EXPECT_NE(recycleFlags & FOFX_ADDUNDORECORD, 0u);
+    EXPECT_NE(recycleFlags & FOF_NOCONFIRMATION, 0u);
+
+    DWORD const permanentFlags = DeleteOperationFlags(/*permanent=*/true);
+    EXPECT_EQ(permanentFlags & FOFX_RECYCLEONDELETE, 0u);
+    EXPECT_EQ(permanentFlags & FOF_ALLOWUNDO, 0u);
+    EXPECT_EQ(permanentFlags & FOFX_ADDUNDORECORD, 0u);
+    EXPECT_NE(permanentFlags & FOF_SILENT, 0u);
+    EXPECT_NE(permanentFlags & FOF_NOERRORUI, 0u);
+    EXPECT_NE(permanentFlags & FOF_NOCONFIRMATION, 0u);
+}
+
+TEST_F(ShellFileOperationFixture, PermanentDeleteItemRemovesFile)
+{
+    auto const target = WriteFile(m_root / L"perm_single.txt", "gone forever");
+    ASSERT_TRUE(std::filesystem::exists(target));
+
+    m_svc.DeleteItem(nullptr, target, /*permanent=*/true);
+
+    EXPECT_FALSE(std::filesystem::exists(target));
+}
+
+TEST_F(ShellFileOperationFixture, PermanentDeleteItemsRemovesMultipleFilesAndFolders)
+{
+    auto const first = WriteFile(m_root / L"perm_first.txt", "one");
+    auto const second = WriteFile(m_root / L"perm_second.txt", "two");
+    auto const folder = m_root / L"perm_folder";
+    std::filesystem::create_directories(folder);
+    auto const nested = WriteFile(folder / L"nested.txt", "three");
+
+    std::vector<std::filesystem::path> paths{ first, second, folder };
+    m_svc.DeleteItems(nullptr, paths, /*permanent=*/true);
+
+    EXPECT_FALSE(std::filesystem::exists(first));
+    EXPECT_FALSE(std::filesystem::exists(second));
+    EXPECT_FALSE(std::filesystem::exists(folder));
+    EXPECT_FALSE(std::filesystem::exists(nested));
+}
+
 TEST_F(ShellFileOperationFixture, ShowPropertiesThrowsForMissingPath)
 {
     auto const missing = m_root / L"missing.txt";

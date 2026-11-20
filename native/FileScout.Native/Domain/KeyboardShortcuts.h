@@ -29,12 +29,13 @@ namespace FileScoutNative::Domain
 
     // The window-wide accelerators that run a context command. Each chord appears once: the file list
     // does not bind any of them again in its own key handler (UB-05).
-    inline constexpr std::array<FileShortcut, 14> kFileShortcuts{ {
+    inline constexpr std::array<FileShortcut, 15> kFileShortcuts{ {
         { 'A', ShortcutModifiers::Control, L"selectAll" },
         { 'C', ShortcutModifiers::Control, L"copy" },
         { 'X', ShortcutModifiers::Control, L"cut" },
         { 'V', ShortcutModifiers::Control, L"paste" },
         { 0x2E /*VK_DELETE*/, ShortcutModifiers::None, L"delete" },
+        { 0x2E /*VK_DELETE*/, ShortcutModifiers::Shift, L"permanentDelete" },
         { 0x71 /*VK_F2*/, ShortcutModifiers::None, L"rename" },
         { 0x74 /*VK_F5*/, ShortcutModifiers::None, L"refresh" },
         { 0x0D /*VK_RETURN*/, ShortcutModifiers::Menu, L"properties" },
@@ -66,6 +67,7 @@ namespace FileScoutNative::Domain
             commandId == L"cut" ||
             commandId == L"paste" ||
             commandId == L"delete" ||
+            commandId == L"permanentDelete" ||
             commandId == L"rename" ||
             commandId == L"properties";
     }

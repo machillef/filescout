@@ -3129,6 +3129,7 @@ namespace winrt::FileScoutNative::implementation
                 pane.active_list_view.SelectedIndex();
             pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
             pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = pane.is_recycle_bin_view;
         }
 
         pane.active_tab_index = newIndex;
@@ -3711,6 +3712,7 @@ namespace winrt::FileScoutNative::implementation
                         pane.current_path = absolute;
                         pane.is_drives_view = false;
                         pane.is_archive_view = true;
+                        pane.is_recycle_bin_view = false;
                         pane.items = items;
                         pane.selection.Clear();
 
@@ -3720,6 +3722,7 @@ namespace winrt::FileScoutNative::implementation
                         pane.tabs[tabIndex].selected_item_index = -1;
                         pane.tabs[tabIndex].is_drives_view = false;
                         pane.tabs[tabIndex].is_archive_view = true;
+                        pane.tabs[tabIndex].is_recycle_bin_view = false;
 
                         auto tabView = TabViewForPane(paneIndex);
                         if (tabIndex >= 0 && tabIndex < static_cast<int32_t>(pane.tabs.size()))
@@ -4939,6 +4942,7 @@ namespace winrt::FileScoutNative::implementation
             commandId == L"openWith" ||
             commandId == L"rename" ||
             commandId == L"delete" ||
+            commandId == L"permanentDelete" ||
             commandId == L"copy" ||
             commandId == L"cut" ||
             commandId == L"paste" ||
@@ -5098,21 +5102,30 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        if (commandId == L"delete")
+        if (commandId == L"delete" || commandId == L"permanentDelete")
         {
+            if (ActivePane().is_drives_view)
+            {
+                StatusTextBlock().Text(L"Cannot delete drives from This PC.");
+                return;
+            }
+
             if (selectedItems.empty())
             {
                 StatusTextBlock().Text(L"Delete needs a selected item.");
                 return;
             }
 
+            bool const isRecycleBin =
+                ::FileScoutNative::Domain::IsRecycleBinLocation(ActivePane().current_path);
+            bool const permanent = (commandId == L"permanentDelete") || isRecycleBin;
             if (selectedItems.size() == 1)
             {
-                ShowDeleteDialogAsync(selectedItems.front());
+                ShowDeleteDialogAsync(selectedItems.front(), permanent);
             }
             else
             {
-                ShowDeleteDialogAsync(selectedItems);
+                ShowDeleteDialogAsync(selectedItems, permanent);
             }
             return;
         }
@@ -5983,29 +5996,69 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    winrt::fire_and_forget MainWindow::ShowDeleteDialogAsync(::FileScoutNative::Domain::ShellItemRef item)
+    winrt::fire_and_forget MainWindow::ShowDeleteDialogAsync(
+        ::FileScoutNative::Domain::ShellItemRef item,
+        bool const permanent)
     {
-        ShowDeleteDialogAsync(std::vector<::FileScoutNative::Domain::ShellItemRef>{ std::move(item) });
+        ShowDeleteDialogAsync(
+            std::vector<::FileScoutNative::Domain::ShellItemRef>{ std::move(item) },
+            permanent);
         co_return;
     }
 
     winrt::fire_and_forget MainWindow::ShowDeleteDialogAsync(
-        std::vector<::FileScoutNative::Domain::ShellItemRef> items)
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items,
+        bool const permanent)
     {
+        if (items.empty() || m_deleteDialogOpen)
+        {
+            co_return;
+        }
+
         auto lifetime = get_strong();
+        m_deleteDialogOpen = true;
+
+        // Capture the initiating pane's context before awaiting the modal dialog so a background
+        // change cannot attribute the delete to another pane or folder.
+        int32_t const activePaneIndex = m_activePaneIndex;
+        auto const currentPath = ActivePane().current_path;
+        bool const isRecycleBin = ::FileScoutNative::Domain::IsRecycleBinLocation(currentPath);
 
         auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
         dialog.XamlRoot(Content().XamlRoot());
-        dialog.Title(winrt::box_value(L"Delete To Recycle Bin"));
-        dialog.PrimaryButtonText(L"Delete");
+        dialog.Title(winrt::box_value(permanent ? L"Delete Permanently" : L"Delete To Recycle Bin"));
+        dialog.PrimaryButtonText(permanent ? L"Delete Permanently" : L"Delete");
         dialog.CloseButtonText(L"Cancel");
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
-        dialog.Content(winrt::box_value(
-            items.size() == 1
-                ? L"Move " + items.front().display_name + L" to the Recycle Bin?"
-                : L"Move " + std::to_wstring(items.size()) + L" selected items to the Recycle Bin?"));
+        if (permanent)
+        {
+            dialog.Content(winrt::box_value(
+                items.size() == 1
+                    ? L"Are you sure you want to permanently delete \"" + items.front().display_name + L"\"? This cannot be undone."
+                    : L"Are you sure you want to permanently delete these " + std::to_wstring(items.size()) + L" items? This cannot be undone."));
+        }
+        else
+        {
+            dialog.Content(winrt::box_value(
+                items.size() == 1
+                    ? L"Move " + items.front().display_name + L" to the Recycle Bin?"
+                    : L"Move " + std::to_wstring(items.size()) + L" selected items to the Recycle Bin?"));
+        }
 
-        if (co_await dialog.ShowAsync() != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult dialogResult =
+            winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::None;
+        try
+        {
+            dialogResult = co_await dialog.ShowAsync();
+        }
+        catch (...)
+        {
+            m_deleteDialogOpen = false;
+            co_return;
+        }
+        m_deleteDialogOpen = false;
+
+        if (dialogResult != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
         {
             StatusTextBlock().Text(ToHString(BuildDeleteCanceledStatus(
                 items.size() == 1 ? items.front().display_name : std::wstring{},
@@ -6013,9 +6066,8 @@ namespace winrt::FileScoutNative::implementation
             co_return;
         }
 
-        // Capture everything we need before leaving the UI thread.
+        // Capture everything else we need before leaving the UI thread.
         HWND const ownerHwnd = GetWindowHandle();
-        auto const currentPath = ActivePane().current_path;
         std::wstring const displayName = items.size() == 1 ? items.front().display_name : L"";
         std::size_t const itemCount = items.size();
 
@@ -6024,14 +6076,15 @@ namespace winrt::FileScoutNative::implementation
         for (auto const& item : items)
             paths.push_back(item.path);
 
-        // Capture active pane before leaving the UI thread (m_activePaneIndex is UI-thread-only).
-        int32_t const activePaneIndex = m_activePaneIndex;
-
         // Show progress before blocking operation.
         StatusTextBlock().Text(ToHString(
-            itemCount == 1
-                ? L"Deleting " + displayName + L"..."
-                : L"Deleting " + std::to_wstring(itemCount) + L" items..."));
+            permanent
+                ? (itemCount == 1
+                    ? L"Permanently deleting " + displayName + L"..."
+                    : L"Permanently deleting " + std::to_wstring(itemCount) + L" items...")
+                : (itemCount == 1
+                    ? L"Deleting " + displayName + L"..."
+                    : L"Deleting " + std::to_wstring(itemCount) + L" items...")));
         // S5: show per-pane ProgressBar (reuses search bar, indeterminate) so long deletes
         // are not silent. Hidden unconditionally at the top of the TryEnqueue callback.
         SearchProgressForPane(activePaneIndex).Visibility(
@@ -6051,17 +6104,19 @@ namespace winrt::FileScoutNative::implementation
             auto const t0 = std::chrono::steady_clock::now();
             if (paths.size() == 1)
             {
-                m_shellFileOperationService.DeleteItem(ownerHwnd, paths.front());
+                m_shellFileOperationService.DeleteItem(ownerHwnd, paths.front(), permanent);
             }
             else
             {
                 m_shellFileOperationService.DeleteItems(
                     ownerHwnd,
-                    std::span<std::filesystem::path const>{ paths.data(), paths.size() });
+                    std::span<std::filesystem::path const>{ paths.data(), paths.size() },
+                    permanent);
             }
             auto const deleteMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - t0).count();
-            TraceLog(L"Delete: " + std::to_wstring(itemCount) + L" item(s) in "
+            TraceLog(std::wstring(permanent ? L"PermanentDelete: " : L"Delete: ")
+                + std::to_wstring(itemCount) + L" item(s) in "
                 + std::to_wstring(deleteMs) + L"ms");
         }
         catch (::FileScoutNative::Shell::FileOperationException const& error)
@@ -6077,7 +6132,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         m_dispatcherQueue.TryEnqueue(
-            [this, lifetime, success, canceled, currentPath, displayName, itemCount, activePaneIndex, failureDetail]()
+            [this, lifetime, success, canceled, permanent, isRecycleBin, currentPath, displayName, itemCount, activePaneIndex, failureDetail]()
             {
                 // S5: hide ProgressBar unconditionally — failure path has no LoadDirectory
                 // call that would otherwise hide it.
@@ -6085,11 +6140,53 @@ namespace winrt::FileScoutNative::implementation
                     winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
                 if (success)
                 {
-                    RefreshPanesShowing(currentPath);
+                    if (isRecycleBin)
+                    {
+                        for (int32_t idx = 0; idx < static_cast<int32_t>(m_panes.size()); ++idx)
+                        {
+                            auto& pane = m_panes[idx];
+                            for (int32_t tabIdx = 0; tabIdx < static_cast<int32_t>(pane.tabs.size()); ++tabIdx)
+                            {
+                                if (tabIdx == pane.active_tab_index)
+                                {
+                                    continue;
+                                }
+                                auto& tab = pane.tabs[static_cast<std::size_t>(tabIdx)];
+                                if (tab.is_recycle_bin_view ||
+                                    ::FileScoutNative::Domain::IsRecycleBinLocation(tab.path))
+                                {
+                                    tab.items.clear();
+                                    tab.selection.Clear();
+                                    tab.selected_item_index = -1;
+                                    if (tabIdx < static_cast<int32_t>(pane.tab_rows.size()))
+                                    {
+                                        pane.tab_rows[static_cast<std::size_t>(tabIdx)].Clear();
+                                    }
+                                }
+                            }
+                            if (pane.is_recycle_bin_view ||
+                                ::FileScoutNative::Domain::IsRecycleBinLocation(pane.current_path))
+                            {
+                                if (pane.search_mode != SearchMode::None)
+                                {
+                                    ResetSearchState(idx, false);
+                                }
+                                LoadDirectoryAsync(pane.current_path, idx, std::nullopt);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        RefreshPanesShowing(currentPath);
+                    }
                     StatusTextBlock().Text(ToHString(
-                        itemCount == 1
-                            ? L"Deleted " + displayName + L" to Recycle Bin"
-                            : L"Deleted " + std::to_wstring(itemCount) + L" items to Recycle Bin"));
+                        permanent
+                            ? (itemCount == 1
+                                ? L"Permanently deleted " + displayName
+                                : L"Permanently deleted " + std::to_wstring(itemCount) + L" items")
+                            : (itemCount == 1
+                                ? L"Deleted " + displayName + L" to Recycle Bin"
+                                : L"Deleted " + std::to_wstring(itemCount) + L" items to Recycle Bin")));
                 }
                 else
                 {
@@ -7089,6 +7186,7 @@ namespace winrt::FileScoutNative::implementation
                 pane.active_list_view.SelectedIndex();
             pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
             pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = pane.is_recycle_bin_view;
         }
 
         auto newRows = winrt::single_threaded_observable_vector<winrt::FileScoutNative::FileRowViewModel>();
@@ -7147,6 +7245,7 @@ namespace winrt::FileScoutNative::implementation
                 pane.active_list_view.SelectedIndex();
             pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
             pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = pane.is_recycle_bin_view;
         }
 
         pane.tab_switching = true;
@@ -7200,6 +7299,8 @@ namespace winrt::FileScoutNative::implementation
         pane.current_path = tab.path;
         pane.is_drives_view = tab.is_drives_view;
         pane.is_archive_view = tab.is_archive_view;
+        pane.is_recycle_bin_view =
+            tab.is_recycle_bin_view || ::FileScoutNative::Domain::IsRecycleBinLocation(tab.path);
         pane.items = tab.items;
         pane.selection = tab.selection;
 
@@ -9040,6 +9141,7 @@ namespace winrt::FileScoutNative::implementation
             pane.current_path = std::filesystem::path{};
             pane.is_drives_view = true;
             pane.is_archive_view = false;
+            pane.is_recycle_bin_view = false;
             if (recentsChanged)
             {
                 BuildSidebarFavorites();
@@ -9054,6 +9156,7 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].selected_item_index = -1;
             pane.tabs[pane.active_tab_index].is_drives_view = true;
             pane.tabs[pane.active_tab_index].is_archive_view = false;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = false;
             UpdateTabHeader(pane.active_tab_index);
 
             BreadcrumbPanel().Children().Clear();

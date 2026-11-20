@@ -120,7 +120,7 @@ TEST(CommandRegistry, AllFileOperationCommandsPresent)
 {
     CommandRegistry reg;
     std::vector<std::wstring> const required = {
-        L"copy", L"cut", L"paste", L"delete", L"rename",
+        L"copy", L"cut", L"paste", L"delete", L"permanentDelete", L"rename",
         L"newFolder", L"open", L"openWith", L"properties", L"selectAll"
     };
     for (auto const& id : required)
@@ -137,6 +137,7 @@ TEST(CommandRegistry, ExplorerStyleShortcutsAreExposed)
     CommandRegistry reg;
     std::vector<std::pair<std::wstring, std::wstring>> const required = {
         { L"selectAll", L"Ctrl+A" },
+        { L"permanentDelete", L"Shift+Del" },
         { L"newFolder", L"Ctrl+Shift+N" },
         { L"properties", L"Alt+Enter" },
         { L"back", L"Alt+Left" },
