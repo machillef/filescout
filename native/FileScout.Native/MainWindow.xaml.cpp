@@ -6827,13 +6827,17 @@ namespace winrt::FileScoutNative::implementation
                             {
                                 return;
                             }
-                            auto const& curPane = m_panes[paneIndex];
-                            if (curPane.active_list_view != ownerList ||
-                                !curPane.sort_header_scroll_viewer ||
-                                ownerList.Items().Size() == 0)
+                            auto& curPane = m_panes[paneIndex];
+                            if (curPane.active_list_view != ownerList || !curPane.sort_header_scroll_viewer)
                             {
                                 return;
                             }
+                            if (ownerList.Items().Size() == 0)
+                            {
+                                curPane.list_header_offset_unreconciled = true;
+                                return;
+                            }
+                            curPane.list_header_offset_unreconciled = false;
                             auto const sv = s.try_as<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>();
                             if (!sv)
                             {
@@ -7700,10 +7704,13 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
         auto& pane = m_panes[paneIndex];
-        if (!pane.sort_header_scroll_viewer ||
-            !pane.active_list_view ||
-            pane.active_list_view.Items().Size() == 0)
+        if (!pane.sort_header_scroll_viewer || !pane.active_list_view)
         {
+            return;
+        }
+        if (pane.active_list_view.Items().Size() == 0)
+        {
+            pane.list_header_offset_unreconciled = true;
             return;
         }
         pane.list_header_offset_unreconciled = false;
