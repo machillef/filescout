@@ -6528,7 +6528,13 @@ namespace winrt::FileScoutNative::implementation
         }
         catch (::FileScoutNative::Shell::FileOperationException const& error)
         {
-            StatusTextBlock().Text(ToHString(BuildFileOperationErrorStatus(L"Couldn't create file", error)));
+            std::wstring status = L"Couldn't create file " + fileName + L".";
+            if (!error.Error().detail.empty())
+            {
+                status += L" ";
+                status += error.Error().detail;
+            }
+            StatusTextBlock().Text(ToHString(status));
         }
         catch (std::exception const& error)
         {
@@ -6597,12 +6603,18 @@ namespace winrt::FileScoutNative::implementation
         }
         catch (::FileScoutNative::Shell::FileOperationException const& error)
         {
-            StatusTextBlock().Text(ToHString(BuildFileOperationErrorStatus(L"Couldn't open terminal in", error)));
+            std::wstring status = L"Couldn't open terminal in " + targetDir.wstring() + L".";
+            if (!error.Error().detail.empty())
+            {
+                status += L" ";
+                status += error.Error().detail;
+            }
+            StatusTextBlock().Text(ToHString(status));
         }
         catch (std::exception const& error)
         {
             StatusTextBlock().Text(ToHString(
-                L"Couldn't open terminal. " + winrt::to_hstring(error.what()).c_str()));
+                std::wstring{ L"Couldn't open terminal. " } + winrt::to_hstring(error.what()).c_str()));
         }
     }
 
