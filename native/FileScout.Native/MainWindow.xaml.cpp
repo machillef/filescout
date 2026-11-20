@@ -3129,6 +3129,7 @@ namespace winrt::FileScoutNative::implementation
                 pane.active_list_view.SelectedIndex();
             pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
             pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = pane.is_recycle_bin_view;
         }
 
         pane.active_tab_index = newIndex;
@@ -3711,6 +3712,7 @@ namespace winrt::FileScoutNative::implementation
                         pane.current_path = absolute;
                         pane.is_drives_view = false;
                         pane.is_archive_view = true;
+                        pane.is_recycle_bin_view = false;
                         pane.items = items;
                         pane.selection.Clear();
 
@@ -3720,6 +3722,7 @@ namespace winrt::FileScoutNative::implementation
                         pane.tabs[tabIndex].selected_item_index = -1;
                         pane.tabs[tabIndex].is_drives_view = false;
                         pane.tabs[tabIndex].is_archive_view = true;
+                        pane.tabs[tabIndex].is_recycle_bin_view = false;
 
                         auto tabView = TabViewForPane(paneIndex);
                         if (tabIndex >= 0 && tabIndex < static_cast<int32_t>(pane.tabs.size()))
@@ -5113,8 +5116,9 @@ namespace winrt::FileScoutNative::implementation
                 return;
             }
 
-            bool const permanent =
-                (commandId == L"permanentDelete") || ActivePane().is_recycle_bin_view;
+            bool const isRecycleBin =
+                ::FileScoutNative::Domain::IsRecycleBinLocation(ActivePane().current_path);
+            bool const permanent = (commandId == L"permanentDelete") || isRecycleBin;
             if (selectedItems.size() == 1)
             {
                 ShowDeleteDialogAsync(selectedItems.front(), permanent);
@@ -6018,7 +6022,7 @@ namespace winrt::FileScoutNative::implementation
         // change cannot attribute the delete to another pane or folder.
         int32_t const activePaneIndex = m_activePaneIndex;
         auto const currentPath = ActivePane().current_path;
-        bool const isRecycleBin = ActivePane().is_recycle_bin_view;
+        bool const isRecycleBin = ::FileScoutNative::Domain::IsRecycleBinLocation(currentPath);
 
         auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
         dialog.XamlRoot(Content().XamlRoot());
@@ -7161,6 +7165,7 @@ namespace winrt::FileScoutNative::implementation
                 pane.active_list_view.SelectedIndex();
             pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
             pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = pane.is_recycle_bin_view;
         }
 
         auto newRows = winrt::single_threaded_observable_vector<winrt::FileScoutNative::FileRowViewModel>();
@@ -7219,6 +7224,7 @@ namespace winrt::FileScoutNative::implementation
                 pane.active_list_view.SelectedIndex();
             pane.tabs[pane.active_tab_index].is_drives_view = pane.is_drives_view;
             pane.tabs[pane.active_tab_index].is_archive_view = pane.is_archive_view;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = pane.is_recycle_bin_view;
         }
 
         pane.tab_switching = true;
@@ -7272,6 +7278,8 @@ namespace winrt::FileScoutNative::implementation
         pane.current_path = tab.path;
         pane.is_drives_view = tab.is_drives_view;
         pane.is_archive_view = tab.is_archive_view;
+        pane.is_recycle_bin_view =
+            tab.is_recycle_bin_view || ::FileScoutNative::Domain::IsRecycleBinLocation(tab.path);
         pane.items = tab.items;
         pane.selection = tab.selection;
 
@@ -9112,6 +9120,7 @@ namespace winrt::FileScoutNative::implementation
             pane.current_path = std::filesystem::path{};
             pane.is_drives_view = true;
             pane.is_archive_view = false;
+            pane.is_recycle_bin_view = false;
             if (recentsChanged)
             {
                 BuildSidebarFavorites();
@@ -9126,6 +9135,7 @@ namespace winrt::FileScoutNative::implementation
             pane.tabs[pane.active_tab_index].selected_item_index = -1;
             pane.tabs[pane.active_tab_index].is_drives_view = true;
             pane.tabs[pane.active_tab_index].is_archive_view = false;
+            pane.tabs[pane.active_tab_index].is_recycle_bin_view = false;
             UpdateTabHeader(pane.active_tab_index);
 
             BreadcrumbPanel().Children().Clear();
