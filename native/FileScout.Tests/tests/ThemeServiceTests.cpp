@@ -174,6 +174,28 @@ TEST(ThemeService, BuildThemeResourceEntries_ReturnsExtendedMappedBrushKeys)
     EXPECT_EQ(colorFor(L"SubtleFillColorSecondaryBrush"), 0x14C0CAF5u);
 }
 
+TEST(ThemeService, BuildCaptionButtonPalette_HoverAndPressedAreLighterThanBaseForAllThemes)
+{
+    auto const luma = [](std::uint32_t const argb)
+    {
+        auto const r = (argb >> 16) & 0xFFu;
+        auto const g = (argb >> 8) & 0xFFu;
+        auto const b = argb & 0xFFu;
+        return r + g + b;
+    };
+
+    for (auto const& theme : ThemeService::GetAllThemes())
+    {
+        auto const palette = BuildCaptionButtonPalette(theme);
+        EXPECT_EQ(palette.foreground, theme.text_primary);
+        EXPECT_EQ(palette.inactive_foreground, theme.text_secondary);
+        EXPECT_EQ(palette.hover_background & 0xFF000000u, 0xFF000000u);
+        EXPECT_EQ(palette.pressed_background & 0xFF000000u, 0xFF000000u);
+        EXPECT_GT(luma(palette.hover_background), luma(palette.pressed_background));
+        EXPECT_GT(luma(palette.pressed_background), luma(theme.base));
+    }
+}
+
 TEST(ThemeService, GetAllThemes_ReturnsThreeThemesInDropdownOrder)
 {
     auto const themes = ThemeService::GetAllThemes();

@@ -293,6 +293,7 @@ namespace winrt::FileScoutNative::implementation
             UINT_PTR subclassId,
             DWORD_PTR refData);
         void ConfigureTitleBar();
+        void ApplyTitleBarCaptionColors();
         void UpdateTitleBarInteractiveRegions();
         void InitializeThemeDropDown();
         void RefreshThemeDropDown();

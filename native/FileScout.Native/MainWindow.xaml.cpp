@@ -2040,6 +2040,7 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::InitializeThemeDropDown()
     {
         RefreshThemeDropDown();
+        ApplyTitleBarCaptionColors();
     }
 
     void MainWindow::RefreshThemeDropDown()
@@ -2148,6 +2149,7 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::RefreshThemeSensitiveChrome()
     {
+        ApplyTitleBarCaptionColors();
         BuildSidebarFavorites();
         BuildSortHeader(0);
         BuildSortHeader(1);
@@ -3097,8 +3099,7 @@ namespace winrt::FileScoutNative::implementation
         auto const titleBar = m_appWindow.TitleBar();
         titleBar.ExtendsContentIntoTitleBar(true);
         titleBar.PreferredHeightOption(winrt::Microsoft::UI::Windowing::TitleBarHeightOption::Standard);
-        titleBar.ButtonBackgroundColor(winrt::Microsoft::UI::Colors::Transparent());
-        titleBar.ButtonInactiveBackgroundColor(winrt::Microsoft::UI::Colors::Transparent());
+        ApplyTitleBarCaptionColors();
 
         SetTitleBar(TitleBarDragHost());
 
@@ -3106,6 +3107,57 @@ namespace winrt::FileScoutNative::implementation
             winrt::Microsoft::UI::Input::InputNonClientPointerSource::GetForWindowId(m_appWindow.Id());
 
         UpdateTitleBarInteractiveRegions();
+    }
+
+    void MainWindow::ApplyTitleBarCaptionColors()
+    {
+        if (!m_appWindow)
+        {
+            m_appWindow = this->AppWindow();
+        }
+        if (!m_appWindow)
+        {
+            return;
+        }
+
+        auto const titleBar = m_appWindow.TitleBar();
+        HIGHCONTRASTW hc{ sizeof(hc) };
+        bool const highContrast =
+            ::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) != FALSE &&
+            (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+        if (highContrast)
+        {
+            titleBar.ButtonBackgroundColor(nullptr);
+            titleBar.ButtonInactiveBackgroundColor(nullptr);
+            titleBar.ButtonForegroundColor(nullptr);
+            titleBar.ButtonInactiveForegroundColor(nullptr);
+            titleBar.ButtonHoverForegroundColor(nullptr);
+            titleBar.ButtonHoverBackgroundColor(nullptr);
+            titleBar.ButtonPressedForegroundColor(nullptr);
+            titleBar.ButtonPressedBackgroundColor(nullptr);
+            return;
+        }
+
+        auto const theme = ::FileScoutNative::Domain::ThemeService::GetTheme(m_currentThemeId);
+        auto const palette = ::FileScoutNative::Domain::BuildCaptionButtonPalette(theme);
+        auto const toColor = [](std::uint32_t const argb)
+        {
+            return winrt::Windows::UI::Color{
+                static_cast<std::uint8_t>((argb >> 24) & 0xFFu),
+                static_cast<std::uint8_t>((argb >> 16) & 0xFFu),
+                static_cast<std::uint8_t>((argb >> 8) & 0xFFu),
+                static_cast<std::uint8_t>(argb & 0xFFu),
+            };
+        };
+
+        titleBar.ButtonBackgroundColor(winrt::Microsoft::UI::Colors::Transparent());
+        titleBar.ButtonInactiveBackgroundColor(winrt::Microsoft::UI::Colors::Transparent());
+        titleBar.ButtonForegroundColor(toColor(palette.foreground));
+        titleBar.ButtonInactiveForegroundColor(toColor(palette.inactive_foreground));
+        titleBar.ButtonHoverForegroundColor(toColor(palette.foreground));
+        titleBar.ButtonHoverBackgroundColor(toColor(palette.hover_background));
+        titleBar.ButtonPressedForegroundColor(toColor(palette.foreground));
+        titleBar.ButtonPressedBackgroundColor(toColor(palette.pressed_background));
     }
 
     void MainWindow::UpdateTitleBarInteractiveRegions()
