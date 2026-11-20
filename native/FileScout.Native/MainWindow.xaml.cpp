@@ -6142,7 +6142,11 @@ namespace winrt::FileScoutNative::implementation
                         {
                             if (m_panes[idx].is_recycle_bin_view)
                             {
-                                LoadDirectoryAsync(m_panes[idx].current_path, idx);
+                                if (m_panes[idx].search_mode != SearchMode::None)
+                                {
+                                    ResetSearchState(idx, false);
+                                }
+                                LoadDirectoryAsync(m_panes[idx].current_path, idx, std::nullopt);
                             }
                         }
                     }
