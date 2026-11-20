@@ -59,6 +59,9 @@ namespace FileScoutNative::Shell
         // Delete skips the extra Explorer confirmation because FileScout already confirms first.
         constexpr DWORD deleteMutationFlags =
             baseMutationFlags | FOF_NOCONFIRMATION | FOFX_RECYCLEONDELETE;
+        // Permanent delete (Shift+Delete) bypasses Recycle Bin and shell undo records entirely.
+        constexpr DWORD permanentDeleteMutationFlags =
+            FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMATION;
 
         [[noreturn]] void ThrowFileOperationFailure(FileOperationError error)
         {
@@ -366,15 +369,24 @@ namespace FileScoutNative::Shell
         return renamedPaths;
     }
 
-    void ShellFileOperationService::DeleteItem(HWND const ownerWindow, std::filesystem::path const& path) const
+    DWORD DeleteOperationFlags(bool const permanent) noexcept
     {
+        return permanent ? permanentDeleteMutationFlags : deleteMutationFlags;
+    }
+
+    void ShellFileOperationService::DeleteItem(
+        HWND const ownerWindow,
+        std::filesystem::path const& path,
+        bool const permanent) const
+    {
+        std::wstring_view const action = permanent ? L"Permanently delete" : L"Delete";
         try
         {
-            auto fileOperation = CreateFileOperation(ownerWindow, deleteMutationFlags);
+            auto fileOperation = CreateFileOperation(ownerWindow, DeleteOperationFlags(permanent));
             auto item = CreateShellItem(path);
 
             winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
-            PerformFileOperation(fileOperation.get(), L"Delete", path.wstring());
+            PerformFileOperation(fileOperation.get(), action, path.wstring());
         }
         catch (FileOperationException const&)
         {
@@ -383,7 +395,7 @@ namespace FileScoutNative::Shell
         catch (winrt::hresult_error const& error)
         {
             ThrowFileOperationFailure(FileOperationError{
-                .action = L"Delete",
+                .action = std::wstring{ action },
                 .path = path.wstring(),
                 .detail = BuildHResultDetail(error),
             });
@@ -392,23 +404,25 @@ namespace FileScoutNative::Shell
 
     void ShellFileOperationService::DeleteItems(
         HWND const ownerWindow,
-        std::span<std::filesystem::path const> const paths) const
+        std::span<std::filesystem::path const> const paths,
+        bool const permanent) const
     {
         if (paths.empty())
         {
             return;
         }
 
+        std::wstring_view const action = permanent ? L"Permanently delete" : L"Delete";
         try
         {
-            auto fileOperation = CreateFileOperation(ownerWindow, deleteMutationFlags);
+            auto fileOperation = CreateFileOperation(ownerWindow, DeleteOperationFlags(permanent));
             for (auto const& path : paths)
             {
                 auto item = CreateShellItem(path);
                 winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
             }
 
-            PerformFileOperation(fileOperation.get(), L"Delete", paths.front().wstring());
+            PerformFileOperation(fileOperation.get(), action, paths.front().wstring());
         }
         catch (FileOperationException const&)
         {
@@ -417,7 +431,7 @@ namespace FileScoutNative::Shell
         catch (winrt::hresult_error const& error)
         {
             ThrowFileOperationFailure(FileOperationError{
-                .action = L"Delete",
+                .action = std::wstring{ action },
                 .path = paths.front().wstring(),
                 .detail = BuildHResultDetail(error),
             });

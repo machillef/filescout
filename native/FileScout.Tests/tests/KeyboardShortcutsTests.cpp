@@ -10,7 +10,7 @@ using namespace FileScoutNative::Domain;
 // UB-04: F2 renamed the selected file while the user typed in the search box.
 TEST(KeyboardShortcuts, FileCommands_YieldToFocusedTextInput)
 {
-    for (auto const* id : { L"rename", L"delete", L"selectAll", L"copy", L"cut", L"paste", L"properties" })
+    for (auto const* id : { L"rename", L"delete", L"permanentDelete", L"selectAll", L"copy", L"cut", L"paste", L"properties" })
     {
         EXPECT_TRUE(ShouldTextInputOwnShortcut(id, /*focusInEditableControl=*/true)) << id;
         EXPECT_FALSE(ShouldTextInputOwnShortcut(id, /*focusInEditableControl=*/false)) << id;
@@ -30,6 +30,17 @@ TEST(KeyboardShortcuts, F2_IsBoundToRename)
     auto const* shortcut = FindFileShortcut(VK_F2, ShortcutModifiers::None);
     ASSERT_NE(shortcut, nullptr);
     EXPECT_EQ(shortcut->command_id, L"rename");
+}
+
+TEST(KeyboardShortcuts, ShiftDelete_IsBoundToPermanentDelete)
+{
+    auto const* recycleShortcut = FindFileShortcut(VK_DELETE, ShortcutModifiers::None);
+    ASSERT_NE(recycleShortcut, nullptr);
+    EXPECT_EQ(recycleShortcut->command_id, L"delete");
+
+    auto const* permanentShortcut = FindFileShortcut(VK_DELETE, ShortcutModifiers::Shift);
+    ASSERT_NE(permanentShortcut, nullptr);
+    EXPECT_EQ(permanentShortcut->command_id, L"permanentDelete");
 }
 
 // UB-05: Ctrl+A was bound twice (accelerator and the list's PreviewKeyDown).

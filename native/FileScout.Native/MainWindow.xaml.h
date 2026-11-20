@@ -376,9 +376,13 @@ namespace winrt::FileScoutNative::implementation
         winrt::fire_and_forget ShowRenameDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
         winrt::fire_and_forget ShowBatchRenameDialogAsync(
             std::vector<::FileScoutNative::Domain::ShellItemRef> items);
-        winrt::fire_and_forget ShowDeleteDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
         winrt::fire_and_forget ShowDeleteDialogAsync(
-            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
+            ::FileScoutNative::Domain::ShellItemRef item,
+            bool permanent = false);
+        winrt::fire_and_forget ShowDeleteDialogAsync(
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items,
+            bool permanent = false);
+        bool m_deleteDialogOpen{ false };
         void SelectItemByPath(std::filesystem::path const& path);
         [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;
         [[nodiscard]] std::wstring SuggestNewFolderName() const;

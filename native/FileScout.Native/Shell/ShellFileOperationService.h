@@ -44,6 +44,10 @@ namespace FileScoutNative::Shell
         std::wstring_view action,
         std::wstring_view path);
 
+    // Returns the IFileOperation flags for Recycle Bin deletion (permanent == false)
+    // or permanent deletion bypassing the Recycle Bin (permanent == true).
+    [[nodiscard]] DWORD DeleteOperationFlags(bool permanent) noexcept;
+
     struct RenameRequest
     {
         std::filesystem::path path;
@@ -67,10 +71,11 @@ namespace FileScoutNative::Shell
         [[nodiscard]] std::vector<std::filesystem::path> RenameItems(
             HWND ownerWindow,
             std::span<RenameRequest const> requests) const;
-        void DeleteItem(HWND ownerWindow, std::filesystem::path const& path) const;
+        void DeleteItem(HWND ownerWindow, std::filesystem::path const& path, bool permanent = false) const;
         void DeleteItems(
             HWND ownerWindow,
-            std::span<std::filesystem::path const> paths) const;
+            std::span<std::filesystem::path const> paths,
+            bool permanent = false) const;
         void PasteItems(
             HWND ownerWindow,
             IUnknown* items,
