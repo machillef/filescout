@@ -245,6 +245,38 @@ namespace FileScoutNative::Domain
         }};
     }
 
+    namespace
+    {
+        // Pre-blend `fg` over opaque `bg` at `alphaByte / 255` so AppWindowTitleBar receives
+        // an exact opaque RGB color (avoiding DWM/backdrop dark-overlay blending quirks).
+        [[nodiscard]] std::uint32_t BlendOpaque(
+            std::uint32_t const bg,
+            std::uint32_t const fg,
+            std::uint32_t const alphaByte) noexcept
+        {
+            auto const blendChannel = [alphaByte](std::uint32_t const b, std::uint32_t const f) noexcept
+            {
+                return (f * alphaByte + b * (255u - alphaByte) + 127u) / 255u;
+            };
+            auto const r = blendChannel((bg >> 16) & 0xFFu, (fg >> 16) & 0xFFu);
+            auto const g = blendChannel((bg >> 8) & 0xFFu, (fg >> 8) & 0xFFu);
+            auto const b = blendChannel(bg & 0xFFu, fg & 0xFFu);
+            return 0xFF000000u | (r << 16) | (g << 8) | b;
+        }
+    }
+
+    CaptionButtonPalette BuildCaptionButtonPalette(ThemeDefinition const& theme) noexcept
+    {
+        return CaptionButtonPalette{
+            .foreground = theme.text_primary,
+            .inactive_foreground = theme.text_secondary,
+            // ~16% foreground lift over base for crisp Windows Terminal-style hover feedback.
+            .hover_background = BlendOpaque(theme.base, theme.text_primary, 41u),
+            // ~10% foreground lift for subtle recessed pressed feedback.
+            .pressed_background = BlendOpaque(theme.base, theme.text_primary, 26u),
+        };
+    }
+
     std::wstring ThemeService::LoadSavedThemeId()
     {
         auto const storagePath = GetThemeStoragePath();
