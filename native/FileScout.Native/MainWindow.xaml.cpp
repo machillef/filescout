@@ -6144,13 +6144,34 @@ namespace winrt::FileScoutNative::implementation
                     {
                         for (int32_t idx = 0; idx < static_cast<int32_t>(m_panes.size()); ++idx)
                         {
-                            if (m_panes[idx].is_recycle_bin_view)
+                            auto& pane = m_panes[idx];
+                            for (int32_t tabIdx = 0; tabIdx < static_cast<int32_t>(pane.tabs.size()); ++tabIdx)
                             {
-                                if (m_panes[idx].search_mode != SearchMode::None)
+                                if (tabIdx == pane.active_tab_index)
+                                {
+                                    continue;
+                                }
+                                auto& tab = pane.tabs[static_cast<std::size_t>(tabIdx)];
+                                if (tab.is_recycle_bin_view ||
+                                    ::FileScoutNative::Domain::IsRecycleBinLocation(tab.path))
+                                {
+                                    tab.items.clear();
+                                    tab.selection.Clear();
+                                    tab.selected_item_index = -1;
+                                    if (tabIdx < static_cast<int32_t>(pane.tab_rows.size()))
+                                    {
+                                        pane.tab_rows[static_cast<std::size_t>(tabIdx)].Clear();
+                                    }
+                                }
+                            }
+                            if (pane.is_recycle_bin_view ||
+                                ::FileScoutNative::Domain::IsRecycleBinLocation(pane.current_path))
+                            {
+                                if (pane.search_mode != SearchMode::None)
                                 {
                                     ResetSearchState(idx, false);
                                 }
-                                LoadDirectoryAsync(m_panes[idx].current_path, idx, std::nullopt);
+                                LoadDirectoryAsync(pane.current_path, idx, std::nullopt);
                             }
                         }
                     }
