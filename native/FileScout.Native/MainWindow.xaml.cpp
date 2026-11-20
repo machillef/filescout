@@ -6821,7 +6821,9 @@ namespace winrt::FileScoutNative::implementation
                                 return;
                             }
                             auto const& curPane = m_panes[paneIndex];
-                            if (curPane.active_list_view != ownerList || !curPane.sort_header_scroll_viewer)
+                            if (curPane.active_list_view != ownerList ||
+                                !curPane.sort_header_scroll_viewer ||
+                                ownerList.Items().Size() == 0)
                             {
                                 return;
                             }
@@ -7691,7 +7693,9 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
         auto const& pane = m_panes[paneIndex];
-        if (!pane.sort_header_scroll_viewer || !pane.active_list_view)
+        if (!pane.sort_header_scroll_viewer ||
+            !pane.active_list_view ||
+            pane.active_list_view.Items().Size() == 0)
         {
             return;
         }
@@ -8093,6 +8097,12 @@ namespace winrt::FileScoutNative::implementation
                     auto const hdrSv = sender.try_as<winrt::Microsoft::UI::Xaml::Controls::ScrollViewer>();
                     auto const& curPane = m_panes[paneIndex];
                     if (!hdrSv || curPane.sort_header_scroll_viewer != hdrSv || !curPane.active_list_view)
+                    {
+                        return;
+                    }
+                    // Allow independent header scrolling while the list has no rows (when
+                    // listSv.ScrollableWidth() is 0 because no row containers are realized).
+                    if (curPane.active_list_view.Items().Size() == 0)
                     {
                         return;
                     }
