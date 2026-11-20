@@ -6,6 +6,7 @@
 #include "Domain\ContextMenuAnchor.h"
 #include "Domain\ContextMenuModel.h"
 #include "Domain\ListColumnLayout.h"
+#include "Domain\NavigationInput.h"
 #include "Domain\PaneSelectionState.h"
 #include "Domain\PendingFilter.h"
 #include "Domain\ShellItemRef.h"
@@ -311,6 +312,12 @@ namespace winrt::FileScoutNative::implementation
         void SetDefaultFileManager(bool makeDefault);
         void RefreshThemeSensitiveChrome();
         void SetupKeyboardAccelerators();
+        void SetupMouseNavigationHandlers();
+        void HandleRootPointerPressed(
+            winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args);
+        void HandleRootPointerReleased(
+            winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args);
+        ::FileScoutNative::Domain::MouseNavigationDeduplicator m_mouseNavDeduplicator{};
         void LoadDirectory(std::filesystem::path const& path,
             std::optional<std::filesystem::path> selectAfter = std::nullopt,
             bool skipHistoryRecord = false);
