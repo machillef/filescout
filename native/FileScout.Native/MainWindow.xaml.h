@@ -418,6 +418,7 @@ namespace winrt::FileScoutNative::implementation
             std::vector<::FileScoutNative::Domain::ShellItemRef> items,
             bool permanent = false);
         winrt::fire_and_forget UndoLastOperationAsync();
+        winrt::Windows::Foundation::IAsyncOperation<bool> ConfirmDiscardHistoryStepAsync(std::wstring detail);
         winrt::fire_and_forget RedoLastOperationAsync();
         winrt::fire_and_forget OpenMultipleItemsAsync(
             std::vector<::FileScoutNative::Domain::ShellItemRef> items);
