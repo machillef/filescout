@@ -7971,13 +7971,24 @@ namespace winrt::FileScoutNative::implementation
                                 pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
                                 out.completed.push_back(std::move(pair));
                             }
+                            else if (std::error_code ec;
+                                     !pair.recycle_bin_parsing_name.empty() &&
+                                     (std::filesystem::exists(pair.recycle_bin_parsing_name, ec) || ec))
+                            {
+                                out.remaining.push_back(std::move(pair));
+                            }
                             else
                             {
                                 ++missingCount;
                             }
                         }
 
-                        if (missingCount > 0)
+                        if (!out.remaining.empty())
+                        {
+                            out.failed = true;
+                            out.error_detail = L"Some items were not restored and are still in the Recycle Bin.";
+                        }
+                        else if (missingCount > 0)
                         {
                             // Confirmed absent from the Recycle Bin: retire the missing items so
                             // subsequent Ctrl+Z can reach earlier history entries.
@@ -8153,6 +8164,7 @@ namespace winrt::FileScoutNative::implementation
             std::vector<::FileScoutNative::Domain::UndoPathPair> remaining;
             bool failed{ false };
             bool canceled{ false };
+            std::vector<std::pair<::FileScoutNative::Domain::FileIdentity, ::FileScoutNative::Domain::FileIdentity>> identity_remaps;
             std::optional<std::size_t> gone_pair;
             std::wstring error_detail;
         };
@@ -8224,7 +8236,12 @@ namespace winrt::FileScoutNative::implementation
                             auto const created = m_shellFileOperationService.CreateFolder(
                                 owner, pair.target.parent_path(), pair.target.filename().wstring());
                             pair.target = created;
+                            auto const previousIdentity = pair.target_identity;
                             pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(created);
+                            if (previousIdentity.has_value() && pair.target_identity.has_value())
+                            {
+                                out.identity_remaps.emplace_back(*previousIdentity, *pair.target_identity);
+                            }
                             out.completed.push_back(std::move(pair));
                         }
                         catch (::FileScoutNative::Shell::FileOperationException const& err)
@@ -8249,7 +8266,12 @@ namespace winrt::FileScoutNative::implementation
                             auto const created = m_shellFileOperationService.CreateEmptyFile(
                                 owner, pair.target.parent_path(), pair.target.filename().wstring());
                             pair.target = created;
+                            auto const previousIdentity = pair.target_identity;
                             pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(created);
+                            if (previousIdentity.has_value() && pair.target_identity.has_value())
+                            {
+                                out.identity_remaps.emplace_back(*previousIdentity, *pair.target_identity);
+                            }
                             out.completed.push_back(std::move(pair));
                         }
                         catch (::FileScoutNative::Shell::FileOperationException const& err)
@@ -8307,12 +8329,17 @@ namespace winrt::FileScoutNative::implementation
                         auto pair = items[i];
                         try
                         {
-                            m_shellFileOperationService.CopyItemFromPath(
+                            pair.target = m_shellFileOperationService.CopyItemFromPath(
                                 owner,
                                 pair.source,
                                 pair.target.parent_path(),
                                 pair.target.filename().wstring());
+                            auto const previousIdentity = pair.target_identity;
                             pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.target);
+                            if (previousIdentity.has_value() && pair.target_identity.has_value())
+                            {
+                                out.identity_remaps.emplace_back(*previousIdentity, *pair.target_identity);
+                            }
                             out.completed.push_back(std::move(pair));
                         }
                         catch (::FileScoutNative::Shell::FileOperationException const& err)
@@ -8411,6 +8438,10 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
+        for (auto const& [from, to] : outcome.identity_remaps)
+        {
+            m_undoStack.ReplaceIdentity(from, to);
+        }
         auto remaining = outcome.remaining;
         bool discarded = false;
         if (outcome.gone_pair.has_value() &&
@@ -9440,7 +9471,7 @@ namespace winrt::FileScoutNative::implementation
                     std::filesystem::create_directories(requestedPath.parent_path());
 
                     extractedPath = BuildUniqueDestinationPath(requestedPath, item.is_folder);
-                    m_shellFileOperationService.CopyItemFromPath(
+                    (void)m_shellFileOperationService.CopyItemFromPath(
                         ownerWindow,
                         item.path,
                         extractedPath.parent_path(),

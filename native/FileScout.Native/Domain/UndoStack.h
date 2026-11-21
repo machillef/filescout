@@ -137,6 +137,23 @@ namespace FileScoutNative::Domain
             return m_redo.empty() ? nullptr : &m_redo.back();
         }
 
+        void ReplaceIdentity(FileIdentity const& from, FileIdentity const& to) noexcept
+        {
+            for (auto* stack : { &m_undo, &m_redo })
+            {
+                for (auto& entry : *stack)
+                {
+                    for (auto& pair : entry.items)
+                    {
+                        if (pair.target_identity == from)
+                        {
+                            pair.target_identity = to;
+                        }
+                    }
+                }
+            }
+        }
+
         void Clear() noexcept
         {
             m_undo.clear();

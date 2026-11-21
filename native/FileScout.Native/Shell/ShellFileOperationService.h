@@ -78,6 +78,8 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& path,
         std::optional<FileScoutNative::Domain::FileIdentity> const& recorded) noexcept;
 
+    [[nodiscard]] std::optional<std::string> EncodeForCodePage(std::wstring_view text, UINT codePage);
+
     class ShellFileOperationService
     {
     public:
@@ -123,7 +125,7 @@ namespace FileScoutNative::Shell
             std::filesystem::path const& destinationDirectory,
             bool move,
             std::vector<TransferredItemPair>* transferredOut = nullptr) const;
-        void CopyItemFromPath(
+        [[nodiscard]] std::filesystem::path CopyItemFromPath(
             HWND ownerWindow,
             std::filesystem::path const& sourcePath,
             std::filesystem::path const& destinationDirectory,

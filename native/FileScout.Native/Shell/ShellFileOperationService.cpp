@@ -671,6 +671,29 @@ namespace FileScoutNative::Shell
         };
     }
 
+    std::optional<std::string> EncodeForCodePage(std::wstring_view const text, UINT const codePage)
+    {
+        if (text.empty())
+        {
+            return std::string{};
+        }
+        bool const utf8 = codePage == CP_UTF8;
+        DWORD const flags = utf8 ? WC_ERR_INVALID_CHARS : WC_NO_BEST_FIT_CHARS;
+        BOOL usedDefaultChar = FALSE;
+        int const needed = ::WideCharToMultiByte(
+            codePage, flags, text.data(), static_cast<int>(text.size()),
+            nullptr, 0, nullptr, utf8 ? nullptr : &usedDefaultChar);
+        if (needed <= 0 || usedDefaultChar)
+        {
+            return std::nullopt;
+        }
+        std::string encoded(static_cast<std::size_t>(needed), '\0');
+        ::WideCharToMultiByte(
+            codePage, flags, text.data(), static_cast<int>(text.size()),
+            encoded.data(), needed, nullptr, nullptr);
+        return encoded;
+    }
+
     RecordedIdentityCheck CheckRecordedIdentity(
         std::filesystem::path const& path,
         std::optional<FileScoutNative::Domain::FileIdentity> const& recorded) noexcept
@@ -785,7 +808,7 @@ namespace FileScoutNative::Shell
         }
     }
 
-    void ShellFileOperationService::CopyItemFromPath(
+    std::filesystem::path ShellFileOperationService::CopyItemFromPath(
         HWND const ownerWindow,
         std::filesystem::path const& sourcePath,
         std::filesystem::path const& destinationDirectory,
@@ -804,7 +827,13 @@ namespace FileScoutNative::Shell
                 targetName,
                 nullptr));
 
-            PerformFileOperation(fileOperation.get(), L"Copy", sourcePath.wstring());
+            std::vector<TransferredItemPair> transferred;
+            PerformFileOperation(fileOperation.get(), L"Copy", sourcePath.wstring(), &transferred);
+            if (!transferred.empty() && !transferred.front().destination.empty())
+            {
+                return transferred.front().destination;
+            }
+            return destinationDirectory / (newName.empty() ? sourcePath.filename() : std::filesystem::path{ newName });
         }
         catch (FileOperationException const&)
         {
@@ -1055,11 +1084,18 @@ namespace FileScoutNative::Shell
             winrt::check_hresult(contextMenu->InvokeCommand(
                 reinterpret_cast<LPCMINVOKECOMMANDINFO>(&invoke)));
 
+            // undelete reports success even when the user skips an item at a conflict prompt:
+            // an item is restored only once its Recycle Bin file is gone.
+            std::erase_if(matchedParsingNames, [](std::wstring const& parsingName)
+                {
+                    std::error_code ec;
+                    return std::filesystem::exists(parsingName, ec) || ec;
+                });
             if (restoredParsingNamesOut != nullptr)
             {
-                *restoredParsingNamesOut = std::move(matchedParsingNames);
+                *restoredParsingNamesOut = matchedParsingNames;
             }
-            return static_cast<uint32_t>(rawChildren.size());
+            return static_cast<uint32_t>(matchedParsingNames.size());
         }
         catch (FileOperationException const&)
         {
@@ -1290,11 +1326,8 @@ namespace FileScoutNative::Shell
                 {
                     // bsdtar reads the list in the ANSI code page; reject names it cannot
                     // represent instead of letting best-fit mapping name a different file.
-                    BOOL usedDefaultChar = FALSE;
-                    int const needed = ::WideCharToMultiByte(
-                        CP_ACP, WC_NO_BEST_FIT_CHARS, name.data(), static_cast<int>(name.size()),
-                        nullptr, 0, nullptr, &usedDefaultChar);
-                    if (needed <= 0 || usedDefaultChar)
+                    auto const encoded = EncodeForCodePage(name, ::GetACP());
+                    if (!encoded.has_value())
                     {
                         ::CloseHandle(h);
                         std::error_code ec;
@@ -1305,12 +1338,8 @@ namespace FileScoutNative::Shell
                             .detail = L"This filename cannot be stored by the built-in ZIP tool (unsupported characters for the system code page).",
                         });
                     }
-                    std::size_t const offset = listPayload.size();
-                    listPayload.resize(offset + static_cast<std::size_t>(needed) + 1);
-                    ::WideCharToMultiByte(
-                        CP_ACP, WC_NO_BEST_FIT_CHARS, name.data(), static_cast<int>(name.size()),
-                        listPayload.data() + offset, needed, nullptr, nullptr);
-                    listPayload.back() = '\0';
+                    listPayload += *encoded;
+                    listPayload += '\0';
                 }
                 DWORD written = 0;
                 BOOL const wroteOk = listPayload.empty() ||

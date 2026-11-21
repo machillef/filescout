@@ -99,6 +99,36 @@ TEST(UndoStackTests, EnforcesMaxDepthByEvictingOldestEntries)
     EXPECT_FALSE(stack.CanUndo());
 }
 
+TEST(UndoStackTests, ReplaceIdentityKeepsLaterStepsLinkedToARecreatedItem)
+{
+    FileIdentity const original{ .volume_serial_number = 1, .file_index_low = 10 };
+    FileIdentity const recreated{ .volume_serial_number = 1, .file_index_low = 20 };
+    FileIdentity const unrelated{ .volume_serial_number = 1, .file_index_low = 30 };
+
+    UndoStack stack;
+    stack.PushRedo(UndoEntry{ .kind = UndoActionKind::Rename, .description = L"Rename",
+        .items = { UndoPathPair{ .source = L"C:\\a.txt", .target = L"C:\\b.txt", .target_identity = original } } });
+    stack.PushRedo(UndoEntry{ .kind = UndoActionKind::Move, .description = L"Move",
+        .items = { UndoPathPair{ .source = L"C:\\c.txt", .target = L"D:\\c.txt", .target_identity = unrelated } } });
+
+    stack.ReplaceIdentity(original, recreated);
+
+    auto const move = stack.PopRedo();
+    auto const rename = stack.PopRedo();
+    ASSERT_TRUE(move.has_value() && rename.has_value());
+    EXPECT_EQ(rename->items.front().target_identity, recreated);
+    EXPECT_EQ(move->items.front().target_identity, unrelated);
+}
+
+TEST(ShellFileOperationZipTests, EncodesArchiveListNamesForUtf8AndRejectsUnrepresentableAnsiNames)
+{
+    EXPECT_EQ(EncodeForCodePage(L"plain.txt", CP_UTF8), std::string{ "plain.txt" });
+    EXPECT_EQ(EncodeForCodePage(L"\u03B1.txt", CP_UTF8), std::string{ "\xCE\xB1.txt" });
+    EXPECT_EQ(EncodeForCodePage(L"plain.txt", 1252), std::string{ "plain.txt" });
+    EXPECT_FALSE(EncodeForCodePage(L"\u03B1.txt", 1252).has_value());
+    EXPECT_FALSE(EncodeForCodePage(std::wstring{ L"bad\xD800" }, CP_UTF8).has_value());
+}
+
 TEST(UndoStackTests, MultiOpenConfirmationThreshold)
 {
     EXPECT_FALSE(ShouldConfirmMultiOpen(0));
