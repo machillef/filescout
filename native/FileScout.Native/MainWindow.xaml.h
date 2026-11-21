@@ -2,6 +2,7 @@
 
 #include "MainWindow.g.h"
 #include "Domain\AddressNavigation.h"
+#include "Domain\ArchiveCompression.h"
 #include "Domain\BatchRenamePlan.h"
 #include "Domain\ContextMenuAnchor.h"
 #include "Domain\ContextMenuModel.h"
@@ -15,6 +16,7 @@
 #include "Domain\SidebarCache.h"
 #include "Domain\TabState.h"
 #include "Domain\TypeAhead.h"
+#include "Domain\UndoStack.h"
 #include "Domain\UserSettings.h"
 #include "Domain\WatchDebounce.h"
 #include "Shell\ContextMenuService.h"
@@ -313,6 +315,8 @@ namespace winrt::FileScoutNative::implementation
 
         // Paths of items currently in cut state (for faded icon feedback).
         std::unordered_set<std::wstring> m_cutItemPaths;
+        ::FileScoutNative::Domain::UndoStack m_undoStack{};
+        bool m_undoOperationInFlight{ false };
 
         // Active-pane accessors.
         [[nodiscard]] PaneContext& ActivePane() noexcept { return m_panes[m_activePaneIndex]; }
@@ -454,6 +458,20 @@ namespace winrt::FileScoutNative::implementation
         winrt::fire_and_forget ShowDeleteDialogAsync(
             std::vector<::FileScoutNative::Domain::ShellItemRef> items,
             bool permanent = false);
+        winrt::fire_and_forget UndoLastOperationAsync();
+        winrt::fire_and_forget RedoLastOperationAsync();
+        winrt::fire_and_forget OpenMultipleItemsAsync(
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
+        winrt::fire_and_forget RestoreRecycleBinSelectionAsync(
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
+        winrt::fire_and_forget ShowEmptyRecycleBinDialogAsync();
+        winrt::fire_and_forget CompressSelectionToZipAsync(
+            std::filesystem::path parentDirectory,
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
+        void RefreshRecycleBinPanes();
+        void RefreshAffectedFolders(
+            std::vector<std::filesystem::path> const& folders,
+            std::optional<std::filesystem::path> selectAfter = std::nullopt);
         bool m_modalDialogOpen{ false };
         void SelectItemByPath(std::filesystem::path const& path);
         [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;

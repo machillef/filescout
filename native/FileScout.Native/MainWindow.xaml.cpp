@@ -918,6 +918,20 @@ namespace
         return icon;
     }
 
+    std::wstring BuildFileOperationErrorStatus(
+        std::wstring_view const prefix,
+        std::wstring_view const detail)
+    {
+        std::wstring status{ prefix };
+        status += L".";
+        if (!detail.empty())
+        {
+            status += L" ";
+            status += detail;
+        }
+        return status;
+    }
+
     // Maps domain icon_key strings to Segoe Fluent Icons Unicode glyphs.
     std::wstring_view GlyphForMenuIconKey(std::wstring_view const iconKey)
     {
@@ -938,6 +952,8 @@ namespace
         if (iconKey == L"pin"sv)                    return L"\uE840";
         if (iconKey == L"properties"sv)             return L"\uE946";
         if (iconKey == L"overflow"sv)               return L"\uE712";
+        if (iconKey == L"undo"sv)                   return L"\uE7A7";
+        if (iconKey == L"archive"sv)                return L"\uF012";
         if (iconKey == L"extractToArchiveFolder"sv) return L"\uE7B8";
         if (iconKey == L"extractReveal"sv)          return L"\uED25";
         return {};
@@ -2766,10 +2782,12 @@ namespace winrt::FileScoutNative::implementation
         }
 
         ::FileScoutNative::Shell::ContextMenuScenario scenario;
+        scenario.is_read_only_archive_view = ActivePane().is_archive_view;
+        scenario.is_recycle_bin_view = ActivePane().is_recycle_bin_view;
         scenario.can_paste =
             !ActivePane().is_archive_view &&
+            !ActivePane().is_recycle_bin_view &&
             m_shellClipboardService.CanPasteInto(ActivePane().current_path);
-        scenario.is_read_only_archive_view = ActivePane().is_archive_view;
         scenario.selection_count = static_cast<uint32_t>(GetSelectedItemIndices().size());
         if (itemIndex.has_value())
         {
@@ -2876,10 +2894,12 @@ namespace winrt::FileScoutNative::implementation
         }
 
         ::FileScoutNative::Shell::ContextMenuScenario scenario;
+        scenario.is_read_only_archive_view = ActivePane().is_archive_view;
+        scenario.is_recycle_bin_view = ActivePane().is_recycle_bin_view;
         scenario.can_paste =
             !ActivePane().is_archive_view &&
+            !ActivePane().is_recycle_bin_view &&
             m_shellClipboardService.CanPasteInto(ActivePane().current_path);
-        scenario.is_read_only_archive_view = ActivePane().is_archive_view;
         scenario.selection_count = static_cast<uint32_t>(GetSelectedItemIndices().size());
         if (itemIndex.has_value())
         {
@@ -3096,11 +3116,43 @@ namespace winrt::FileScoutNative::implementation
             }
 
             auto const owner = GetWindowHandle();
-            co_await OnShellThread([this, owner, sourcePaths, destinationPath, isMove]
+            auto const transferred = co_await OnShellThread([this, owner, sourcePaths, destinationPath, isMove]
                 {
-                    m_shellFileOperationService.CopyItemsFromPaths(owner, sourcePaths, destinationPath, isMove);
+                    std::vector<::FileScoutNative::Shell::TransferredItemPair> pairs;
+                    m_shellFileOperationService.CopyItemsFromPaths(
+                        owner, sourcePaths, destinationPath, isMove, &pairs);
+                    return pairs;
                 });
-            RefreshPanesShowing(destinationPath);
+
+            if (!transferred.empty())
+            {
+                ::FileScoutNative::Domain::UndoEntry entry{};
+                entry.kind = isMove
+                    ? ::FileScoutNative::Domain::UndoActionKind::Move
+                    : ::FileScoutNative::Domain::UndoActionKind::Copy;
+                entry.description = (isMove ? L"Move " : L"Copy ") +
+                    std::to_wstring(transferred.size()) +
+                    (transferred.size() == 1 ? L" item" : L" items");
+                entry.items.reserve(transferred.size());
+                for (auto const& pair : transferred)
+                {
+                    entry.items.push_back({ pair.source, pair.destination });
+                }
+                m_undoStack.Push(std::move(entry));
+            }
+
+            std::vector<std::filesystem::path> affectedFolders{ destinationPath };
+            if (isMove)
+            {
+                for (auto const& src : sourcePaths)
+                {
+                    if (src.has_parent_path())
+                    {
+                        affectedFolders.push_back(src.parent_path());
+                    }
+                }
+            }
+            RefreshAffectedFolders(affectedFolders);
 
             StatusTextBlock().Text(ToHString(
                 (isMove ? L"Moved " : L"Copied ") +
@@ -5813,7 +5865,9 @@ namespace winrt::FileScoutNative::implementation
             commandId == L"properties" ||
             commandId == L"moreWindowsActions" ||
             commandId == L"newFolder" ||
-            commandId == L"newFile";
+            commandId == L"newFile" ||
+            commandId == L"compressToZip" ||
+            commandId == L"restoreFromRecycleBin";
 
         if (ActivePane().is_archive_view && archiveReadOnlyCommand)
         {
@@ -5821,11 +5875,23 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
+        if (commandId == L"undo")
+        {
+            UndoLastOperationAsync();
+            return;
+        }
+
+        if (commandId == L"redo")
+        {
+            RedoLastOperationAsync();
+            return;
+        }
+
         if (commandId == L"open")
         {
             if (selectedItems.size() > 1)
             {
-                StatusTextBlock().Text(L"Open needs a single selected item.");
+                OpenMultipleItemsAsync(selectedItems);
                 return;
             }
 
@@ -6057,9 +6123,39 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"properties")
         {
-            if (!item.has_value() || selectedItems.size() > 1)
+            if (selectedItems.size() > 1)
             {
-                StatusTextBlock().Text(L"Properties needs a single selected item.");
+                std::vector<std::filesystem::path> paths;
+                paths.reserve(selectedItems.size());
+                for (auto const& selected : selectedItems)
+                {
+                    if (!selected.path.empty())
+                    {
+                        paths.push_back(selected.path);
+                    }
+                }
+                if (paths.empty())
+                {
+                    StatusTextBlock().Text(L"Properties needs at least one valid item.");
+                    return;
+                }
+                try
+                {
+                    m_shellFileOperationService.ShowPropertiesForItems(GetWindowHandle(), paths);
+                    StatusTextBlock().Text(ToHString(
+                        L"Opened properties for " + std::to_wstring(paths.size()) + L" items."));
+                }
+                catch (std::exception const&)
+                {
+                    StatusTextBlock().Text(ToHString(
+                        L"Properties failed for " + std::to_wstring(paths.size()) + L" items."));
+                }
+                return;
+            }
+
+            if (!item.has_value())
+            {
+                StatusTextBlock().Text(L"Properties needs a selected item.");
                 return;
             }
 
@@ -6072,6 +6168,59 @@ namespace winrt::FileScoutNative::implementation
             {
                 StatusTextBlock().Text(ToHString(BuildCommandStatus(L"Properties failed for", item)));
             }
+            return;
+        }
+
+        if (commandId == L"compressToZip")
+        {
+            auto const& pane = ActivePane();
+            if (pane.is_drives_view || pane.is_recycle_bin_view || pane.is_archive_view || pane.current_path.empty())
+            {
+                StatusTextBlock().Text(L"Compress to ZIP is only available inside a filesystem folder.");
+                return;
+            }
+
+            std::vector<::FileScoutNative::Domain::ShellItemRef> targets = selectedItems;
+            if (targets.empty() && item.has_value())
+            {
+                targets.push_back(*item);
+            }
+            if (targets.empty())
+            {
+                StatusTextBlock().Text(L"Compress to ZIP needs at least one selected item.");
+                return;
+            }
+
+            CompressSelectionToZipAsync(pane.current_path, std::move(targets));
+            return;
+        }
+
+        if (commandId == L"restoreFromRecycleBin")
+        {
+            if (!ActivePane().is_recycle_bin_view)
+            {
+                StatusTextBlock().Text(L"Restore is only available inside the Recycle Bin.");
+                return;
+            }
+
+            std::vector<::FileScoutNative::Domain::ShellItemRef> targets = selectedItems;
+            if (targets.empty() && item.has_value())
+            {
+                targets.push_back(*item);
+            }
+            if (targets.empty())
+            {
+                StatusTextBlock().Text(L"Restore needs at least one selected Recycle Bin item.");
+                return;
+            }
+
+            RestoreRecycleBinSelectionAsync(std::move(targets));
+            return;
+        }
+
+        if (commandId == L"emptyRecycleBin")
+        {
+            ShowEmptyRecycleBinDialogAsync();
             return;
         }
 
@@ -6334,7 +6483,28 @@ namespace winrt::FileScoutNative::implementation
             if (outcome.succeeded)
             {
                 m_cutItemPaths.clear();
-                RefreshPanesShowing(destination);
+                std::vector<std::filesystem::path> affectedFolders{ destination };
+                if (!outcome.transferred_items.empty())
+                {
+                    ::FileScoutNative::Domain::UndoEntry entry{};
+                    entry.kind = outcome.was_move
+                        ? ::FileScoutNative::Domain::UndoActionKind::Move
+                        : ::FileScoutNative::Domain::UndoActionKind::Copy;
+                    entry.description = (outcome.was_move ? L"Move " : L"Copy ") +
+                        std::to_wstring(outcome.transferred_items.size()) +
+                        (outcome.transferred_items.size() == 1 ? L" item" : L" items");
+                    entry.items.reserve(outcome.transferred_items.size());
+                    for (auto const& pair : outcome.transferred_items)
+                    {
+                        entry.items.push_back({ pair.source, pair.destination });
+                        if (outcome.was_move && pair.source.has_parent_path())
+                        {
+                            affectedFolders.push_back(pair.source.parent_path());
+                        }
+                    }
+                    m_undoStack.Push(std::move(entry));
+                }
+                RefreshAffectedFolders(affectedFolders);
                 StatusTextBlock().Text(ToHString(BuildPasteSuccessStatus(outcome)));
             }
             else
@@ -6407,6 +6577,11 @@ namespace winrt::FileScoutNative::implementation
                 {
                     return m_shellFileOperationService.CreateFolder(owner, parent, folderName);
                 });
+            m_undoStack.Push(::FileScoutNative::Domain::UndoEntry{
+                .kind = ::FileScoutNative::Domain::UndoActionKind::CreateFolder,
+                .description = L"Create folder '" + createdPath.filename().wstring() + L"'",
+                .items = { { {}, createdPath } },
+            });
             RefreshPanesShowing(parent, createdPath);
             StatusTextBlock().Text(ToHString(L"Created folder: " + createdPath.filename().wstring()));
         }
@@ -6483,6 +6658,11 @@ namespace winrt::FileScoutNative::implementation
                 {
                     return m_shellFileOperationService.RenameItem(owner, source, newName);
                 });
+            m_undoStack.Push(::FileScoutNative::Domain::UndoEntry{
+                .kind = ::FileScoutNative::Domain::UndoActionKind::Rename,
+                .description = L"Rename '" + source.filename().wstring() + L"' to '" + renamedPath.filename().wstring() + L"'",
+                .items = { { source, renamedPath } },
+            });
             RefreshPanesShowing(source.parent_path(), renamedPath);
             StatusTextBlock().Text(ToHString(L"Renamed to " + renamedPath.filename().wstring()));
         }
@@ -6979,6 +7159,19 @@ namespace winrt::FileScoutNative::implementation
                     return m_shellFileOperationService.RenameItems(
                         owner, std::span<::FileScoutNative::Shell::RenameRequest const>{ requests.data(), requests.size() });
                 });
+            if (renamedPaths.size() == requests.size() && !requests.empty())
+            {
+                ::FileScoutNative::Domain::UndoEntry entry{};
+                entry.kind = ::FileScoutNative::Domain::UndoActionKind::BatchRename;
+                entry.description = L"Batch rename " + std::to_wstring(requests.size()) +
+                    (requests.size() == 1 ? L" item" : L" items");
+                entry.items.reserve(requests.size());
+                for (std::size_t i = 0; i < requests.size(); ++i)
+                {
+                    entry.items.push_back({ requests[i].path, renamedPaths[i] });
+                }
+                m_undoStack.Push(std::move(entry));
+            }
             std::optional<std::filesystem::path> selectAfter;
             if (!renamedPaths.empty())
             {
@@ -7142,7 +7335,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         m_dispatcherQueue.TryEnqueue(
-            [this, lifetime, success, canceled, permanent, isRecycleBin, currentPath, displayName, itemCount, activePaneIndex, failureDetail]()
+            [this, lifetime, success, canceled, permanent, isRecycleBin, currentPath, paths, displayName, itemCount, activePaneIndex, failureDetail]()
             {
                 // S5: hide ProgressBar unconditionally — failure path has no LoadDirectory
                 // call that would otherwise hide it.
@@ -7150,44 +7343,28 @@ namespace winrt::FileScoutNative::implementation
                     winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
                 if (success)
                 {
+                    if (!permanent && !isRecycleBin && !paths.empty())
+                    {
+                        ::FileScoutNative::Domain::UndoEntry entry{};
+                        entry.kind = ::FileScoutNative::Domain::UndoActionKind::DeleteToRecycleBin;
+                        entry.description = itemCount == 1
+                            ? L"Delete '" + displayName + L"'"
+                            : L"Delete " + std::to_wstring(itemCount) + L" items";
+                        entry.items.reserve(paths.size());
+                        for (auto const& deletedPath : paths)
+                        {
+                            entry.items.push_back({ deletedPath, {} });
+                        }
+                        m_undoStack.Push(std::move(entry));
+                    }
                     if (isRecycleBin)
                     {
-                        for (int32_t idx = 0; idx < static_cast<int32_t>(m_panes.size()); ++idx)
-                        {
-                            auto& pane = m_panes[idx];
-                            for (int32_t tabIdx = 0; tabIdx < static_cast<int32_t>(pane.tabs.size()); ++tabIdx)
-                            {
-                                if (tabIdx == pane.active_tab_index)
-                                {
-                                    continue;
-                                }
-                                auto& tab = pane.tabs[static_cast<std::size_t>(tabIdx)];
-                                if (tab.is_recycle_bin_view ||
-                                    ::FileScoutNative::Domain::IsRecycleBinLocation(tab.path))
-                                {
-                                    tab.items.clear();
-                                    tab.selection.Clear();
-                                    tab.selected_item_index = -1;
-                                    if (tabIdx < static_cast<int32_t>(pane.tab_rows.size()))
-                                    {
-                                        pane.tab_rows[static_cast<std::size_t>(tabIdx)].Clear();
-                                    }
-                                }
-                            }
-                            if (pane.is_recycle_bin_view ||
-                                ::FileScoutNative::Domain::IsRecycleBinLocation(pane.current_path))
-                            {
-                                if (pane.search_mode != SearchMode::None)
-                                {
-                                    ResetSearchState(idx, false);
-                                }
-                                LoadDirectoryAsync(pane.current_path, idx, std::nullopt);
-                            }
-                        }
+                        RefreshRecycleBinPanes();
                     }
                     else
                     {
                         RefreshPanesShowing(currentPath);
+                        RefreshRecycleBinPanes();
                     }
                     StatusTextBlock().Text(ToHString(
                         permanent
@@ -7342,6 +7519,11 @@ namespace winrt::FileScoutNative::implementation
                 {
                     return m_shellFileOperationService.CreateEmptyFile(owner, parent, fileName);
                 });
+            m_undoStack.Push(::FileScoutNative::Domain::UndoEntry{
+                .kind = ::FileScoutNative::Domain::UndoActionKind::CreateFile,
+                .description = L"Create file '" + createdPath.filename().wstring() + L"'",
+                .items = { { {}, createdPath } },
+            });
             RefreshPanesShowing(parent, createdPath);
             StatusTextBlock().Text(ToHString(L"Created file " + createdPath.filename().wstring() + L"."));
         }
@@ -7359,6 +7541,627 @@ namespace winrt::FileScoutNative::implementation
         {
             StatusTextBlock().Text(ToHString(
                 L"Couldn't create file " + fileName + L". " + winrt::to_hstring(error.what()).c_str()));
+        }
+    }
+
+    void MainWindow::RefreshRecycleBinPanes()
+    {
+        for (int32_t idx = 0; idx < static_cast<int32_t>(m_panes.size()); ++idx)
+        {
+            auto& pane = m_panes[static_cast<std::size_t>(idx)];
+            for (int32_t tabIdx = 0; tabIdx < static_cast<int32_t>(pane.tabs.size()); ++tabIdx)
+            {
+                if (tabIdx == pane.active_tab_index)
+                {
+                    continue;
+                }
+                auto& tab = pane.tabs[static_cast<std::size_t>(tabIdx)];
+                if (tab.is_recycle_bin_view ||
+                    ::FileScoutNative::Domain::IsRecycleBinLocation(tab.path))
+                {
+                    tab.items.clear();
+                    tab.selection.Clear();
+                    tab.selected_item_index = -1;
+                    if (tabIdx < static_cast<int32_t>(pane.tab_rows.size()))
+                    {
+                        pane.tab_rows[static_cast<std::size_t>(tabIdx)].Clear();
+                    }
+                }
+            }
+            if (pane.is_recycle_bin_view ||
+                ::FileScoutNative::Domain::IsRecycleBinLocation(pane.current_path))
+            {
+                if (pane.search_mode != SearchMode::None)
+                {
+                    ResetSearchState(idx, false);
+                }
+                LoadDirectoryAsync(pane.current_path, idx, std::nullopt);
+            }
+        }
+    }
+
+    void MainWindow::RefreshAffectedFolders(
+        std::vector<std::filesystem::path> const& folders,
+        std::optional<std::filesystem::path> selectAfter)
+    {
+        std::unordered_set<std::wstring> refreshedKeys;
+        bool usedSelectAfter = false;
+        for (auto const& folder : folders)
+        {
+            if (folder.empty())
+            {
+                continue;
+            }
+            auto const key = ::FileScoutNative::Domain::SidebarPathKey(folder);
+            if (!refreshedKeys.insert(key).second)
+            {
+                continue;
+            }
+            if (!usedSelectAfter && selectAfter.has_value() &&
+                ::FileScoutNative::Domain::SidebarPathKey(selectAfter->parent_path()) == key)
+            {
+                RefreshPanesShowing(folder, selectAfter);
+                usedSelectAfter = true;
+            }
+            else
+            {
+                RefreshPanesShowing(folder);
+            }
+        }
+    }
+
+    winrt::fire_and_forget MainWindow::UndoLastOperationAsync()
+    {
+        if (m_undoOperationInFlight || m_modalDialogOpen)
+        {
+            co_return;
+        }
+
+        auto entryOpt = m_undoStack.PopUndo();
+        if (!entryOpt.has_value())
+        {
+            StatusTextBlock().Text(L"Nothing to undo.");
+            co_return;
+        }
+
+        auto lifetime = get_strong();
+        struct ScopedUndoFlag
+        {
+            bool& flag;
+            ~ScopedUndoFlag() { flag = false; }
+        };
+        m_undoOperationInFlight = true;
+        ScopedUndoFlag flagGuard{ m_undoOperationInFlight };
+
+        auto entry = std::move(*entryOpt);
+        auto const owner = GetWindowHandle();
+        StatusTextBlock().Text(ToHString(L"Undoing " + entry.description + L"..."));
+
+        try
+        {
+            std::vector<std::filesystem::path> affectedFolders;
+            std::optional<std::filesystem::path> selectAfter;
+            bool touchesRecycleBin = false;
+
+            co_await OnShellThread([this, owner, entry]()
+                {
+                    using Kind = ::FileScoutNative::Domain::UndoActionKind;
+                    switch (entry.kind)
+                    {
+                    case Kind::Rename:
+                    case Kind::BatchRename:
+                        for (auto it = entry.items.rbegin(); it != entry.items.rend(); ++it)
+                        {
+                            (void)m_shellFileOperationService.RenameItem(
+                                owner, it->target, it->source.filename().wstring());
+                        }
+                        break;
+                    case Kind::CreateFolder:
+                    case Kind::CreateFile:
+                    case Kind::Copy:
+                    {
+                        std::vector<std::filesystem::path> targets;
+                        targets.reserve(entry.items.size());
+                        for (auto const& pair : entry.items)
+                        {
+                            targets.push_back(pair.target);
+                        }
+                        m_shellFileOperationService.DeleteItems(owner, targets, /*permanent=*/false);
+                        break;
+                    }
+                    case Kind::Move:
+                        for (auto it = entry.items.rbegin(); it != entry.items.rend(); ++it)
+                        {
+                            m_shellFileOperationService.MoveItemFromPath(
+                                owner,
+                                it->target,
+                                it->source.parent_path(),
+                                it->source.filename().wstring());
+                        }
+                        break;
+                    case Kind::DeleteToRecycleBin:
+                    {
+                        std::vector<std::filesystem::path> originalPaths;
+                        originalPaths.reserve(entry.items.size());
+                        for (auto const& pair : entry.items)
+                        {
+                            originalPaths.push_back(pair.source);
+                        }
+                        (void)m_shellFileOperationService.RestoreRecycleBinItemsByOriginalPaths(
+                            owner, originalPaths);
+                        break;
+                    }
+                    }
+                });
+
+            using Kind = ::FileScoutNative::Domain::UndoActionKind;
+            for (auto const& pair : entry.items)
+            {
+                if (pair.source.has_parent_path()) { affectedFolders.push_back(pair.source.parent_path()); }
+                if (pair.target.has_parent_path()) { affectedFolders.push_back(pair.target.parent_path()); }
+            }
+            if (entry.kind == Kind::Rename || entry.kind == Kind::BatchRename ||
+                entry.kind == Kind::Move || entry.kind == Kind::DeleteToRecycleBin)
+            {
+                if (!entry.items.empty() && !entry.items.front().source.empty())
+                {
+                    selectAfter = entry.items.front().source;
+                }
+            }
+            touchesRecycleBin =
+                entry.kind == Kind::DeleteToRecycleBin ||
+                entry.kind == Kind::CreateFolder ||
+                entry.kind == Kind::CreateFile ||
+                entry.kind == Kind::Copy;
+
+            auto const desc = entry.description;
+            m_undoStack.PushRedo(std::move(entry));
+            RefreshAffectedFolders(affectedFolders, selectAfter);
+            if (touchesRecycleBin)
+            {
+                RefreshRecycleBinPanes();
+            }
+            StatusTextBlock().Text(ToHString(L"Undid: " + desc));
+        }
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
+        {
+            if (error.IsCanceled())
+            {
+                m_undoStack.PushUndoPreservingRedo(std::move(entry));
+                StatusTextBlock().Text(L"Undo canceled.");
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(
+                    BuildFileOperationErrorStatus(L"Couldn't undo " + entry.description, error.Error().detail)));
+            }
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't undo " + entry.description + L". " + winrt::to_hstring(error.what()).c_str()));
+        }
+    }
+
+    winrt::fire_and_forget MainWindow::RedoLastOperationAsync()
+    {
+        if (m_undoOperationInFlight || m_modalDialogOpen)
+        {
+            co_return;
+        }
+
+        auto entryOpt = m_undoStack.PopRedo();
+        if (!entryOpt.has_value())
+        {
+            StatusTextBlock().Text(L"Nothing to redo.");
+            co_return;
+        }
+
+        auto lifetime = get_strong();
+        struct ScopedUndoFlag
+        {
+            bool& flag;
+            ~ScopedUndoFlag() { flag = false; }
+        };
+        m_undoOperationInFlight = true;
+        ScopedUndoFlag flagGuard{ m_undoOperationInFlight };
+
+        auto entry = std::move(*entryOpt);
+        auto const owner = GetWindowHandle();
+        StatusTextBlock().Text(ToHString(L"Redoing " + entry.description + L"..."));
+
+        try
+        {
+            std::vector<std::filesystem::path> affectedFolders;
+            std::optional<std::filesystem::path> selectAfter;
+            bool touchesRecycleBin = false;
+
+            co_await OnShellThread([this, owner, entry]()
+                {
+                    using Kind = ::FileScoutNative::Domain::UndoActionKind;
+                    switch (entry.kind)
+                    {
+                    case Kind::Rename:
+                    case Kind::BatchRename:
+                        for (auto const& pair : entry.items)
+                        {
+                            (void)m_shellFileOperationService.RenameItem(
+                                owner, pair.source, pair.target.filename().wstring());
+                        }
+                        break;
+                    case Kind::CreateFolder:
+                        for (auto const& pair : entry.items)
+                        {
+                            (void)m_shellFileOperationService.CreateFolder(
+                                owner, pair.target.parent_path(), pair.target.filename().wstring());
+                        }
+                        break;
+                    case Kind::CreateFile:
+                        for (auto const& pair : entry.items)
+                        {
+                            (void)m_shellFileOperationService.CreateEmptyFile(
+                                owner, pair.target.parent_path(), pair.target.filename().wstring());
+                        }
+                        break;
+                    case Kind::Move:
+                        for (auto const& pair : entry.items)
+                        {
+                            m_shellFileOperationService.MoveItemFromPath(
+                                owner,
+                                pair.source,
+                                pair.target.parent_path(),
+                                pair.target.filename().wstring());
+                        }
+                        break;
+                    case Kind::Copy:
+                        for (auto const& pair : entry.items)
+                        {
+                            m_shellFileOperationService.CopyItemFromPath(
+                                owner,
+                                pair.source,
+                                pair.target.parent_path(),
+                                pair.target.filename().wstring());
+                        }
+                        break;
+                    case Kind::DeleteToRecycleBin:
+                    {
+                        std::vector<std::filesystem::path> targets;
+                        targets.reserve(entry.items.size());
+                        for (auto const& pair : entry.items)
+                        {
+                            targets.push_back(pair.source);
+                        }
+                        m_shellFileOperationService.DeleteItems(owner, targets, /*permanent=*/false);
+                        break;
+                    }
+                    }
+                });
+
+            using Kind = ::FileScoutNative::Domain::UndoActionKind;
+            for (auto const& pair : entry.items)
+            {
+                if (pair.source.has_parent_path()) { affectedFolders.push_back(pair.source.parent_path()); }
+                if (pair.target.has_parent_path()) { affectedFolders.push_back(pair.target.parent_path()); }
+            }
+            if (!entry.items.empty() && !entry.items.front().target.empty())
+            {
+                selectAfter = entry.items.front().target;
+            }
+            touchesRecycleBin = (entry.kind == Kind::DeleteToRecycleBin);
+
+            auto const desc = entry.description;
+            m_undoStack.PushUndoPreservingRedo(std::move(entry));
+            RefreshAffectedFolders(affectedFolders, selectAfter);
+            if (touchesRecycleBin)
+            {
+                RefreshRecycleBinPanes();
+            }
+            StatusTextBlock().Text(ToHString(L"Redid: " + desc));
+        }
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
+        {
+            if (error.IsCanceled())
+            {
+                m_undoStack.PushRedo(std::move(entry));
+                StatusTextBlock().Text(L"Redo canceled.");
+            }
+            else
+            {
+                StatusTextBlock().Text(ToHString(
+                    BuildFileOperationErrorStatus(L"Couldn't redo " + entry.description, error.Error().detail)));
+            }
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't redo " + entry.description + L". " + winrt::to_hstring(error.what()).c_str()));
+        }
+    }
+
+    winrt::fire_and_forget MainWindow::OpenMultipleItemsAsync(
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items)
+    {
+        if (items.empty())
+        {
+            co_return;
+        }
+        if (ActivePane().is_archive_view || ActivePane().is_recycle_bin_view)
+        {
+            StatusTextBlock().Text(L"Opening multiple items is not available in this view.");
+            co_return;
+        }
+
+        auto lifetime = get_strong();
+        if (::FileScoutNative::Domain::ShouldConfirmMultiOpen(items.size()))
+        {
+            if (m_modalDialogOpen)
+            {
+                co_return;
+            }
+            m_modalDialogOpen = true;
+            auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
+            dialog.XamlRoot(Content().XamlRoot());
+            dialog.Title(winrt::box_value(L"Open Multiple Items"));
+            dialog.PrimaryButtonText(L"Open");
+            dialog.CloseButtonText(L"Cancel");
+            dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
+            dialog.Content(winrt::box_value(
+                L"Are you sure you want to open " + std::to_wstring(items.size()) + L" items at once?"));
+
+            winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult dialogResult =
+                winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::None;
+            try
+            {
+                dialogResult = co_await dialog.ShowAsync();
+            }
+            catch (...)
+            {
+                m_modalDialogOpen = false;
+                FlushPendingWatchRefreshAllPanes();
+                co_return;
+            }
+            m_modalDialogOpen = false;
+            FlushPendingWatchRefreshAllPanes();
+
+            if (dialogResult != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+            {
+                StatusTextBlock().Text(L"Open canceled.");
+                co_return;
+            }
+        }
+
+        auto const owner = GetWindowHandle();
+        std::size_t openedCount = 0;
+        std::size_t failedCount = 0;
+        for (auto const& item : items)
+        {
+            if (item.path.empty())
+            {
+                ++failedCount;
+                continue;
+            }
+            if (item.is_folder)
+            {
+                AddTab(item.path);
+                ++openedCount;
+                continue;
+            }
+            try
+            {
+                m_shellFileOperationService.OpenPath(owner, item.path);
+                ++openedCount;
+            }
+            catch (std::exception const&)
+            {
+                ++failedCount;
+            }
+        }
+
+        if (failedCount == 0)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Opened " + std::to_wstring(openedCount) +
+                (openedCount == 1 ? L" item." : L" items.")));
+        }
+        else
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Opened " + std::to_wstring(openedCount) + L" item(s); " +
+                std::to_wstring(failedCount) + L" failed."));
+        }
+    }
+
+    winrt::fire_and_forget MainWindow::RestoreRecycleBinSelectionAsync(
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items)
+    {
+        if (items.empty())
+        {
+            co_return;
+        }
+
+        auto lifetime = get_strong();
+        std::vector<std::wstring> parsingNames;
+        parsingNames.reserve(items.size());
+        for (auto const& item : items)
+        {
+            if (!item.parsing_name.empty())
+            {
+                parsingNames.push_back(item.parsing_name);
+            }
+        }
+        if (parsingNames.empty())
+        {
+            StatusTextBlock().Text(L"Selected Recycle Bin items cannot be restored.");
+            co_return;
+        }
+
+        auto const owner = GetWindowHandle();
+        StatusTextBlock().Text(ToHString(
+            L"Restoring " + std::to_wstring(parsingNames.size()) +
+            (parsingNames.size() == 1 ? L" item from Recycle Bin..." : L" items from Recycle Bin...")));
+
+        try
+        {
+            uint32_t const restoredCount = co_await OnShellThread([this, owner, parsingNames]()
+                {
+                    return m_shellFileOperationService.RestoreRecycleBinItems(owner, parsingNames);
+                });
+            RefreshRecycleBinPanes();
+            StatusTextBlock().Text(ToHString(
+                L"Restored " + std::to_wstring(restoredCount) +
+                (restoredCount == 1 ? L" item from Recycle Bin." : L" items from Recycle Bin.")));
+        }
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                BuildFileOperationErrorStatus(L"Couldn't restore from Recycle Bin", error.Error().detail)));
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't restore from Recycle Bin. " + winrt::to_hstring(error.what()).c_str()));
+        }
+    }
+
+    winrt::fire_and_forget MainWindow::ShowEmptyRecycleBinDialogAsync()
+    {
+        if (m_modalDialogOpen)
+        {
+            co_return;
+        }
+
+        auto lifetime = get_strong();
+        uint64_t itemCount = co_await OnShellThread([this]()
+            {
+                return m_shellFileOperationService.QueryRecycleBinItemCount();
+            });
+        if (itemCount == 0 && ActivePane().is_recycle_bin_view && !ActivePane().items.empty())
+        {
+            itemCount = ActivePane().items.size();
+        }
+        if (itemCount == 0)
+        {
+            StatusTextBlock().Text(L"Recycle Bin is already empty.");
+            co_return;
+        }
+
+        if (m_modalDialogOpen)
+        {
+            co_return;
+        }
+        m_modalDialogOpen = true;
+
+        auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Title(winrt::box_value(L"Empty Recycle Bin"));
+        dialog.PrimaryButtonText(L"Empty Recycle Bin");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
+        dialog.Content(winrt::box_value(
+            itemCount == 1
+                ? L"Are you sure you want to permanently delete 1 item in the Recycle Bin? This cannot be undone."
+                : L"Are you sure you want to permanently delete all " + std::to_wstring(itemCount) +
+                  L" items in the Recycle Bin? This cannot be undone."));
+
+        winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult dialogResult =
+            winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::None;
+        try
+        {
+            dialogResult = co_await dialog.ShowAsync();
+        }
+        catch (...)
+        {
+            m_modalDialogOpen = false;
+            FlushPendingWatchRefreshAllPanes();
+            co_return;
+        }
+        m_modalDialogOpen = false;
+        FlushPendingWatchRefreshAllPanes();
+
+        if (dialogResult != winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult::Primary)
+        {
+            StatusTextBlock().Text(L"Empty Recycle Bin canceled.");
+            co_return;
+        }
+
+        auto const owner = GetWindowHandle();
+        StatusTextBlock().Text(L"Emptying Recycle Bin...");
+        try
+        {
+            bool const emptied = co_await OnShellThread([this, owner]()
+                {
+                    return m_shellFileOperationService.EmptyRecycleBin(owner);
+                });
+            RefreshRecycleBinPanes();
+            StatusTextBlock().Text(emptied
+                ? L"Recycle Bin emptied."
+                : L"Recycle Bin is already empty.");
+        }
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                BuildFileOperationErrorStatus(L"Couldn't empty Recycle Bin", error.Error().detail)));
+        }
+        catch (std::exception const& error)
+        {
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't empty Recycle Bin. " + winrt::to_hstring(error.what()).c_str()));
+        }
+    }
+
+    winrt::fire_and_forget MainWindow::CompressSelectionToZipAsync(
+        std::filesystem::path parentDirectory,
+        std::vector<::FileScoutNative::Domain::ShellItemRef> items)
+    {
+        if (parentDirectory.empty() || items.empty())
+        {
+            co_return;
+        }
+
+        auto lifetime = get_strong();
+        std::vector<std::filesystem::path> sourcePaths;
+        sourcePaths.reserve(items.size());
+        for (auto const& item : items)
+        {
+            if (!item.path.empty())
+            {
+                sourcePaths.push_back(item.path);
+            }
+        }
+        if (sourcePaths.empty())
+        {
+            co_return;
+        }
+
+        auto const owner = GetWindowHandle();
+        int32_t const activePaneIndex = m_activePaneIndex;
+        StatusTextBlock().Text(ToHString(
+            L"Compressing " + std::to_wstring(sourcePaths.size()) +
+            (sourcePaths.size() == 1 ? L" item to ZIP..." : L" items to ZIP...")));
+        SearchProgressForPane(activePaneIndex).Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
+
+        try
+        {
+            auto const zipPath = co_await OnShellThread([this, owner, parentDirectory, sourcePaths]()
+                {
+                    return m_shellFileOperationService.CompressItemsToZip(
+                        owner, parentDirectory, sourcePaths);
+                });
+            SearchProgressForPane(activePaneIndex).Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            RefreshPanesShowing(parentDirectory, zipPath);
+            StatusTextBlock().Text(ToHString(L"Created archive: " + zipPath.filename().wstring()));
+        }
+        catch (::FileScoutNative::Shell::FileOperationException const& error)
+        {
+            SearchProgressForPane(activePaneIndex).Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            StatusTextBlock().Text(ToHString(
+                BuildFileOperationErrorStatus(L"Couldn't compress to ZIP", error.Error().detail)));
+        }
+        catch (std::exception const& error)
+        {
+            SearchProgressForPane(activePaneIndex).Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
+            StatusTextBlock().Text(ToHString(
+                L"Couldn't compress to ZIP. " + winrt::to_hstring(error.what()).c_str()));
         }
     }
 
@@ -8493,6 +9296,13 @@ namespace winrt::FileScoutNative::implementation
 
     bool MainWindow::ActivateCurrentSelection()
     {
+        auto const selectedItems = GetSelectedItems();
+        if (selectedItems.size() > 1)
+        {
+            OpenMultipleItemsAsync(selectedItems);
+            return true;
+        }
+
         auto index = ActivePane().active_list_view
             ? ActivePane().active_list_view.SelectedIndex()
             : -1;
@@ -9733,6 +10543,7 @@ namespace winrt::FileScoutNative::implementation
                     {
                         pane.view_mode = capturedMode;
                         SetGroupingEnabled(paneIndex, false);
+                        SavePaneViewModePreference(paneIndex);
                         return;
                     }
 

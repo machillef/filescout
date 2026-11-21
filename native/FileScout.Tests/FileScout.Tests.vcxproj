@@ -183,6 +183,7 @@
     <ClCompile Include="tests\SelectionSummaryTests.cpp" />
     <ClCompile Include="tests\DirectoryWatcherTests.cpp" />
     <ClCompile Include="tests\UserSettingsTests.cpp" />
+    <ClCompile Include="tests\UndoAndArchiveTests.cpp" />
     <ClCompile Include="tests\ParallelForTests.cpp" />
     <ClCompile Include="tests\BatchRenameInputTests.cpp" />
     <ClCompile Include="tests\RenamePolicyTests.cpp" />

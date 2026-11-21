@@ -58,12 +58,21 @@ namespace FileScoutNative::Shell
         std::wstring new_name;
     };
 
+    struct TransferredItemPair
+    {
+        std::filesystem::path source;
+        std::filesystem::path destination;
+    };
+
     class ShellFileOperationService
     {
     public:
         void OpenPath(HWND ownerWindow, std::filesystem::path const& path) const;
         void OpenWith(HWND ownerWindow, std::filesystem::path const& path) const;
         void ShowProperties(HWND ownerWindow, std::filesystem::path const& path) const;
+        void ShowPropertiesForItems(
+            HWND ownerWindow,
+            std::span<std::filesystem::path const> paths) const;
         [[nodiscard]] std::filesystem::path CreateFolder(
             HWND ownerWindow,
             std::filesystem::path const& parentDirectory,
@@ -89,17 +98,37 @@ namespace FileScoutNative::Shell
             HWND ownerWindow,
             IUnknown* items,
             std::filesystem::path const& destinationDirectory,
-            bool move) const;
+            bool move,
+            std::vector<TransferredItemPair>* transferredOut = nullptr) const;
         void CopyItemsFromPaths(
             HWND ownerWindow,
             std::span<std::filesystem::path const> sourcePaths,
             std::filesystem::path const& destinationDirectory,
-            bool move) const;
+            bool move,
+            std::vector<TransferredItemPair>* transferredOut = nullptr) const;
         void CopyItemFromPath(
             HWND ownerWindow,
             std::filesystem::path const& sourcePath,
             std::filesystem::path const& destinationDirectory,
             std::wstring const& newName) const;
+        void MoveItemFromPath(
+            HWND ownerWindow,
+            std::filesystem::path const& sourcePath,
+            std::filesystem::path const& destinationDirectory,
+            std::wstring const& newName = {}) const;
+        [[nodiscard]] uint32_t RestoreRecycleBinItems(
+            HWND ownerWindow,
+            std::span<std::wstring const> parsingNames) const;
+        [[nodiscard]] uint32_t RestoreRecycleBinItemsByOriginalPaths(
+            HWND ownerWindow,
+            std::span<std::filesystem::path const> originalPaths) const;
+        [[nodiscard]] uint64_t QueryRecycleBinItemCount() const noexcept;
+        // Returns true if the Recycle Bin was emptied, false if it was already empty.
+        [[nodiscard]] bool EmptyRecycleBin(HWND ownerWindow) const;
+        [[nodiscard]] std::filesystem::path CompressItemsToZip(
+            HWND ownerWindow,
+            std::filesystem::path const& parentDirectory,
+            std::span<std::filesystem::path const> sourcePaths) const;
 
     private:
         void ExecuteShellVerb(
@@ -116,6 +145,7 @@ namespace FileScoutNative::Shell
         void PerformFileOperation(
             IFileOperation* fileOperation,
             std::wstring_view action,
-            std::wstring const& path) const;
+            std::wstring const& path,
+            std::vector<TransferredItemPair>* transferredOut = nullptr) const;
     };
 }

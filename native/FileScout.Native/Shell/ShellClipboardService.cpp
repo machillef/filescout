@@ -177,7 +177,8 @@ namespace FileScoutNative::Shell
             winrt::com_ptr<IShellItemArray> itemArray;
             winrt::check_hresult(SHCreateShellItemArrayFromIDLists(
                 static_cast<UINT>(pidls.size()), pidls.data(), itemArray.put()));
-            m_fileOperationService.PasteItems(ownerWindow, itemArray.get(), directory, isMove);
+            m_fileOperationService.PasteItems(
+                ownerWindow, itemArray.get(), directory, isMove, &result.transferred_items);
         }
         catch (FileOperationException const& error)
         {

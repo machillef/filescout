@@ -1,0 +1,232 @@
+#include "pch.h"
+#include <gtest/gtest.h>
+
+#include "Domain/ArchiveCompression.h"
+#include "Domain/UndoStack.h"
+#include "Shell/ComApartment.h"
+#include "Shell/ShellFileOperationService.h"
+
+#include <fstream>
+#include <unordered_set>
+
+using namespace FileScoutNative::Domain;
+using namespace FileScoutNative::Shell;
+
+namespace
+{
+    std::filesystem::path MakeUniqueTempDir(std::wstring_view const suffix)
+    {
+        auto dir = std::filesystem::temp_directory_path() /
+            (L"FileScoutUndoArchiveTests-" +
+             std::to_wstring(::GetCurrentProcessId()) + L"-" +
+             std::to_wstring(::GetTickCount64()) + L"-" +
+             std::wstring{ suffix });
+        std::filesystem::create_directories(dir);
+        return dir;
+    }
+
+    struct ScopedTempDir
+    {
+        std::filesystem::path path;
+        explicit ScopedTempDir(std::wstring_view const suffix)
+            : path(MakeUniqueTempDir(suffix))
+        {
+        }
+        ~ScopedTempDir()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+    };
+}
+
+TEST(UndoStackTests, PushPopUndoRedoAndClearRedoOnNewAction)
+{
+    UndoStack stack(10);
+    EXPECT_FALSE(stack.CanUndo());
+    EXPECT_FALSE(stack.CanRedo());
+
+    // Empty items entry is ignored.
+    stack.Push(UndoEntry{ UndoActionKind::Rename, L"Empty", {} });
+    EXPECT_FALSE(stack.CanUndo());
+
+    stack.Push(UndoEntry{ UndoActionKind::Rename, L"Rename 1", { { L"C:\\a.txt", L"C:\\b.txt" } } });
+    stack.Push(UndoEntry{ UndoActionKind::CreateFolder, L"Create dir", { { {}, L"C:\\NewDir" } } });
+    EXPECT_EQ(stack.UndoCount(), 2u);
+
+    auto first = stack.PopUndo();
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->kind, UndoActionKind::CreateFolder);
+    stack.PushRedo(std::move(*first));
+    EXPECT_EQ(stack.UndoCount(), 1u);
+    EXPECT_EQ(stack.RedoCount(), 1u);
+
+    // Redo pops from redo stack and preserves any remaining redo items when pushed back to undo.
+    auto redone = stack.PopRedo();
+    ASSERT_TRUE(redone.has_value());
+    EXPECT_EQ(redone->description, L"Create dir");
+    stack.PushUndoPreservingRedo(std::move(*redone));
+    EXPECT_EQ(stack.UndoCount(), 2u);
+    EXPECT_EQ(stack.RedoCount(), 0u);
+
+    // Pop one to redo, then push a brand-new action -> redo stack clears.
+    auto popped = stack.PopUndo();
+    ASSERT_TRUE(popped.has_value());
+    stack.PushRedo(std::move(*popped));
+    ASSERT_TRUE(stack.CanRedo());
+
+    stack.Push(UndoEntry{ UndoActionKind::CreateFile, L"New file", { { {}, L"C:\\note.txt" } } });
+    EXPECT_FALSE(stack.CanRedo());
+    EXPECT_EQ(stack.UndoCount(), 2u);
+}
+
+TEST(UndoStackTests, EnforcesMaxDepthByEvictingOldestEntries)
+{
+    UndoStack stack(2);
+    stack.Push(UndoEntry{ UndoActionKind::Rename, L"1", { { L"C:\\1", L"C:\\1b" } } });
+    stack.Push(UndoEntry{ UndoActionKind::Rename, L"2", { { L"C:\\2", L"C:\\2b" } } });
+    stack.Push(UndoEntry{ UndoActionKind::Rename, L"3", { { L"C:\\3", L"C:\\3b" } } });
+
+    EXPECT_EQ(stack.UndoCount(), 2u);
+    auto top = stack.PopUndo();
+    ASSERT_TRUE(top.has_value());
+    EXPECT_EQ(top->description, L"3");
+    auto next = stack.PopUndo();
+    ASSERT_TRUE(next.has_value());
+    EXPECT_EQ(next->description, L"2");
+    EXPECT_FALSE(stack.CanUndo());
+}
+
+TEST(UndoStackTests, MultiOpenConfirmationThreshold)
+{
+    EXPECT_FALSE(ShouldConfirmMultiOpen(0));
+    EXPECT_FALSE(ShouldConfirmMultiOpen(1));
+    EXPECT_FALSE(ShouldConfirmMultiOpen(10));
+    EXPECT_TRUE(ShouldConfirmMultiOpen(11));
+    EXPECT_TRUE(ShouldConfirmMultiOpen(50));
+}
+
+TEST(ArchiveCompressionTests, QuotesWindowsCommandLineArgsCorrectly)
+{
+    EXPECT_EQ(QuoteWindowsCommandArg(L""), L"\"\"");
+    EXPECT_EQ(QuoteWindowsCommandArg(L"plain.txt"), L"plain.txt");
+    EXPECT_EQ(QuoteWindowsCommandArg(L"my file.txt"), L"\"my file.txt\"");
+    EXPECT_EQ(QuoteWindowsCommandArg(L"say \"hi\""), L"\"say \\\"hi\\\"\"");
+    EXPECT_EQ(QuoteWindowsCommandArg(L"C:\\My Folder\\"), L"\"C:\\My Folder\\\\\"");
+}
+
+TEST(ArchiveCompressionTests, SuggestsCollisionSafeZipNamesForFilesFoldersAndMultiSelect)
+{
+    std::unordered_set<std::wstring> existing{
+        L"C:\\Work\\report.zip",
+        L"C:\\Work\\report (2).zip",
+    };
+    auto existsFn = [&](std::filesystem::path const& p) { return existing.contains(p.wstring()); };
+
+    // Single file uses stem + collision suffix.
+    std::vector<std::filesystem::path> singleFile{ L"C:\\Work\\report.pdf" };
+    EXPECT_EQ(
+        SuggestZipArchivePath(L"C:\\Work", singleFile, existsFn, /*singleItemIsFolder=*/false),
+        std::filesystem::path{ L"C:\\Work\\report (3).zip" });
+
+    // Single folder containing a dot keeps full folder name instead of stripping ".2".
+    std::vector<std::filesystem::path> dottedFolder{ L"C:\\Work\\release.2" };
+    EXPECT_EQ(
+        SuggestZipArchivePath(L"C:\\Work", dottedFolder, existsFn, /*singleItemIsFolder=*/true),
+        std::filesystem::path{ L"C:\\Work\\release.2.zip" });
+
+    // Multi-select uses parent folder name; drive root falls back to Archive.zip.
+    std::vector<std::filesystem::path> multi{ L"C:\\Work\\a.txt", L"C:\\Work\\b.txt" };
+    EXPECT_EQ(
+        SuggestZipArchivePath(L"C:\\Work", multi, existsFn, false),
+        std::filesystem::path{ L"C:\\Work\\Work.zip" });
+    EXPECT_EQ(
+        SuggestZipArchivePath(L"C:\\", multi, existsFn, false),
+        std::filesystem::path{ L"C:\\Archive.zip" });
+}
+
+TEST(ArchiveCompressionTests, BuildsTarCommandWithOptionSeparatorAndQuoting)
+{
+    std::vector<std::wstring> names{ L"-dash.txt", L"my notes.txt" };
+    auto const cmd = BuildTarZipCommandLine(
+        L"C:\\Windows\\System32\\tar.exe",
+        L"C:\\My Docs\\Archive.zip",
+        names);
+    EXPECT_EQ(
+        cmd,
+        L"C:\\Windows\\System32\\tar.exe -a -c -f \"C:\\My Docs\\Archive.zip\" -- -dash.txt \"my notes.txt\"");
+}
+
+TEST(ArchiveCompressionTests, SelectsNewestRecycleBinMatchPerOriginalPathOnce)
+{
+    auto const origA = BuildRecycleBinOriginalPath(L"C:\\Docs", L"note.txt");
+    EXPECT_EQ(origA, std::filesystem::path{ L"C:\\Docs\\note.txt" });
+
+    std::vector<RecycleBinCandidate> candidates{
+        { L"C:\\$Recycle.Bin\\R_OLD.txt", L"C:\\Docs\\note.txt", 100 },
+        { L"C:\\$Recycle.Bin\\R_NEW.txt", L"c:\\docs\\NOTE.txt", 500 },
+        { L"C:\\$Recycle.Bin\\R_OTHER.txt", L"C:\\Docs\\other.txt", 300 },
+    };
+    std::vector<std::filesystem::path> targets{
+        L"C:\\Docs\\note.txt",
+        L"C:\\Docs\\note.txt",
+    };
+
+    auto const matched = SelectNewestRecycleBinMatches(candidates, targets);
+    ASSERT_EQ(matched.size(), 2u);
+    EXPECT_EQ(matched[0], L"C:\\$Recycle.Bin\\R_NEW.txt");
+    EXPECT_EQ(matched[1], L"C:\\$Recycle.Bin\\R_OLD.txt");
+}
+
+TEST(ShellFileOperationZipTests, CompressesFilesIncludingDashAndSpacesAndAvoidsCollision)
+{
+    ComApartment apartment;
+    ScopedTempDir temp{ L"zip" };
+    {
+        std::ofstream f1(temp.path / L"-leading-dash.txt");
+        f1 << "dash content";
+        std::ofstream f2(temp.path / L"my file.txt");
+        f2 << "spaced content";
+    }
+
+    ShellFileOperationService service;
+    std::vector<std::filesystem::path> sources{
+        temp.path / L"-leading-dash.txt",
+        temp.path / L"my file.txt",
+    };
+
+    auto const zip1 = service.CompressItemsToZip(nullptr, temp.path, sources);
+    EXPECT_TRUE(std::filesystem::exists(zip1));
+    EXPECT_GT(std::filesystem::file_size(zip1), 0u);
+
+    auto const zip2 = service.CompressItemsToZip(nullptr, temp.path, sources);
+    EXPECT_TRUE(std::filesystem::exists(zip2));
+    EXPECT_NE(zip1, zip2);
+    EXPECT_GT(std::filesystem::file_size(zip2), 0u);
+}
+
+TEST(ShellFileOperationTransferTests, CopyAndMoveRecordTransferredPairsForUndo)
+{
+    ComApartment apartment;
+    ScopedTempDir srcDir{ L"transfer-src" };
+    ScopedTempDir dstDir{ L"transfer-dst" };
+    auto const fileA = srcDir.path / L"alpha.txt";
+    {
+        std::ofstream out(fileA);
+        out << "undo payload";
+    }
+
+    ShellFileOperationService service;
+    std::vector<std::filesystem::path> sources{ fileA };
+    std::vector<TransferredItemPair> copiedPairs;
+    service.CopyItemsFromPaths(nullptr, sources, dstDir.path, /*move=*/false, &copiedPairs);
+    ASSERT_EQ(copiedPairs.size(), 1u);
+    EXPECT_EQ(copiedPairs[0].source, fileA);
+    EXPECT_EQ(copiedPairs[0].destination, dstDir.path / L"alpha.txt");
+    EXPECT_TRUE(std::filesystem::exists(copiedPairs[0].destination));
+
+    // Move copied item back under a new name via MoveItemFromPath.
+    service.MoveItemFromPath(nullptr, copiedPairs[0].destination, srcDir.path, L"alpha_moved.txt");
+    EXPECT_FALSE(std::filesystem::exists(copiedPairs[0].destination));
+    EXPECT_TRUE(std::filesystem::exists(srcDir.path / L"alpha_moved.txt"));
+}
