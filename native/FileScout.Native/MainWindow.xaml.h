@@ -339,7 +339,7 @@ namespace winrt::FileScoutNative::implementation
             int32_t paneIndex,
             uint64_t watchToken,
             std::filesystem::path const& watchedPath);
-        [[nodiscard]] bool CanApplyWatchRefreshNow(int32_t paneIndex) const;
+        [[nodiscard]] bool CanApplyWatchRefreshNow(int32_t paneIndex);
         void ScheduleWatchSuppressionRetry(int32_t paneIndex, uint64_t watchToken);
         void RefreshPaneInPlacePreservingSelection(int32_t paneIndex);
         void FlushPendingWatchRefresh(int32_t paneIndex);

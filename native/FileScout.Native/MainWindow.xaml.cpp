@@ -3719,7 +3719,7 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    bool MainWindow::CanApplyWatchRefreshNow(int32_t const paneIndex) const
+    bool MainWindow::CanApplyWatchRefreshNow(int32_t const paneIndex)
     {
         if (m_windowClosing || m_modalDialogOpen ||
             paneIndex < 0 || paneIndex >= static_cast<int32_t>(m_panes.size()))
