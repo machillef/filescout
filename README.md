@@ -36,14 +36,13 @@ FileScout is a Windows 11 file explorer built with C++/WinRT and WinUI 3. It foc
 
 ### Power-user tools
 
-- Use keyboard shortcuts including `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Delete`, `F2`, `F5`, `Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Alt+Enter`, `Alt+Left`, and `Alt+Right`
+- Use keyboard shortcuts including `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Delete`, `F2`, `F5`, `Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Alt+Enter`, `Alt+Left`, `Alt+Right`, and `Ctrl+P` for the command palette
 - Browse with custom title bar chrome, active-pane indicators, and shell-backed sidebar visuals
 
 ## Not Included Yet
 
 A few previously prototyped features stay out of the shipped app while the core explorer hardens:
 
-- Command palette
 - In-app archive browsing and extract flows
 - Batch rename (rename works one item at a time)
 
@@ -89,7 +88,7 @@ native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no
 
 ## Status
 
-FileScout is an early preview under active development. Releases are published as pre-releases on GitHub. The focus is a trustworthy core explorer: shell-backed browsing, search, dual-pane workflows, and everyday file operations.
+FileScout is an early preview under active development. Builds are published on GitHub Releases. The focus is a trustworthy core explorer: shell-backed browsing, search, dual-pane workflows, and everyday file operations.
 
 ## License
 

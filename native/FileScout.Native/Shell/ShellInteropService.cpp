@@ -111,6 +111,7 @@ namespace FileScoutNative::Shell
             return absolute.lexically_normal();
         }
 
+        // SHGetFileInfoW needs COM initialised on the calling thread.
         std::optional<FileScoutNative::Domain::IconBitmap> ExtractShellIconBitmap(
             std::wstring const& shellLookupName,
             DWORD const fileAttributes,

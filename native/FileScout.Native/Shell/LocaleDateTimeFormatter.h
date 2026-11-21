@@ -8,6 +8,7 @@
 
 namespace FileScoutNative::Shell
 {
+    // Its caches are not thread-safe: use one instance per worker thread.
     class LocaleDateTimeFormatter
     {
     public:

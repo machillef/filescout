@@ -1767,6 +1767,7 @@ namespace
             }
             state->done = true;
             winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(state->token);
+            // Clearing the timer breaks the state -> timer -> Tick handler -> state cycle.
             if (state->timer)
             {
                 state->timer.Stop();
@@ -3721,6 +3722,7 @@ namespace winrt::FileScoutNative::implementation
             pane.watched_path_key.clear();
         }
 
+        // Changes made before ReadDirectoryChangesW began buffering are not reported: reconcile once.
         if (pane.watch_reconcile_on_arm)
         {
             pane.watch_reconcile_on_arm = false;
@@ -6174,6 +6176,7 @@ namespace winrt::FileScoutNative::implementation
         try
         {
             auto const owner = GetWindowHandle();
+            // Read now: the paste may queue behind other shell work and must not see a later copy or cut.
             auto snapshot = m_shellClipboardService.CaptureClipboard();
             auto const outcome = co_await OnShellThread([this, owner, destination, snapshot = std::move(snapshot)]
                 {
