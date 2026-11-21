@@ -30,12 +30,15 @@ namespace FileScoutNative::Domain
     // Pure debounce and self-mutation suppression coordinator for directory change notifications.
     // Coalesces bursts of filesystem events until `debounceMs` of quiet, while capping total wait
     // at `maxWaitMs` so continuous background writes cannot starve refreshes indefinitely.
+    // Notifications observed during a self-mutation suppression window are remembered as a single
+    // deferred change that flushes once the suppression deadline passes.
     class DirectoryWatchCoordinator
     {
     public:
         void Reset() noexcept
         {
             m_pending = false;
+            m_deferredDuringSuppression = false;
             m_firstPendingTickMs = 0;
             m_lastEventTickMs = 0;
             m_suppressedUntilTickMs = 0;
@@ -62,6 +65,7 @@ namespace FileScoutNative::Domain
         {
             if (IsSuppressed(nowTickMs))
             {
+                m_deferredDuringSuppression = true;
                 return;
             }
 
@@ -75,7 +79,12 @@ namespace FileScoutNative::Domain
 
         [[nodiscard]] bool HasPending() const noexcept
         {
-            return m_pending;
+            return m_pending || m_deferredDuringSuppression;
+        }
+
+        [[nodiscard]] bool HasDeferredDuringSuppression() const noexcept
+        {
+            return m_deferredDuringSuppression;
         }
 
         [[nodiscard]] bool ShouldFlush(
@@ -83,6 +92,16 @@ namespace FileScoutNative::Domain
             uint64_t const debounceMs = kDefaultWatchDebounceMs,
             uint64_t const maxWaitMs = kDefaultWatchMaxWaitMs) const noexcept
         {
+            if (IsSuppressed(nowTickMs))
+            {
+                return false;
+            }
+
+            if (m_deferredDuringSuppression)
+            {
+                return true;
+            }
+
             if (!m_pending)
             {
                 return false;
@@ -116,7 +135,17 @@ namespace FileScoutNative::Domain
             uint64_t const debounceMs = kDefaultWatchDebounceMs,
             uint64_t const maxWaitMs = kDefaultWatchMaxWaitMs) const noexcept
         {
-            if (!m_pending)
+            if (!HasPending())
+            {
+                return 0;
+            }
+
+            if (IsSuppressed(nowTickMs))
+            {
+                return m_suppressedUntilTickMs - nowTickMs;
+            }
+
+            if (m_deferredDuringSuppression)
             {
                 return 0;
             }
@@ -142,12 +171,14 @@ namespace FileScoutNative::Domain
         void MarkFlushed() noexcept
         {
             m_pending = false;
+            m_deferredDuringSuppression = false;
             m_firstPendingTickMs = 0;
             m_lastEventTickMs = 0;
         }
 
     private:
         bool m_pending{ false };
+        bool m_deferredDuringSuppression{ false };
         uint64_t m_firstPendingTickMs{ 0 };
         uint64_t m_lastEventTickMs{ 0 };
         uint64_t m_suppressedUntilTickMs{ 0 };

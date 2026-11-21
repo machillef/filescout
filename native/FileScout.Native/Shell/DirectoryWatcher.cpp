@@ -10,12 +10,27 @@ namespace FileScoutNative::Shell
 {
     namespace
     {
-        std::filesystem::path WithLongPathPrefix(std::filesystem::path path)
+        std::filesystem::path NormalizeForCreateFile(std::filesystem::path path)
         {
-            auto const& native = path.native();
-            if (native.size() < 248 || native.starts_with(L"\\\\?\\"))
+            auto const& raw = path.native();
+            if (raw.starts_with(L"\\\\?\\"))
             {
                 return path;
+            }
+
+            std::error_code ec;
+            auto normalized = std::filesystem::absolute(path, ec);
+            if (ec)
+            {
+                normalized = std::move(path);
+            }
+            normalized = normalized.lexically_normal();
+            normalized.make_preferred();
+
+            auto const& native = normalized.native();
+            if (native.size() < 248)
+            {
+                return normalized;
             }
 
             if (native.starts_with(L"\\\\"))
@@ -34,7 +49,28 @@ namespace FileScoutNative::Shell
             FILE_NOTIFY_CHANGE_LAST_WRITE;
 
         constexpr DWORD kNotifyBufferBytes = 16u * 1024u;
+        constexpr DWORD kStopJoinGraceMs = 250u;
     }
+
+    struct DirectoryWatcher::Session
+    {
+        std::filesystem::path directory;
+        std::function<void()> onChanged;
+        std::function<void(bool)> onReady;
+        HANDLE stopEvent{ nullptr };
+        HANDLE readyEvent{ nullptr };
+        HANDLE doneEvent{ nullptr };
+        std::atomic<bool> stopped{ false };
+        std::atomic<bool> armed{ false };
+        std::atomic<bool> active{ true };
+
+        ~Session()
+        {
+            if (doneEvent != nullptr) { ::CloseHandle(doneEvent); }
+            if (readyEvent != nullptr) { ::CloseHandle(readyEvent); }
+            if (stopEvent != nullptr) { ::CloseHandle(stopEvent); }
+        }
+    };
 
     DirectoryWatcher::~DirectoryWatcher()
     {
@@ -45,7 +81,8 @@ namespace FileScoutNative::Shell
         std::filesystem::path directory,
         std::function<void()> onChanged,
         uint32_t const debounceMs,
-        uint32_t const maxWaitMs)
+        uint32_t const maxWaitMs,
+        std::function<void(bool)> onReady)
     {
         Stop();
 
@@ -54,7 +91,188 @@ namespace FileScoutNative::Shell
             return false;
         }
 
-        auto const openPath = WithLongPathPrefix(directory);
+        auto session = std::make_shared<Session>();
+        session->directory = directory;
+        session->onChanged = std::move(onChanged);
+        session->onReady = std::move(onReady);
+        session->stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        session->readyEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        session->doneEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (session->stopEvent == nullptr || session->readyEvent == nullptr || session->doneEvent == nullptr)
+        {
+            return false;
+        }
+
+        {
+            std::lock_guard lock{ m_stateMutex };
+            m_watchedPath = std::move(directory);
+            m_session = session;
+        }
+        m_watching.store(true, std::memory_order_release);
+
+        try
+        {
+            m_thread = std::thread(
+                &DirectoryWatcher::RunSession,
+                session,
+                debounceMs,
+                maxWaitMs);
+        }
+        catch (...)
+        {
+            m_watching.store(false, std::memory_order_release);
+            {
+                std::lock_guard lock{ m_stateMutex };
+                m_watchedPath.clear();
+                m_session.reset();
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    void DirectoryWatcher::Stop()
+    {
+        std::shared_ptr<Session> session;
+        std::thread threadToFinish;
+        {
+            std::lock_guard lock{ m_stateMutex };
+            session = std::move(m_session);
+            m_watchedPath.clear();
+            threadToFinish = std::move(m_thread);
+        }
+
+        m_watching.store(false, std::memory_order_release);
+
+        if (session)
+        {
+            session->stopped.store(true, std::memory_order_release);
+            ::SetEvent(session->stopEvent);
+        }
+
+        if (threadToFinish.joinable())
+        {
+            bool finishedQuickly = false;
+            if (session && session->doneEvent != nullptr)
+            {
+                finishedQuickly =
+                    (::WaitForSingleObject(session->doneEvent, kStopJoinGraceMs) == WAIT_OBJECT_0);
+            }
+
+            if (finishedQuickly)
+            {
+                threadToFinish.join();
+            }
+            else
+            {
+                // Keep the worker thread (and its stack OVERLAPPED / buffer / handles) alive
+                // until the OS completes any unresponsive remote I/O cancellation.
+                threadToFinish.detach();
+            }
+        }
+    }
+
+    bool DirectoryWatcher::WaitUntilArmed(uint32_t const timeoutMs) const
+    {
+        std::shared_ptr<Session> session;
+        {
+            std::lock_guard lock{ m_stateMutex };
+            session = m_session;
+        }
+        if (!session || session->readyEvent == nullptr)
+        {
+            return false;
+        }
+
+        if (::WaitForSingleObject(session->readyEvent, timeoutMs) != WAIT_OBJECT_0)
+        {
+            return false;
+        }
+        return session->armed.load(std::memory_order_acquire) &&
+            !session->stopped.load(std::memory_order_acquire);
+    }
+
+    bool DirectoryWatcher::IsWatching() const noexcept
+    {
+        if (!m_watching.load(std::memory_order_acquire))
+        {
+            return false;
+        }
+        std::lock_guard lock{ m_stateMutex };
+        return m_session && m_session->active.load(std::memory_order_acquire);
+    }
+
+    std::filesystem::path DirectoryWatcher::WatchedPath() const
+    {
+        std::lock_guard lock{ m_stateMutex };
+        return m_watchedPath;
+    }
+
+    void DirectoryWatcher::RunSession(
+        std::shared_ptr<Session> session,
+        uint32_t const debounceMs,
+        uint32_t const maxWaitMs)
+    {
+        struct DoneGuard
+        {
+            std::shared_ptr<Session>& session;
+            ~DoneGuard()
+            {
+                session->active.store(false, std::memory_order_release);
+                if (session->readyEvent != nullptr)
+                {
+                    ::SetEvent(session->readyEvent);
+                }
+                if (session->doneEvent != nullptr)
+                {
+                    ::SetEvent(session->doneEvent);
+                }
+            }
+        } doneGuard{ session };
+
+        auto notifyReady = [&session](bool const ok)
+        {
+            session->armed.store(ok, std::memory_order_release);
+            if (!ok)
+            {
+                session->active.store(false, std::memory_order_release);
+            }
+            if (!session->stopped.load(std::memory_order_acquire) && session->onReady)
+            {
+                try
+                {
+                    session->onReady(ok);
+                }
+                catch (...)
+                {
+                }
+            }
+            ::SetEvent(session->readyEvent);
+        };
+
+        auto emitChange = [&session]()
+        {
+            if (session->stopped.load(std::memory_order_acquire))
+            {
+                return;
+            }
+            try
+            {
+                session->onChanged();
+            }
+            catch (...)
+            {
+            }
+        };
+
+        if (session->stopped.load(std::memory_order_acquire))
+        {
+            notifyReady(false);
+            return;
+        }
+
+        auto const openPath = NormalizeForCreateFile(session->directory);
         HANDLE const directoryHandle = ::CreateFileW(
             openPath.c_str(),
             FILE_LIST_DIRECTORY,
@@ -65,125 +283,28 @@ namespace FileScoutNative::Shell
             nullptr);
         if (directoryHandle == INVALID_HANDLE_VALUE)
         {
-            return false;
+            notifyReady(false);
+            return;
         }
 
-        HANDLE const stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (stopEvent == nullptr)
-        {
-            ::CloseHandle(directoryHandle);
-            return false;
-        }
-
-        {
-            std::lock_guard lock{ m_stateMutex };
-            m_watchedPath = std::move(directory);
-            m_stopEvent = stopEvent;
-        }
-        m_watching.store(true, std::memory_order_release);
-
-        try
-        {
-            m_thread = std::thread(
-                &DirectoryWatcher::WatchLoop,
-                this,
-                directoryHandle,
-                stopEvent,
-                std::move(onChanged),
-                debounceMs,
-                maxWaitMs);
-        }
-        catch (...)
-        {
-            m_watching.store(false, std::memory_order_release);
-            {
-                std::lock_guard lock{ m_stateMutex };
-                m_watchedPath.clear();
-                m_stopEvent = nullptr;
-            }
-            ::CloseHandle(stopEvent);
-            ::CloseHandle(directoryHandle);
-            return false;
-        }
-
-        return true;
-    }
-
-    void DirectoryWatcher::Stop()
-    {
-        HANDLE stopEvent = nullptr;
-        std::thread threadToJoin;
-        {
-            std::lock_guard lock{ m_stateMutex };
-            stopEvent = m_stopEvent;
-            m_stopEvent = nullptr;
-            m_watchedPath.clear();
-            threadToJoin = std::move(m_thread);
-        }
-
-        if (stopEvent != nullptr)
-        {
-            ::SetEvent(stopEvent);
-        }
-
-        if (threadToJoin.joinable())
-        {
-            threadToJoin.join();
-        }
-
-        if (stopEvent != nullptr)
-        {
-            ::CloseHandle(stopEvent);
-        }
-
-        m_watching.store(false, std::memory_order_release);
-    }
-
-    bool DirectoryWatcher::IsWatching() const noexcept
-    {
-        return m_watching.load(std::memory_order_acquire);
-    }
-
-    std::filesystem::path DirectoryWatcher::WatchedPath() const
-    {
-        std::lock_guard lock{ m_stateMutex };
-        return m_watchedPath;
-    }
-
-    void DirectoryWatcher::WatchLoop(
-        HANDLE const directoryHandle,
-        HANDLE const stopEvent,
-        std::function<void()> onChanged,
-        uint32_t const debounceMs,
-        uint32_t const maxWaitMs)
-    {
         HANDLE const ioEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (ioEvent == nullptr)
         {
             ::CloseHandle(directoryHandle);
-            m_watching.store(false, std::memory_order_release);
+            notifyReady(false);
             return;
         }
 
         std::vector<std::byte> buffer(kNotifyBufferBytes);
         OVERLAPPED overlapped{};
         bool readPending = false;
+        bool signaledReady = false;
         ::FileScoutNative::Domain::DirectoryWatchCoordinator coordinator{};
-
-        auto emitChange = [&onChanged]()
-        {
-            try
-            {
-                onChanged();
-            }
-            catch (...)
-            {
-            }
-        };
 
         for (;;)
         {
-            if (::WaitForSingleObject(stopEvent, 0) == WAIT_OBJECT_0)
+            if (session->stopped.load(std::memory_order_acquire) ||
+                ::WaitForSingleObject(session->stopEvent, 0) == WAIT_OBJECT_0)
             {
                 break;
             }
@@ -205,7 +326,12 @@ namespace FileScoutNative::Shell
                     nullptr);
                 if (!issued)
                 {
-                    if (coordinator.HasPending())
+                    if (!signaledReady)
+                    {
+                        signaledReady = true;
+                        notifyReady(false);
+                    }
+                    else if (coordinator.HasPending())
                     {
                         coordinator.MarkFlushed();
                         emitChange();
@@ -213,6 +339,11 @@ namespace FileScoutNative::Shell
                     break;
                 }
                 readPending = true;
+                if (!signaledReady)
+                {
+                    signaledReady = true;
+                    notifyReady(true);
+                }
             }
 
             DWORD waitTimeoutMs = INFINITE;
@@ -229,7 +360,7 @@ namespace FileScoutNative::Shell
                 waitTimeoutMs = remaining == 0 ? 1u : static_cast<DWORD>((std::min<uint64_t>)(remaining, 60000u));
             }
 
-            HANDLE handles[2] = { stopEvent, ioEvent };
+            HANDLE handles[2] = { session->stopEvent, ioEvent };
             DWORD const waitResult = ::WaitForMultipleObjects(2, handles, FALSE, waitTimeoutMs);
             if (waitResult == WAIT_OBJECT_0)
             {
@@ -253,9 +384,8 @@ namespace FileScoutNative::Shell
                     }
                     else
                     {
-                        // Watched directory vanished, unmounted, or lost access.
-                        // Emit once if not stopping so the UI can react, then exit.
-                        if (::WaitForSingleObject(stopEvent, 0) != WAIT_OBJECT_0)
+                        if (!session->stopped.load(std::memory_order_acquire) &&
+                            ::WaitForSingleObject(session->stopEvent, 0) != WAIT_OBJECT_0)
                         {
                             coordinator.MarkFlushed();
                             emitChange();
@@ -279,6 +409,11 @@ namespace FileScoutNative::Shell
             }
         }
 
+        if (!signaledReady)
+        {
+            notifyReady(false);
+        }
+
         if (readPending)
         {
             ::CancelIoEx(directoryHandle, &overlapped);
@@ -288,6 +423,5 @@ namespace FileScoutNative::Shell
 
         ::CloseHandle(ioEvent);
         ::CloseHandle(directoryHandle);
-        m_watching.store(false, std::memory_order_release);
     }
 }

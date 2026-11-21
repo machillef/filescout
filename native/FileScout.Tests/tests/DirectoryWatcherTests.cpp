@@ -40,6 +40,34 @@ namespace
             std::filesystem::remove_all(path, ec);
         }
     };
+
+    struct ChangeCounter
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        int count{ 0 };
+
+        void Increment()
+        {
+            {
+                std::lock_guard lock{ mutex };
+                ++count;
+            }
+            cv.notify_all();
+        }
+
+        bool WaitForAtLeast(int target, std::chrono::milliseconds timeout = std::chrono::seconds{ 5 })
+        {
+            std::unique_lock lock{ mutex };
+            return cv.wait_for(lock, timeout, [&]() { return count >= target; });
+        }
+
+        int Snapshot()
+        {
+            std::lock_guard lock{ mutex };
+            return count;
+        }
+    };
 }
 
 TEST(WatchDebounceTests, ShouldWatchLocationRejectsVirtualAndEmptyLocations)
@@ -92,102 +120,127 @@ TEST(WatchDebounceTests, MaxWaitPreventsStarvationDuringContinuousWrites)
     EXPECT_EQ(coord.RemainingWaitMs(2450, 300, 1500), 50u);
 }
 
-TEST(WatchDebounceTests, SelfMutationSuppressionIgnoresWindowThenResumes)
+TEST(WatchDebounceTests, SelfMutationSuppressionDefersAndReconcilesOnceAfterDeadline)
 {
     DirectoryWatchCoordinator coord;
     coord.SuppressFor(1000, 600);
     EXPECT_TRUE(coord.IsSuppressed(1200));
 
+    // Events during the suppression window are deferred rather than dropped.
     coord.NoteChange(1200);
-    EXPECT_FALSE(coord.HasPending());
+    EXPECT_TRUE(coord.HasPending());
+    EXPECT_TRUE(coord.HasDeferredDuringSuppression());
+    EXPECT_FALSE(coord.ShouldFlush(1200, 300, 1500));
+    EXPECT_EQ(coord.RemainingWaitMs(1200, 300, 1500), 400u);
 
     coord.NoteChange(1599);
-    EXPECT_FALSE(coord.HasPending());
+    EXPECT_FALSE(coord.ShouldFlush(1599, 300, 1500));
 
+    // Once the suppression window ends, exactly one reconciliation flush becomes ready.
     EXPECT_FALSE(coord.IsSuppressed(1600));
-    coord.NoteChange(1600);
-    EXPECT_TRUE(coord.HasPending());
-    EXPECT_TRUE(coord.ShouldFlush(1900, 300, 1500));
+    EXPECT_TRUE(coord.ShouldFlush(1600, 300, 1500));
+    EXPECT_EQ(coord.RemainingWaitMs(1600, 300, 1500), 0u);
+
+    coord.MarkFlushed();
+    EXPECT_FALSE(coord.HasPending());
+    EXPECT_FALSE(coord.HasDeferredDuringSuppression());
 }
 
-TEST(DirectoryWatcherTests, DetectsCreateRenameAndDeleteAndCoalescesBurst)
+TEST(DirectoryWatcherTests, CoalescesCreateBurstAfterArmed)
 {
-    ScopedTempDir temp{ L"basic" };
-
-    std::mutex mutex;
-    std::condition_variable cv;
-    int callbackCount = 0;
+    ScopedTempDir temp{ L"create-burst" };
+    ChangeCounter counter;
 
     DirectoryWatcher watcher;
     ASSERT_TRUE(watcher.Start(
         temp.path,
-        [&]()
-        {
-            {
-                std::lock_guard lock{ mutex };
-                ++callbackCount;
-            }
-            cv.notify_all();
-        },
-        /*debounceMs=*/80,
-        /*maxWaitMs=*/400));
+        [&]() { counter.Increment(); },
+        /*debounceMs=*/120,
+        /*maxWaitMs=*/600));
+    ASSERT_TRUE(watcher.WaitUntilArmed(5000));
     EXPECT_TRUE(watcher.IsWatching());
     EXPECT_EQ(watcher.WatchedPath(), temp.path);
 
-    auto waitForCount = [&](int target)
-    {
-        std::unique_lock lock{ mutex };
-        return cv.wait_for(lock, std::chrono::seconds{ 5 }, [&]() { return callbackCount >= target; });
-    };
-
-    // Create a burst of files rapidly; debounce should coalesce them into a small number of callbacks.
     for (int i = 0; i < 12; ++i)
     {
         std::ofstream out(temp.path / (L"file_" + std::to_wstring(i) + L".txt"));
         out << "hello";
     }
 
-    ASSERT_TRUE(waitForCount(1));
-    int const countAfterBurst = [&]()
-    {
-        std::lock_guard lock{ mutex };
-        return callbackCount;
-    }();
-    EXPECT_LT(countAfterBurst, 12);
-
-    // Rename a file -> triggers another notification.
-    std::filesystem::rename(temp.path / L"file_0.txt", temp.path / L"renamed_0.txt");
-    ASSERT_TRUE(waitForCount(countAfterBurst + 1));
-
-    int const countAfterRename = [&]()
-    {
-        std::lock_guard lock{ mutex };
-        return callbackCount;
-    }();
-
-    // Delete a file -> triggers another notification.
-    std::filesystem::remove(temp.path / L"renamed_0.txt");
-    ASSERT_TRUE(waitForCount(countAfterRename + 1));
+    ASSERT_TRUE(counter.WaitForAtLeast(1));
+    // Wait for debounce window to drain and verify the burst was coalesced.
+    std::this_thread::sleep_for(std::chrono::milliseconds{ 300 });
+    int const totalAfterDrain = counter.Snapshot();
+    EXPECT_GE(totalAfterDrain, 1);
+    EXPECT_LT(totalAfterDrain, 12);
 
     watcher.Stop();
     EXPECT_FALSE(watcher.IsWatching());
     EXPECT_TRUE(watcher.WatchedPath().empty());
 }
 
-TEST(DirectoryWatcherTests, RejectsMissingDirectoryAndSupportsCleanRetargetAndImmediateStop)
+TEST(DirectoryWatcherTests, DetectsRenameInIsolatedDirectory)
+{
+    ScopedTempDir temp{ L"rename" };
+    {
+        std::ofstream out(temp.path / L"before.txt");
+        out << "rename-me";
+    }
+
+    ChangeCounter counter;
+    DirectoryWatcher watcher;
+    ASSERT_TRUE(watcher.Start(temp.path, [&]() { counter.Increment(); }, 60, 300));
+    ASSERT_TRUE(watcher.WaitUntilArmed(5000));
+
+    std::filesystem::rename(temp.path / L"before.txt", temp.path / L"after.txt");
+    EXPECT_TRUE(counter.WaitForAtLeast(1));
+
+    watcher.Stop();
+}
+
+TEST(DirectoryWatcherTests, DetectsDeleteInIsolatedDirectory)
+{
+    ScopedTempDir temp{ L"delete" };
+    {
+        std::ofstream out(temp.path / L"remove_me.txt");
+        out << "bye";
+    }
+
+    ChangeCounter counter;
+    DirectoryWatcher watcher;
+    ASSERT_TRUE(watcher.Start(temp.path, [&]() { counter.Increment(); }, 60, 300));
+    ASSERT_TRUE(watcher.WaitUntilArmed(5000));
+
+    std::filesystem::remove(temp.path / L"remove_me.txt");
+    EXPECT_TRUE(counter.WaitForAtLeast(1));
+
+    watcher.Stop();
+}
+
+TEST(DirectoryWatcherTests, ReportsFailureForMissingDirectoryAndSupportsCleanRetargetAndStop)
 {
     ScopedTempDir dirA{ L"retargetA" };
     ScopedTempDir dirB{ L"retargetB" };
 
+    std::atomic<int> readyStatus{ -1 };
     DirectoryWatcher watcher;
-    EXPECT_FALSE(watcher.Start(dirA.path / L"does-not-exist", []() {}));
+    ASSERT_TRUE(watcher.Start(
+        dirA.path / L"does-not-exist",
+        []() {},
+        100,
+        500,
+        [&](bool const armed) { readyStatus.store(armed ? 1 : 0); }));
+    EXPECT_FALSE(watcher.WaitUntilArmed(5000));
+    EXPECT_EQ(readyStatus.load(), 0);
     EXPECT_FALSE(watcher.IsWatching());
 
-    EXPECT_TRUE(watcher.Start(dirA.path, []() {}, 100, 500));
+    ASSERT_TRUE(watcher.Start(dirA.path, []() {}, 100, 500));
+    ASSERT_TRUE(watcher.WaitUntilArmed(5000));
     EXPECT_TRUE(watcher.IsWatching());
 
-    // Immediately retarget to dirB without waiting for any events.
-    EXPECT_TRUE(watcher.Start(dirB.path, []() {}, 100, 500));
+    // Retarget to dirB without waiting for any events.
+    ASSERT_TRUE(watcher.Start(dirB.path, []() {}, 100, 500));
+    ASSERT_TRUE(watcher.WaitUntilArmed(5000));
     EXPECT_EQ(watcher.WatchedPath(), dirB.path);
 
     // Idempotent Stop.

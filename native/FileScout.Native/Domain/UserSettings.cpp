@@ -361,11 +361,16 @@ namespace FileScoutNative::Domain
                 break;
             }
             ++pos;
+            std::size_t const valueStart = pos;
+            bool handledValue = false;
 
             if (*key == "has_window_bounds")
             {
-                if (auto const v = ParseJsonBool(json, pos)) { parsedHasBounds = *v; }
-                else { break; }
+                if (auto const v = ParseJsonBool(json, pos))
+                {
+                    parsedHasBounds = *v;
+                    handledValue = true;
+                }
             }
             else if (*key == "window_x")
             {
@@ -376,8 +381,8 @@ namespace FileScoutNative::Domain
                         result.window.x = *v;
                         parsedX = true;
                     }
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "window_y")
             {
@@ -388,8 +393,8 @@ namespace FileScoutNative::Domain
                         result.window.y = *v;
                         parsedY = true;
                     }
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "window_width")
             {
@@ -400,8 +405,8 @@ namespace FileScoutNative::Domain
                         result.window.width = *v;
                         parsedW = true;
                     }
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "window_height")
             {
@@ -412,45 +417,48 @@ namespace FileScoutNative::Domain
                         result.window.height = *v;
                         parsedH = true;
                     }
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "window_maximized")
             {
-                if (auto const v = ParseJsonBool(json, pos)) { result.window.maximized = *v; }
-                else { break; }
+                if (auto const v = ParseJsonBool(json, pos))
+                {
+                    result.window.maximized = *v;
+                    handledValue = true;
+                }
             }
             else if (*key == "col_name")
             {
                 if (auto const v = ParseJsonNumber(json, pos))
                 {
                     result.list_column_widths = SetListColumnWidth(result.list_column_widths, ListColumnIndex::Name, *v);
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "col_type")
             {
                 if (auto const v = ParseJsonNumber(json, pos))
                 {
                     result.list_column_widths = SetListColumnWidth(result.list_column_widths, ListColumnIndex::Type, *v);
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "col_size")
             {
                 if (auto const v = ParseJsonNumber(json, pos))
                 {
                     result.list_column_widths = SetListColumnWidth(result.list_column_widths, ListColumnIndex::Size, *v);
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "col_date")
             {
                 if (auto const v = ParseJsonNumber(json, pos))
                 {
                     result.list_column_widths = SetListColumnWidth(result.list_column_widths, ListColumnIndex::DateModified, *v);
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "view_mode")
             {
@@ -458,23 +466,32 @@ namespace FileScoutNative::Domain
                 {
                     if (*v == "cards") { result.view_mode = SavedViewMode::Cards; }
                     else if (*v == "list") { result.view_mode = SavedViewMode::List; }
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "show_hidden_files")
             {
-                if (auto const v = ParseJsonBool(json, pos)) { result.show_hidden_files = *v; }
-                else { break; }
+                if (auto const v = ParseJsonBool(json, pos))
+                {
+                    result.show_hidden_files = *v;
+                    handledValue = true;
+                }
             }
             else if (*key == "show_file_extensions")
             {
-                if (auto const v = ParseJsonBool(json, pos)) { result.show_file_extensions = *v; }
-                else { break; }
+                if (auto const v = ParseJsonBool(json, pos))
+                {
+                    result.show_file_extensions = *v;
+                    handledValue = true;
+                }
             }
             else if (*key == "group_by_sort_column")
             {
-                if (auto const v = ParseJsonBool(json, pos)) { result.group_by_sort_column = *v; }
-                else { break; }
+                if (auto const v = ParseJsonBool(json, pos))
+                {
+                    result.group_by_sort_column = *v;
+                    handledValue = true;
+                }
             }
             else if (*key == "dual_pane_visible")
             {
@@ -482,8 +499,8 @@ namespace FileScoutNative::Domain
                 {
                     result.dual_pane_visible = *v;
                     result.has_dual_pane_setting = true;
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "sort_column")
             {
@@ -493,8 +510,8 @@ namespace FileScoutNative::Domain
                     else if (*v == "type") { result.sort_column = SavedSortColumn::Type; }
                     else if (*v == "size") { result.sort_column = SavedSortColumn::Size; }
                     else if (*v == "date") { result.sort_column = SavedSortColumn::DateModified; }
+                    handledValue = true;
                 }
-                else { break; }
             }
             else if (*key == "sort_direction")
             {
@@ -502,11 +519,13 @@ namespace FileScoutNative::Domain
                 {
                     if (*v == "desc") { result.sort_direction = SavedSortDirection::Descending; }
                     else if (*v == "asc") { result.sort_direction = SavedSortDirection::Ascending; }
+                    handledValue = true;
                 }
-                else { break; }
             }
-            else
+
+            if (!handledValue)
             {
+                pos = valueStart;
                 if (!SkipJsonValue(json, pos))
                 {
                     break;

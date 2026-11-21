@@ -131,6 +131,10 @@ namespace winrt::FileScoutNative::implementation
         std::wstring watched_path_key;
         uint64_t watch_token{ 0 };
         uint64_t watch_suppress_until_tick{ 0 };
+        bool watch_armed{ false };
+        bool watch_reconcile_on_arm{ false };
+        bool watch_refresh_pending{ false };
+        bool watch_suppress_timer_scheduled{ false };
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -321,13 +325,25 @@ namespace winrt::FileScoutNative::implementation
         void ConfigureWindow();
         void ApplyLoadedUserSettingsToPanes();
         void CaptureLiveWindowBounds();
-        void SaveUserSettings(int32_t sourcePaneIndex = -1);
+        void PersistUserSettingsCandidate(::FileScoutNative::Domain::UserSettings const& candidate);
+        void SaveWindowAndLayoutSettings();
+        void SavePanePreferences(int32_t paneIndex);
         void UpdatePaneDirectoryWatcher(int32_t paneIndex);
         void StopPaneDirectoryWatcher(int32_t paneIndex);
+        void HandleDirectoryWatchReady(
+            int32_t paneIndex,
+            uint64_t watchToken,
+            std::filesystem::path const& watchedPath,
+            bool armed);
         void HandleDirectoryWatchChanged(
             int32_t paneIndex,
             uint64_t watchToken,
             std::filesystem::path const& watchedPath);
+        [[nodiscard]] bool CanApplyWatchRefreshNow(int32_t paneIndex) const;
+        void ScheduleWatchSuppressionRetry(int32_t paneIndex, uint64_t watchToken);
+        void RefreshPaneInPlacePreservingSelection(int32_t paneIndex);
+        void FlushPendingWatchRefresh(int32_t paneIndex);
+        void FlushPendingWatchRefreshAllPanes();
         static LRESULT CALLBACK NavigationWindowSubclassProc(
             HWND hwnd,
             UINT message,
@@ -362,7 +378,8 @@ namespace winrt::FileScoutNative::implementation
             bool skipHistoryRecord = false);
         [[nodiscard]] bool TryNavigateToAddressInput(std::wstring_view rawInput);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
-            std::optional<std::filesystem::path> selectAfter);
+            std::optional<std::filesystem::path> selectAfter,
+            bool preserveAddressEntry = false);
         // Reloads every pane whose current folder is `folder` (a file operation changed it).
         void RefreshPanesShowing(std::filesystem::path const& folder,
             std::optional<std::filesystem::path> selectAfter = std::nullopt);

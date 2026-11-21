@@ -139,6 +139,32 @@ TEST(UserSettingsTests, DeserializerClampsColumnsIgnoresUnknownKeysAndSurvivesCo
     EXPECT_DOUBLE_EQ(corrupt.list_column_widths.name, ListColumnWidths::kDefaultName);
 }
 
+TEST(UserSettingsTests, WrongTypedFieldsRevertToDefaultsWithoutAbortingSubsequentFields)
+{
+    auto const parsed = DeserializeUserSettings(R"({
+        "view_mode": 42,
+        "show_hidden_files": "yes",
+        "col_name": false,
+        "window_x": {"nested": [1, 2]},
+        "show_file_extensions": true,
+        "sort_column": "size",
+        "sort_direction": "desc",
+        "col_date": 210,
+        "window_maximized": true
+    })");
+
+    EXPECT_EQ(parsed.view_mode, SavedViewMode::List);
+    EXPECT_FALSE(parsed.show_hidden_files);
+    EXPECT_DOUBLE_EQ(parsed.list_column_widths.name, ListColumnWidths::kDefaultName);
+    EXPECT_FALSE(parsed.window.has_bounds);
+
+    EXPECT_TRUE(parsed.show_file_extensions);
+    EXPECT_EQ(parsed.sort_column, SavedSortColumn::Size);
+    EXPECT_EQ(parsed.sort_direction, SavedSortDirection::Descending);
+    EXPECT_DOUBLE_EQ(parsed.list_column_widths.date, 210.0);
+    EXPECT_TRUE(parsed.window.maximized);
+}
+
 TEST(UserSettingsTests, ResolveRestoredWindowBoundsHandlesDefaultsMultiMonitorAndDisconnectedDisplay)
 {
     ScreenWorkArea const primary{ 0, 0, 1920, 1040 };
