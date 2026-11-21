@@ -1,0 +1,6 @@
+# CodeRabbit reviews every PR to master and keeps reviewing new pushes.
+reviews:
+  auto_review:
+    enabled: true
+    # Default 5 pauses reviews on a busy branch; 0 never pauses.
+    auto_pause_after_reviewed_commits: 0
