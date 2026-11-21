@@ -171,27 +171,6 @@ TEST(ArchiveCompressionTests, BuildsTarCommandWithOptionSeparatorAndQuoting)
         L"C:\\Windows\\System32\\tar.exe -a -c -f \"C:\\My Docs\\Archive.zip\" --null -T \"C:\\My Docs\\.filescout-list.tmp\"");
 }
 
-TEST(ArchiveCompressionTests, SelectsNewestRecycleBinMatchPerOriginalPathOnce)
-{
-    auto const origA = BuildRecycleBinOriginalPath(L"C:\\Docs", L"note.txt");
-    EXPECT_EQ(origA, std::filesystem::path{ L"C:\\Docs\\note.txt" });
-
-    std::vector<RecycleBinCandidate> candidates{
-        { L"C:\\$Recycle.Bin\\R_OLD.txt", L"C:\\Docs\\note.txt", 100 },
-        { L"C:\\$Recycle.Bin\\R_NEW.txt", L"c:\\docs\\NOTE.txt", 500 },
-        { L"C:\\$Recycle.Bin\\R_OTHER.txt", L"C:\\Docs\\other.txt", 300 },
-    };
-    std::vector<std::filesystem::path> targets{
-        L"C:\\Docs\\note.txt",
-        L"C:\\Docs\\note.txt",
-    };
-
-    auto const matched = SelectNewestRecycleBinMatches(candidates, targets);
-    ASSERT_EQ(matched.size(), 2u);
-    EXPECT_EQ(matched[0], L"C:\\$Recycle.Bin\\R_NEW.txt");
-    EXPECT_EQ(matched[1], L"C:\\$Recycle.Bin\\R_OLD.txt");
-}
-
 TEST(ShellFileOperationZipTests, CompressesFilesIncludingDashAtAndSpacesAndAvoidsCollision)
 {
     ComApartment apartment;

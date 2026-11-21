@@ -136,9 +136,6 @@ namespace FileScoutNative::Shell
             HWND ownerWindow,
             std::span<std::wstring const> parsingNames,
             std::vector<std::wstring>* restoredParsingNamesOut = nullptr) const;
-        [[nodiscard]] uint32_t RestoreRecycleBinItemsByOriginalPaths(
-            HWND ownerWindow,
-            std::span<std::filesystem::path const> originalPaths) const;
         // Returns std::nullopt if SHQueryRecycleBinW fails so callers can distinguish
         // a query error from a confirmed empty Recycle Bin.
         [[nodiscard]] std::optional<uint64_t> QueryRecycleBinItemCount() const noexcept;
