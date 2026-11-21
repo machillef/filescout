@@ -101,6 +101,8 @@ namespace winrt::FileScoutNative::implementation
 
         // Incremented each time LoadDirectory is called; lets background loads detect stale results.
         uint32_t load_generation{ 0 };
+        bool recursive_search_running{ false };
+        uint32_t background_op_progress_count{ 0 };
         PaneLoadTiming last_load_timing{};
         // Set to true while a staged final-batch publish is still pending. Cleared by
         // RebuildAllTabRowsForPane so any mid-load sort/group/view-mode change cancels the append.
@@ -317,6 +319,7 @@ namespace winrt::FileScoutNative::implementation
         std::unordered_set<std::wstring> m_cutItemPaths;
         ::FileScoutNative::Domain::UndoStack m_undoStack{};
         bool m_undoOperationInFlight{ false };
+        uint32_t m_pendingMutationCount{ 0 };
 
         // Active-pane accessors.
         [[nodiscard]] PaneContext& ActivePane() noexcept { return m_panes[m_activePaneIndex]; }
@@ -529,6 +532,7 @@ namespace winrt::FileScoutNative::implementation
 
         // R17d: per-pane search ProgressBar accessor.
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);
+        void UpdatePaneProgressBar(int32_t paneIndex);
 
         // R10: async image preview with a generation counter to cancel stale loads.
         uint32_t m_previewGeneration{ 0 };

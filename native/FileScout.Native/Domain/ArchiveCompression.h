@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -58,11 +59,10 @@ namespace FileScoutNative::Domain
         return result;
     }
 
-    // Chooses a collision-free `.zip` output path in `parentDirectory` for the given selection.
-    [[nodiscard]] inline std::filesystem::path SuggestZipArchivePath(
+    // Computes the base archive name (without `.zip`) for a selection in `parentDirectory`.
+    [[nodiscard]] inline std::wstring BuildZipArchiveBaseName(
         std::filesystem::path const& parentDirectory,
         std::span<std::filesystem::path const> items,
-        std::function<bool(std::filesystem::path const&)> const& existsFn,
         bool const singleItemIsFolder = false)
     {
         std::wstring baseName;
@@ -89,6 +89,18 @@ namespace FileScoutNative::Domain
         {
             baseName = L"Archive";
         }
+        return baseName;
+    }
+
+    // Chooses a collision-free `.zip` output path in `parentDirectory` for the given selection.
+    // Returns `std::nullopt` if the base name and all numbered suffixes (2..9999) are occupied.
+    [[nodiscard]] inline std::optional<std::filesystem::path> SuggestZipArchivePath(
+        std::filesystem::path const& parentDirectory,
+        std::span<std::filesystem::path const> items,
+        std::function<bool(std::filesystem::path const&)> const& existsFn,
+        bool const singleItemIsFolder = false)
+    {
+        auto const baseName = BuildZipArchiveBaseName(parentDirectory, items, singleItemIsFolder);
 
         auto candidate = parentDirectory / (baseName + L".zip");
         if (!existsFn || !existsFn(candidate))
@@ -105,11 +117,13 @@ namespace FileScoutNative::Domain
             }
         }
 
-        return parentDirectory / (baseName + L".zip");
+        return std::nullopt;
     }
 
-    // Builds the `tar.exe -a -c -f <zip> -- <entries...>` command line.
-    // The `--` separator prevents filenames beginning with `-` from being parsed as tar options.
+    // Builds the `tar.exe -a -c -f <zip> -s ,^\.[/\\],, -- ./<entries...>` command line.
+    // Prefixing every relative operand with `./` prevents bsdtar from interpreting names starting
+    // with `@` as archive inclusions or `-C...` as directory-change operands, while `-s` strips
+    // the `./` prefix so ZIP entry names match the original filenames.
     [[nodiscard]] inline std::wstring BuildTarZipCommandLine(
         std::filesystem::path const& tarExePath,
         std::filesystem::path const& outputZipPath,
@@ -118,11 +132,13 @@ namespace FileScoutNative::Domain
         std::wstring cmd = QuoteWindowsCommandArg(tarExePath.wstring());
         cmd += L" -a -c -f ";
         cmd += QuoteWindowsCommandArg(outputZipPath.wstring());
+        cmd += L" -s ";
+        cmd += QuoteWindowsCommandArg(LR"(,^\.[/\\],,)");
         cmd += L" --";
         for (auto const& name : relativeNames)
         {
             cmd.push_back(L' ');
-            cmd += QuoteWindowsCommandArg(name);
+            cmd += QuoteWindowsCommandArg(L"./" + name);
         }
         return cmd;
     }

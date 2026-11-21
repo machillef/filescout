@@ -161,7 +161,7 @@ namespace FileScoutNative::Shell
                 AppendCommand(clipboardGroup.commands, L"paste", L"Paste", L"paste", L"Ctrl+V");
             }
 
-            if (hasSelection)
+            if (hasSelection && !scenario.is_drives_view)
             {
                 AppendCommand(clipboardGroup.commands, L"compressToZip", L"Compress to ZIP", L"archive");
             }

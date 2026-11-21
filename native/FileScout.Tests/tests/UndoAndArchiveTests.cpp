@@ -7,6 +7,7 @@
 #include "Shell/ShellFileOperationService.h"
 
 #include <fstream>
+#include <thread>
 #include <unordered_set>
 
 using namespace FileScoutNative::Domain;
@@ -127,34 +128,38 @@ TEST(ArchiveCompressionTests, SuggestsCollisionSafeZipNamesForFilesFoldersAndMul
     std::vector<std::filesystem::path> singleFile{ L"C:\\Work\\report.pdf" };
     EXPECT_EQ(
         SuggestZipArchivePath(L"C:\\Work", singleFile, existsFn, /*singleItemIsFolder=*/false),
-        std::filesystem::path{ L"C:\\Work\\report (3).zip" });
+        std::optional<std::filesystem::path>{ std::filesystem::path{ L"C:\\Work\\report (3).zip" } });
 
     // Single folder containing a dot keeps full folder name instead of stripping ".2".
     std::vector<std::filesystem::path> dottedFolder{ L"C:\\Work\\release.2" };
     EXPECT_EQ(
         SuggestZipArchivePath(L"C:\\Work", dottedFolder, existsFn, /*singleItemIsFolder=*/true),
-        std::filesystem::path{ L"C:\\Work\\release.2.zip" });
+        std::optional<std::filesystem::path>{ std::filesystem::path{ L"C:\\Work\\release.2.zip" } });
 
     // Multi-select uses parent folder name; drive root falls back to Archive.zip.
     std::vector<std::filesystem::path> multi{ L"C:\\Work\\a.txt", L"C:\\Work\\b.txt" };
     EXPECT_EQ(
         SuggestZipArchivePath(L"C:\\Work", multi, existsFn, false),
-        std::filesystem::path{ L"C:\\Work\\Work.zip" });
+        std::optional<std::filesystem::path>{ std::filesystem::path{ L"C:\\Work\\Work.zip" } });
     EXPECT_EQ(
         SuggestZipArchivePath(L"C:\\", multi, existsFn, false),
-        std::filesystem::path{ L"C:\\Archive.zip" });
+        std::optional<std::filesystem::path>{ std::filesystem::path{ L"C:\\Archive.zip" } });
+
+    // Exhausted candidate range returns std::nullopt instead of an occupied path.
+    auto alwaysExists = [](std::filesystem::path const&) { return true; };
+    EXPECT_FALSE(SuggestZipArchivePath(L"C:\\Work", singleFile, alwaysExists, false).has_value());
 }
 
 TEST(ArchiveCompressionTests, BuildsTarCommandWithOptionSeparatorAndQuoting)
 {
-    std::vector<std::wstring> names{ L"-dash.txt", L"my notes.txt" };
+    std::vector<std::wstring> names{ L"-dash.txt", L"@notes.txt", L"-Cdir.txt", L"my notes.txt" };
     auto const cmd = BuildTarZipCommandLine(
         L"C:\\Windows\\System32\\tar.exe",
         L"C:\\My Docs\\Archive.zip",
         names);
     EXPECT_EQ(
         cmd,
-        L"C:\\Windows\\System32\\tar.exe -a -c -f \"C:\\My Docs\\Archive.zip\" -- -dash.txt \"my notes.txt\"");
+        L"C:\\Windows\\System32\\tar.exe -a -c -f \"C:\\My Docs\\Archive.zip\" -s ,^\\.[/\\\\],, -- ./-dash.txt ./@notes.txt ./-Cdir.txt \"./my notes.txt\"");
 }
 
 TEST(ArchiveCompressionTests, SelectsNewestRecycleBinMatchPerOriginalPathOnce)
@@ -178,7 +183,7 @@ TEST(ArchiveCompressionTests, SelectsNewestRecycleBinMatchPerOriginalPathOnce)
     EXPECT_EQ(matched[1], L"C:\\$Recycle.Bin\\R_OLD.txt");
 }
 
-TEST(ShellFileOperationZipTests, CompressesFilesIncludingDashAndSpacesAndAvoidsCollision)
+TEST(ShellFileOperationZipTests, CompressesFilesIncludingDashAtAndSpacesAndAvoidsCollision)
 {
     ComApartment apartment;
     ScopedTempDir temp{ L"zip" };
@@ -187,12 +192,18 @@ TEST(ShellFileOperationZipTests, CompressesFilesIncludingDashAndSpacesAndAvoidsC
         f1 << "dash content";
         std::ofstream f2(temp.path / L"my file.txt");
         f2 << "spaced content";
+        std::ofstream f3(temp.path / L"@notes.txt");
+        f3 << "at-prefix content";
+        std::ofstream f4(temp.path / L"-Cdir.txt");
+        f4 << "dash-C content";
     }
 
     ShellFileOperationService service;
     std::vector<std::filesystem::path> sources{
         temp.path / L"-leading-dash.txt",
         temp.path / L"my file.txt",
+        temp.path / L"@notes.txt",
+        temp.path / L"-Cdir.txt",
     };
 
     auto const zip1 = service.CompressItemsToZip(nullptr, temp.path, sources);
@@ -205,28 +216,74 @@ TEST(ShellFileOperationZipTests, CompressesFilesIncludingDashAndSpacesAndAvoidsC
     EXPECT_GT(std::filesystem::file_size(zip2), 0u);
 }
 
+TEST(ShellFileOperationIdentityTests, DetectsReplacementAtSamePath)
+{
+    ScopedTempDir temp{ L"identity" };
+    auto const target = temp.path / L"draft.txt";
+    {
+        std::ofstream out(target);
+        out << "original";
+    }
+    auto const id1 = TryCaptureFileIdentity(target);
+    ASSERT_TRUE(id1.has_value());
+    EXPECT_EQ(TryCaptureFileIdentity(target), id1);
+
+    // Move original away and create a new file at the same path; identity must differ.
+    std::filesystem::rename(target, temp.path / L"moved.txt");
+    {
+        std::ofstream out(target);
+        out << "replacement";
+    }
+    auto const id2 = TryCaptureFileIdentity(target);
+    ASSERT_TRUE(id2.has_value());
+    EXPECT_NE(*id1, *id2);
+}
+
 TEST(ShellFileOperationTransferTests, CopyAndMoveRecordTransferredPairsForUndo)
 {
-    ComApartment apartment;
-    ScopedTempDir srcDir{ L"transfer-src" };
-    ScopedTempDir dstDir{ L"transfer-dst" };
-    auto const fileA = srcDir.path / L"alpha.txt";
+    // Run on a dedicated STA thread matching ShellStaWorker so IFileOperation::MoveItem
+    // executes in an STA without cross-apartment progress-sink marshaling.
+    std::exception_ptr threadError;
+    std::thread staThread([&]()
+        {
+            HRESULT const hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            bool const uninit = SUCCEEDED(hr);
+            try
+            {
+                ScopedTempDir srcDir{ L"transfer-src" };
+                ScopedTempDir dstDir{ L"transfer-dst" };
+                auto const fileA = srcDir.path / L"alpha.txt";
+                {
+                    std::ofstream out(fileA);
+                    out << "undo payload";
+                }
+
+                ShellFileOperationService service;
+                std::vector<std::filesystem::path> sources{ fileA };
+                std::vector<TransferredItemPair> copiedPairs;
+                service.CopyItemsFromPaths(nullptr, sources, dstDir.path, /*move=*/false, &copiedPairs);
+                ASSERT_EQ(copiedPairs.size(), 1u);
+                EXPECT_EQ(copiedPairs[0].source, fileA);
+                EXPECT_EQ(copiedPairs[0].destination, dstDir.path / L"alpha.txt");
+                EXPECT_TRUE(std::filesystem::exists(copiedPairs[0].destination));
+
+                // Move copied item back under a new name via MoveItemFromPath.
+                service.MoveItemFromPath(nullptr, copiedPairs[0].destination, srcDir.path, L"alpha_moved.txt");
+                EXPECT_FALSE(std::filesystem::exists(copiedPairs[0].destination));
+                EXPECT_TRUE(std::filesystem::exists(srcDir.path / L"alpha_moved.txt"));
+            }
+            catch (...)
+            {
+                threadError = std::current_exception();
+            }
+            if (uninit)
+            {
+                ::CoUninitialize();
+            }
+        });
+    staThread.join();
+    if (threadError)
     {
-        std::ofstream out(fileA);
-        out << "undo payload";
+        std::rethrow_exception(threadError);
     }
-
-    ShellFileOperationService service;
-    std::vector<std::filesystem::path> sources{ fileA };
-    std::vector<TransferredItemPair> copiedPairs;
-    service.CopyItemsFromPaths(nullptr, sources, dstDir.path, /*move=*/false, &copiedPairs);
-    ASSERT_EQ(copiedPairs.size(), 1u);
-    EXPECT_EQ(copiedPairs[0].source, fileA);
-    EXPECT_EQ(copiedPairs[0].destination, dstDir.path / L"alpha.txt");
-    EXPECT_TRUE(std::filesystem::exists(copiedPairs[0].destination));
-
-    // Move copied item back under a new name via MoveItemFromPath.
-    service.MoveItemFromPath(nullptr, copiedPairs[0].destination, srcDir.path, L"alpha_moved.txt");
-    EXPECT_FALSE(std::filesystem::exists(copiedPairs[0].destination));
-    EXPECT_TRUE(std::filesystem::exists(srcDir.path / L"alpha_moved.txt"));
 }

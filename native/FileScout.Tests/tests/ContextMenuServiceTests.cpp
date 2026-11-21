@@ -249,6 +249,17 @@ TEST(ContextMenuServiceTest, ArchiveView_FileSelected_HasOpenAndExtract)
     EXPECT_TRUE(HasGroupCommand(model, L"extractReveal"));
 }
 
+TEST(ContextMenuServiceTest, DrivesView_HidesCompressToZip)
+{
+    ContextMenuService svc;
+    ContextMenuScenario scenario{ MakeFile() };
+    scenario.is_drives_view = true;
+
+    auto model = svc.BuildMenu(scenario);
+
+    EXPECT_FALSE(HasGroupCommand(model, L"compressToZip"));
+}
+
 // ---------------------------------------------------------------------------
 // MakeCommand factory produces correct field values
 // ---------------------------------------------------------------------------

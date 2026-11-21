@@ -92,7 +92,10 @@ namespace FileScoutNative::Shell
         {
             HRESULT first_failure = S_OK;
             std::wstring failed_path;
+            bool record_transfers = false;
+            bool record_deletions = false;
             std::vector<TransferredItemPair> transferred_items;
+            std::vector<DeletedItemRecord> deleted_items;
 
             static std::optional<std::filesystem::path> TryGetFileSystemPath(IShellItem* const item)
             {
@@ -110,9 +113,25 @@ namespace FileScoutNative::Shell
                 return std::nullopt;
             }
 
+            static std::optional<std::wstring> TryGetParsingName(IShellItem* const item)
+            {
+                if (item == nullptr)
+                {
+                    return std::nullopt;
+                }
+                PWSTR text{};
+                if (SUCCEEDED(item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &text)) && text != nullptr)
+                {
+                    std::wstring parsingName{ text };
+                    ::CoTaskMemFree(text);
+                    return parsingName;
+                }
+                return std::nullopt;
+            }
+
             void RecordTransfer(HRESULT const result, IShellItem* const source, IShellItem* const newlyCreated)
             {
-                if (FAILED(result))
+                if (!record_transfers || FAILED(result))
                 {
                     return;
                 }
@@ -125,6 +144,24 @@ namespace FileScoutNative::Shell
                         .destination = std::move(*dstPath),
                     });
                 }
+            }
+
+            void RecordDeletion(HRESULT const result, IShellItem* const source, IShellItem* const newlyCreated)
+            {
+                if (!record_deletions || FAILED(result))
+                {
+                    return;
+                }
+                auto srcPath = TryGetFileSystemPath(source);
+                if (!srcPath.has_value())
+                {
+                    return;
+                }
+                auto binParsingName = TryGetParsingName(newlyCreated);
+                deleted_items.push_back(DeletedItemRecord{
+                    .original_path = std::move(*srcPath),
+                    .recycle_bin_parsing_name = binParsingName.value_or(std::wstring{}),
+                });
             }
 
             void Record(HRESULT const result, IShellItem* const item, IShellItem* const fallback = nullptr)
@@ -170,9 +207,10 @@ namespace FileScoutNative::Shell
                 return S_OK;
             }
             HRESULT __stdcall PreDeleteItem(DWORD, IShellItem*) noexcept override { return S_OK; }
-            HRESULT __stdcall PostDeleteItem(DWORD, IShellItem* item, HRESULT result, IShellItem*) noexcept override
+            HRESULT __stdcall PostDeleteItem(DWORD, IShellItem* item, HRESULT result, IShellItem* newlyCreated) noexcept override
             {
                 Record(result, item);
+                RecordDeletion(result, item, newlyCreated);
                 return S_OK;
             }
             HRESULT __stdcall PreNewItem(DWORD, IShellItem*, LPCWSTR) noexcept override { return S_OK; }
@@ -598,10 +636,49 @@ namespace FileScoutNative::Shell
         }
     }
 
+    std::optional<FileScoutNative::Domain::FileIdentity> TryCaptureFileIdentity(
+        std::filesystem::path const& path) noexcept
+    {
+        if (path.empty())
+        {
+            return std::nullopt;
+        }
+        auto const wide = path.wstring();
+        HANDLE const handle = ::CreateFileW(
+            wide.c_str(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+        {
+            return std::nullopt;
+        }
+
+        BY_HANDLE_FILE_INFORMATION info{};
+        BOOL const ok = ::GetFileInformationByHandle(handle, &info);
+        ::CloseHandle(handle);
+        if (!ok)
+        {
+            return std::nullopt;
+        }
+
+        return FileScoutNative::Domain::FileIdentity{
+            .volume_serial_number = static_cast<uint32_t>(info.dwVolumeSerialNumber),
+            .file_index_high = static_cast<uint32_t>(info.nFileIndexHigh),
+            .file_index_low = static_cast<uint32_t>(info.nFileIndexLow),
+            .creation_time_high = static_cast<uint32_t>(info.ftCreationTime.dwHighDateTime),
+            .creation_time_low = static_cast<uint32_t>(info.ftCreationTime.dwLowDateTime),
+        };
+    }
+
     void ShellFileOperationService::DeleteItems(
         HWND const ownerWindow,
         std::span<std::filesystem::path const> const paths,
-        bool const permanent) const
+        bool const permanent,
+        std::vector<DeletedItemRecord>* const deletedOut) const
     {
         if (paths.empty())
         {
@@ -618,7 +695,12 @@ namespace FileScoutNative::Shell
                 winrt::check_hresult(fileOperation->DeleteItem(item.get(), nullptr));
             }
 
-            PerformFileOperation(fileOperation.get(), action, paths.front().wstring());
+            PerformFileOperation(
+                fileOperation.get(),
+                action,
+                paths.front().wstring(),
+                nullptr,
+                deletedOut);
         }
         catch (FileOperationException const&)
         {
@@ -803,8 +885,13 @@ namespace FileScoutNative::Shell
 
     uint32_t ShellFileOperationService::RestoreRecycleBinItems(
         HWND const ownerWindow,
-        std::span<std::wstring const> const parsingNames) const
+        std::span<std::wstring const> const parsingNames,
+        std::vector<std::wstring>* const restoredParsingNamesOut) const
     {
+        if (restoredParsingNamesOut != nullptr)
+        {
+            restoredParsingNamesOut->clear();
+        }
         if (parsingNames.empty())
         {
             return 0;
@@ -869,19 +956,21 @@ namespace FileScoutNative::Shell
             }
 
             ScopedChildPidls matchedChildren;
+            std::vector<std::wstring> matchedParsingNames;
             while (enumerator)
             {
                 PITEMID_CHILD child = nullptr;
                 ULONG fetched = 0;
                 HRESULT const nextHr = enumerator->Next(1, &child, &fetched);
+                winrt::check_hresult(nextHr);
                 if (nextHr == S_FALSE || fetched == 0 || child == nullptr)
                 {
                     break;
                 }
-                winrt::check_hresult(nextHr);
 
                 ScopedPidl fullPidl{ ::ILCombine(binPidl.pidl, child) };
                 bool keep = false;
+                std::wstring matchedName;
                 if (fullPidl.pidl != nullptr)
                 {
                     winrt::com_ptr<IShellItem> shellItem;
@@ -892,7 +981,11 @@ namespace FileScoutNative::Shell
                         if (SUCCEEDED(shellItem->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &parsingText)) &&
                             parsingText != nullptr)
                         {
-                            keep = matchesTarget(parsingText);
+                            if (matchesTarget(parsingText))
+                            {
+                                keep = true;
+                                matchedName = parsingText;
+                            }
                             ::CoTaskMemFree(parsingText);
                         }
                     }
@@ -901,6 +994,7 @@ namespace FileScoutNative::Shell
                 if (keep)
                 {
                     matchedChildren.items.push_back(child);
+                    matchedParsingNames.push_back(std::move(matchedName));
                 }
                 else
                 {
@@ -952,6 +1046,10 @@ namespace FileScoutNative::Shell
             winrt::check_hresult(contextMenu->InvokeCommand(
                 reinterpret_cast<LPCMINVOKECOMMANDINFO>(&invoke)));
 
+            if (restoredParsingNamesOut != nullptr)
+            {
+                *restoredParsingNamesOut = std::move(matchedParsingNames);
+            }
             return static_cast<uint32_t>(rawChildren.size());
         }
         catch (FileOperationException const&)
@@ -1004,17 +1102,24 @@ namespace FileScoutNative::Shell
                 __uuidof(IEnumShellItems),
                 enumerator.put_void()));
 
+            // System.FileName ({41CF5AE0-F75A-4806-BD87-59C7D9248EB9}, 100) holds the exact
+            // filename including extension even when Explorer hides known file extensions.
+            static constexpr PROPERTYKEY kPkeySystemFileName{
+                { 0x41CF5AE0, 0xF75A, 0x4806, { 0xBD, 0x87, 0x59, 0xC7, 0xD9, 0x24, 0x8E, 0xB9 } },
+                100
+            };
+
             std::vector<FileScoutNative::Domain::RecycleBinCandidate> candidates;
             while (true)
             {
                 winrt::com_ptr<IShellItem> child;
                 ULONG fetched = 0;
                 HRESULT const nextHr = enumerator->Next(1, child.put(), &fetched);
+                winrt::check_hresult(nextHr);
                 if (nextHr == S_FALSE || fetched == 0 || !child)
                 {
                     break;
                 }
-                winrt::check_hresult(nextHr);
 
                 std::wstring parsingName;
                 PWSTR text = nullptr;
@@ -1024,18 +1129,19 @@ namespace FileScoutNative::Shell
                     ::CoTaskMemFree(text);
                 }
 
-                std::wstring displayName;
-                if (SUCCEEDED(child->GetDisplayName(SIGDN_NORMALDISPLAY, &text)) && text != nullptr)
-                {
-                    displayName = text;
-                    ::CoTaskMemFree(text);
-                }
-
+                std::wstring exactFileName;
                 std::wstring deletedFrom;
                 uint64_t deletedTime = 0;
                 winrt::com_ptr<IShellItem2> child2;
                 if (SUCCEEDED(child->QueryInterface(__uuidof(IShellItem2), child2.put_void())))
                 {
+                    PWSTR fileNameText = nullptr;
+                    if (SUCCEEDED(child2->GetString(kPkeySystemFileName, &fileNameText)) && fileNameText != nullptr)
+                    {
+                        exactFileName = fileNameText;
+                        ::CoTaskMemFree(fileNameText);
+                    }
+
                     PWSTR dirText = nullptr;
                     if (SUCCEEDED(child2->GetString(kPkeyRecycleDeletedFrom, &dirText)) && dirText != nullptr)
                     {
@@ -1051,7 +1157,15 @@ namespace FileScoutNative::Shell
                     }
                 }
 
-                auto origPath = FileScoutNative::Domain::BuildRecycleBinOriginalPath(deletedFrom, displayName);
+                if (exactFileName.empty() &&
+                    SUCCEEDED(child->GetDisplayName(SIGDN_PARENTRELATIVEEDITING, &text)) &&
+                    text != nullptr)
+                {
+                    exactFileName = text;
+                    ::CoTaskMemFree(text);
+                }
+
+                auto origPath = FileScoutNative::Domain::BuildRecycleBinOriginalPath(deletedFrom, exactFileName);
                 if (!parsingName.empty() && !origPath.empty())
                 {
                     candidates.push_back(FileScoutNative::Domain::RecycleBinCandidate{
@@ -1088,15 +1202,15 @@ namespace FileScoutNative::Shell
         }
     }
 
-    uint64_t ShellFileOperationService::QueryRecycleBinItemCount() const noexcept
+    std::optional<uint64_t> ShellFileOperationService::QueryRecycleBinItemCount() const noexcept
     {
         SHQUERYRBINFO info{};
         info.cbSize = sizeof(info);
-        if (SUCCEEDED(::SHQueryRecycleBinW(nullptr, &info)) && info.i64NumItems > 0)
+        if (FAILED(::SHQueryRecycleBinW(nullptr, &info)))
         {
-            return static_cast<uint64_t>(info.i64NumItems);
+            return std::nullopt;
         }
-        return 0;
+        return info.i64NumItems > 0 ? static_cast<uint64_t>(info.i64NumItems) : 0ULL;
     }
 
     bool ShellFileOperationService::EmptyRecycleBin(HWND const ownerWindow) const
@@ -1164,7 +1278,9 @@ namespace FileScoutNative::Shell
         bool const singleItemIsFolder =
             sourcePaths.size() == 1 && std::filesystem::is_directory(sourcePaths.front(), dirEc);
 
-        auto const outputZipPath = FileScoutNative::Domain::SuggestZipArchivePath(
+        auto const baseName = FileScoutNative::Domain::BuildZipArchiveBaseName(
+            parentDirectory, sourcePaths, singleItemIsFolder);
+        auto const initialCandidate = FileScoutNative::Domain::SuggestZipArchivePath(
             parentDirectory,
             sourcePaths,
             [](std::filesystem::path const& candidate)
@@ -1173,6 +1289,14 @@ namespace FileScoutNative::Shell
                 return std::filesystem::exists(candidate, ec);
             },
             singleItemIsFolder);
+        if (!initialCandidate.has_value())
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Compress to ZIP",
+                .path = (parentDirectory / (baseName + L".zip")).wstring(),
+                .detail = L"Could not allocate a unique ZIP archive name in this folder.",
+            });
+        }
 
         std::wstring sysDir(MAX_PATH, L'\0');
         UINT const sysLen = ::GetSystemDirectoryW(sysDir.data(), static_cast<UINT>(sysDir.size()));
@@ -1180,7 +1304,7 @@ namespace FileScoutNative::Shell
         {
             ThrowFileOperationFailure(FileOperationError{
                 .action = L"Compress to ZIP",
-                .path = outputZipPath.wstring(),
+                .path = initialCandidate->wstring(),
                 .detail = L"Could not locate Windows System32 directory.",
             });
         }
@@ -1191,7 +1315,7 @@ namespace FileScoutNative::Shell
             {
                 ThrowFileOperationFailure(FileOperationError{
                     .action = L"Compress to ZIP",
-                    .path = outputZipPath.wstring(),
+                    .path = initialCandidate->wstring(),
                     .detail = L"Could not locate Windows System32 directory.",
                 });
             }
@@ -1204,18 +1328,76 @@ namespace FileScoutNative::Shell
         {
             ThrowFileOperationFailure(FileOperationError{
                 .action = L"Compress to ZIP",
-                .path = outputZipPath.wstring(),
+                .path = initialCandidate->wstring(),
                 .detail = L"Built-in tar.exe was not found in System32.",
             });
         }
 
+        // Exclusively allocate a temporary `.zip` file in the output directory so tar never
+        // truncates another writer's file and failures only clean up the file we own.
+        std::filesystem::path tempZipPath;
+        DWORD const pid = ::GetCurrentProcessId();
+        uint64_t const tick = ::GetTickCount64();
+        for (uint32_t attempt = 0; attempt < 256; ++attempt)
+        {
+            auto candidateTemp = parentDirectory /
+                (L".filescout-zip-" + std::to_wstring(pid) + L"-" +
+                 std::to_wstring(tick) + L"-" + std::to_wstring(attempt) + L".zip");
+            HANDLE const h = ::CreateFileW(
+                candidateTemp.c_str(),
+                GENERIC_WRITE,
+                0,
+                nullptr,
+                CREATE_NEW,
+                FILE_ATTRIBUTE_TEMPORARY | FILE_ATTRIBUTE_HIDDEN,
+                nullptr);
+            if (h != INVALID_HANDLE_VALUE)
+            {
+                ::CloseHandle(h);
+                tempZipPath = std::move(candidateTemp);
+                break;
+            }
+            if (::GetLastError() != ERROR_FILE_EXISTS)
+            {
+                DWORD const err = ::GetLastError();
+                ThrowFileOperationFailure(FileOperationError{
+                    .action = L"Compress to ZIP",
+                    .path = initialCandidate->wstring(),
+                    .detail = BuildHResultDetail(winrt::hresult_error{ HRESULT_FROM_WIN32(err) }),
+                });
+            }
+        }
+        if (tempZipPath.empty())
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Compress to ZIP",
+                .path = initialCandidate->wstring(),
+                .detail = L"Could not create a temporary archive file.",
+            });
+        }
+
+        struct TempFileCleanup
+        {
+            std::filesystem::path path;
+            bool committed{ false };
+            ~TempFileCleanup()
+            {
+                if (!committed && !path.empty())
+                {
+                    std::error_code ec;
+                    std::filesystem::remove(path, ec);
+                }
+            }
+        };
+        TempFileCleanup tempCleanup{ tempZipPath };
+
         auto cmdLine = FileScoutNative::Domain::BuildTarZipCommandLine(
-            tarExePath, outputZipPath, relativeNames);
+            tarExePath, tempZipPath, relativeNames);
         if (cmdLine.size() >= 32700)
         {
             ThrowFileOperationFailure(FileOperationError{
                 .action = L"Compress to ZIP",
-                .path = outputZipPath.wstring(),
+                .path = initialCandidate->wstring(),
                 .detail = L"Too many items selected to compress in a single command.",
             });
         }
@@ -1243,7 +1425,7 @@ namespace FileScoutNative::Shell
             DWORD const err = ::GetLastError();
             ThrowFileOperationFailure(FileOperationError{
                 .action = L"Compress to ZIP",
-                .path = outputZipPath.wstring(),
+                .path = initialCandidate->wstring(),
                 .detail = BuildHResultDetail(winrt::hresult_error{ HRESULT_FROM_WIN32(err) }),
             });
         }
@@ -1262,16 +1444,53 @@ namespace FileScoutNative::Shell
 
         if (exitCode != 0)
         {
-            std::error_code rmEc;
-            std::filesystem::remove(outputZipPath, rmEc);
             ThrowFileOperationFailure(FileOperationError{
                 .action = L"Compress to ZIP",
-                .path = outputZipPath.wstring(),
+                .path = initialCandidate->wstring(),
                 .detail = L"tar.exe exited with code " + std::to_wstring(exitCode) + L".",
             });
         }
 
-        return outputZipPath;
+        // Clear the temporary/hidden attributes before publishing.
+        ::SetFileAttributesW(tempZipPath.c_str(), FILE_ATTRIBUTE_NORMAL);
+
+        // Publish via MoveFileW (never replaces an existing destination), advancing the suffix
+        // if another writer raced us for the same archive name.
+        auto tryPublish = [&](std::filesystem::path const& target) -> std::optional<DWORD>
+        {
+            if (::MoveFileW(tempZipPath.c_str(), target.c_str()))
+            {
+                tempCleanup.committed = true;
+                return std::nullopt;
+            }
+            return ::GetLastError();
+        };
+
+        for (int suffix = 1; suffix < 10000; ++suffix)
+        {
+            auto const target = suffix == 1
+                ? (parentDirectory / (baseName + L".zip"))
+                : (parentDirectory / (baseName + L" (" + std::to_wstring(suffix) + L").zip"));
+            auto const err = tryPublish(target);
+            if (!err.has_value())
+            {
+                return target;
+            }
+            if (*err != ERROR_ALREADY_EXISTS && *err != ERROR_FILE_EXISTS)
+            {
+                ThrowFileOperationFailure(FileOperationError{
+                    .action = L"Compress to ZIP",
+                    .path = target.wstring(),
+                    .detail = BuildHResultDetail(winrt::hresult_error{ HRESULT_FROM_WIN32(*err) }),
+                });
+            }
+        }
+
+        ThrowFileOperationFailure(FileOperationError{
+            .action = L"Compress to ZIP",
+            .path = (parentDirectory / (baseName + L".zip")).wstring(),
+            .detail = L"Could not publish the ZIP archive because all candidate names are already in use.",
+        });
     }
 
     winrt::com_ptr<IShellItem> ShellFileOperationService::CreateShellItem(
@@ -1301,9 +1520,12 @@ namespace FileScoutNative::Shell
         IFileOperation* const fileOperation,
         std::wstring_view const action,
         std::wstring const& path,
-        std::vector<TransferredItemPair>* const transferredOut) const
+        std::vector<TransferredItemPair>* const transferredOut,
+        std::vector<DeletedItemRecord>* const deletedOut) const
     {
         auto const sink = winrt::make_self<ItemFailureSink>();
+        sink->record_transfers = (transferredOut != nullptr);
+        sink->record_deletions = (deletedOut != nullptr);
         DWORD cookie = 0;
         // Without the sink, refused items would be reported as success or "canceled"; do not run.
         winrt::check_hresult(fileOperation->Advise(sink.get(), &cookie));
@@ -1314,6 +1536,17 @@ namespace FileScoutNative::Shell
         if (advised)
         {
             fileOperation->Unadvise(cookie);
+        }
+
+        // Always surface items that actually completed before throwing on any partial failure,
+        // so callers can record history and refresh folders for completed items.
+        if (transferredOut != nullptr)
+        {
+            *transferredOut = std::move(sink->transferred_items);
+        }
+        if (deletedOut != nullptr)
+        {
+            *deletedOut = std::move(sink->deleted_items);
         }
 
         BOOL operationsAborted = FALSE;
@@ -1343,10 +1576,5 @@ namespace FileScoutNative::Shell
         // A success code from PerformOperations does not prove everything completed; if the abort
         // status itself cannot be read, the outcome is unknown, so report it instead of success.
         winrt::check_hresult(abortQueryResult);
-
-        if (transferredOut != nullptr)
-        {
-            *transferredOut = std::move(sink->transferred_items);
-        }
     }
 }

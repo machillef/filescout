@@ -1,5 +1,7 @@
 #pragma once
 
+#include "..\Domain\UndoStack.h"
+
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -64,6 +66,17 @@ namespace FileScoutNative::Shell
         std::filesystem::path destination;
     };
 
+    struct DeletedItemRecord
+    {
+        std::filesystem::path original_path;
+        std::wstring recycle_bin_parsing_name;
+    };
+
+    // Captures a best-effort filesystem identity (volume serial, file index, creation time)
+    // for an existing file or directory so Undo can verify the path still refers to the same item.
+    [[nodiscard]] std::optional<FileScoutNative::Domain::FileIdentity> TryCaptureFileIdentity(
+        std::filesystem::path const& path) noexcept;
+
     class ShellFileOperationService
     {
     public:
@@ -93,7 +106,8 @@ namespace FileScoutNative::Shell
         void DeleteItems(
             HWND ownerWindow,
             std::span<std::filesystem::path const> paths,
-            bool permanent = false) const;
+            bool permanent = false,
+            std::vector<DeletedItemRecord>* deletedOut = nullptr) const;
         void PasteItems(
             HWND ownerWindow,
             IUnknown* items,
@@ -118,11 +132,14 @@ namespace FileScoutNative::Shell
             std::wstring const& newName = {}) const;
         [[nodiscard]] uint32_t RestoreRecycleBinItems(
             HWND ownerWindow,
-            std::span<std::wstring const> parsingNames) const;
+            std::span<std::wstring const> parsingNames,
+            std::vector<std::wstring>* restoredParsingNamesOut = nullptr) const;
         [[nodiscard]] uint32_t RestoreRecycleBinItemsByOriginalPaths(
             HWND ownerWindow,
             std::span<std::filesystem::path const> originalPaths) const;
-        [[nodiscard]] uint64_t QueryRecycleBinItemCount() const noexcept;
+        // Returns std::nullopt if SHQueryRecycleBinW fails so callers can distinguish
+        // a query error from a confirmed empty Recycle Bin.
+        [[nodiscard]] std::optional<uint64_t> QueryRecycleBinItemCount() const noexcept;
         // Returns true if the Recycle Bin was emptied, false if it was already empty.
         [[nodiscard]] bool EmptyRecycleBin(HWND ownerWindow) const;
         [[nodiscard]] std::filesystem::path CompressItemsToZip(
@@ -146,6 +163,7 @@ namespace FileScoutNative::Shell
             IFileOperation* fileOperation,
             std::wstring_view action,
             std::wstring const& path,
-            std::vector<TransferredItemPair>* transferredOut = nullptr) const;
+            std::vector<TransferredItemPair>* transferredOut = nullptr,
+            std::vector<DeletedItemRecord>* deletedOut = nullptr) const;
     };
 }

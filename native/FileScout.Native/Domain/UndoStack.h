@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -27,10 +28,27 @@ namespace FileScoutNative::Domain
         DeleteToRecycleBin,
     };
 
+    struct FileIdentity
+    {
+        uint32_t volume_serial_number{ 0 };
+        uint32_t file_index_high{ 0 };
+        uint32_t file_index_low{ 0 };
+        uint32_t creation_time_high{ 0 };
+        uint32_t creation_time_low{ 0 };
+
+        [[nodiscard]] bool operator==(FileIdentity const&) const noexcept = default;
+    };
+
     struct UndoPathPair
     {
         std::filesystem::path source;
         std::filesystem::path target;
+        // For DeleteToRecycleBin: exact Recycle Bin parsing name (SIGDN_DESKTOPABSOLUTEPARSING)
+        // captured from PostDeleteItem so Undo restores only the exact deleted item.
+        std::wstring recycle_bin_parsing_name;
+        // For CreateFolder / CreateFile / Copy: filesystem identity captured on creation so Undo
+        // refuses to recycle a different item that later replaced the path.
+        std::optional<FileIdentity> target_identity;
     };
 
     struct UndoEntry
