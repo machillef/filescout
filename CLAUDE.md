@@ -37,3 +37,8 @@ filescout/
 - Shell layer: C++/WinRT wrappers around `IShellItem`, `IFileOperation`, `IContextMenu`
 - Domain: pure C++ structs (`ShellItemRef`, `TabState`, `PaneContext`) — no WinRT dependencies
 - Per-pane state: `std::array<PaneContext, 2>` in `MainWindow`; all operations route through `ActivePane()`
+
+## Code Review
+
+Every PR gets a CodeRabbit review of its head commit before merge; Greptile only on request.
+Commands and rules: `docs/agents/code-review.md`.
