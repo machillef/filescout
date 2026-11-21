@@ -3660,7 +3660,7 @@ namespace winrt::FileScoutNative::implementation
         {
             for (auto const& item : pane.items)
             {
-                if (item.id == *focusedId)
+                if (item.parsing_name == *focusedId)
                 {
                     selectAfter = item.path;
                     break;
