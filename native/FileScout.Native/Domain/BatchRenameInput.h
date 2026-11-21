@@ -7,9 +7,7 @@
 
 namespace FileScoutNative::Domain
 {
-    // Parses a batch-rename number box (start number, zero padding): ASCII digits only after
-    // trimming blanks, no sign, value 1..UINT32_MAX. wcstoul is not used because it accepts a
-    // leading '+' and wraps "-1" to 4294967295.
+    // Not wcstoul: it accepts a leading '+' and wraps "-1" to 4294967295.
     inline std::optional<uint32_t> ParseBatchRenamePositiveInteger(std::wstring_view value) noexcept
     {
         constexpr std::wstring_view blanks = L" \t\r\n";

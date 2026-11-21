@@ -7,13 +7,12 @@
 
 using namespace FileScoutNative::Domain;
 
-// UB-04: F2 renamed the selected file while the user typed in the search box.
 TEST(KeyboardShortcuts, FileCommands_YieldToFocusedTextInput)
 {
     for (auto const* id : { L"rename", L"delete", L"permanentDelete", L"navigateUpBackspace", L"copyPath", L"selectAll", L"copy", L"cut", L"paste", L"properties" })
     {
-        EXPECT_TRUE(ShouldTextInputOwnShortcut(id, /*focusInEditableControl=*/true)) << id;
-        EXPECT_FALSE(ShouldTextInputOwnShortcut(id, /*focusInEditableControl=*/false)) << id;
+        EXPECT_TRUE(ShouldTextInputOwnShortcut(id, true)) << id;
+        EXPECT_FALSE(ShouldTextInputOwnShortcut(id, false)) << id;
     }
 }
 
@@ -21,7 +20,7 @@ TEST(KeyboardShortcuts, WindowCommands_StillWorkFromTextInput)
 {
     for (auto const* id : { L"refresh", L"back", L"forward", L"navigateUp", L"newTab", L"reopenClosedTab", L"closeTab", L"nextTab", L"prevTab", L"toggleHiddenFiles", L"switchPane", L"newFolder" })
     {
-        EXPECT_FALSE(ShouldTextInputOwnShortcut(id, /*focusInEditableControl=*/true)) << id;
+        EXPECT_FALSE(ShouldTextInputOwnShortcut(id, true)) << id;
     }
 }
 
@@ -66,7 +65,6 @@ TEST(KeyboardShortcuts, ExplorerNavigationAndTabShortcutsAreBound)
     EXPECT_EQ(toggleHidden->command_id, L"toggleHiddenFiles");
 }
 
-// UB-05: Ctrl+A was bound twice (accelerator and the list's PreviewKeyDown).
 TEST(KeyboardShortcuts, EveryChordIsBoundOnce)
 {
     std::set<std::pair<std::uint32_t, ShortcutModifiers>> seen;
@@ -82,8 +80,8 @@ TEST(KeyboardShortcuts, EveryChordIsBoundOnce)
 
 TEST(KeyboardShortcuts, ListKeyHandler_LeavesCtrlAToTheAccelerator)
 {
-    EXPECT_EQ(ResolveListKeyAction('A', /*hasModifierChord=*/true), ListKeyAction::None);
-    EXPECT_EQ(ResolveListKeyAction(VK_RETURN, /*hasModifierChord=*/false), ListKeyAction::ActivateSelection);
-    EXPECT_EQ(ResolveListKeyAction(VK_RETURN, /*hasModifierChord=*/true), ListKeyAction::None);
-    EXPECT_EQ(ResolveListKeyAction('A', /*hasModifierChord=*/false), ListKeyAction::TypeAhead);
+    EXPECT_EQ(ResolveListKeyAction('A', true), ListKeyAction::None);
+    EXPECT_EQ(ResolveListKeyAction(VK_RETURN, false), ListKeyAction::ActivateSelection);
+    EXPECT_EQ(ResolveListKeyAction(VK_RETURN, true), ListKeyAction::None);
+    EXPECT_EQ(ResolveListKeyAction('A', false), ListKeyAction::TypeAhead);
 }

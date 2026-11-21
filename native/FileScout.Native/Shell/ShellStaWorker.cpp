@@ -59,7 +59,6 @@ namespace FileScoutNative::Shell
                 }
                 catch (...)
                 {
-                    // A failed operation reports through its own continuation; the worker lives on.
                 }
             }
             {

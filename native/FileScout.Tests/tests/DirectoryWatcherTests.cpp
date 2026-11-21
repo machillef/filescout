@@ -86,18 +86,15 @@ TEST(WatchDebounceTests, ShouldWatchLocationRejectsVirtualAndEmptyLocations)
 
 TEST(WatchDebounceTests, SnapshotCoverageAndInactivePaneSelectionRestoreRules)
 {
-    // Events strictly before enumeration started are already covered by that snapshot.
     EXPECT_TRUE(IsWatchEventCoveredBySnapshot(1000, 1050));
     EXPECT_FALSE(IsWatchEventCoveredBySnapshot(1050, 1050));
     EXPECT_FALSE(IsWatchEventCoveredBySnapshot(1100, 1050));
     EXPECT_FALSE(IsWatchEventCoveredBySnapshot(0, 1050));
     EXPECT_FALSE(IsWatchEventCoveredBySnapshot(1000, 0));
 
-    // Active pane always restores selection; inactive right pane (1) restores when background
-    // watch refresh requests selection preservation while left pane (0) stays active.
-    EXPECT_TRUE(ShouldRestoreSelectionInLoadedPane(/*loadedPaneIndex=*/0, /*activePaneIndex=*/0, false));
-    EXPECT_FALSE(ShouldRestoreSelectionInLoadedPane(/*loadedPaneIndex=*/1, /*activePaneIndex=*/0, false));
-    EXPECT_TRUE(ShouldRestoreSelectionInLoadedPane(/*loadedPaneIndex=*/1, /*activePaneIndex=*/0, true));
+    EXPECT_TRUE(ShouldRestoreSelectionInLoadedPane(0, 0, false));
+    EXPECT_FALSE(ShouldRestoreSelectionInLoadedPane(1, 0, false));
+    EXPECT_TRUE(ShouldRestoreSelectionInLoadedPane(1, 0, true));
 }
 
 TEST(WatchDebounceTests, CoalescesBurstsAndFlushesAfterQuietPeriod)
@@ -112,7 +109,6 @@ TEST(WatchDebounceTests, CoalescesBurstsAndFlushesAfterQuietPeriod)
     EXPECT_FALSE(coord.ShouldFlush(1100, 300, 1500));
     EXPECT_EQ(coord.RemainingWaitMs(1100, 300, 1500), 200u);
 
-    // Another event arrives at 1200 -> quiet window slides to 1500.
     coord.NoteChange(1200);
     EXPECT_EQ(coord.LastEventTickMs(), 1200u);
     EXPECT_FALSE(coord.ShouldFlush(1450, 300, 1500));
@@ -136,7 +132,6 @@ TEST(WatchDebounceTests, MaxWaitPreventsStarvationDuringContinuousWrites)
         EXPECT_FALSE(coord.ShouldFlush(t, 300, 1500));
     }
 
-    // At t = 2500, 1500ms have elapsed since the first pending event even though the last was 100ms ago.
     EXPECT_TRUE(coord.ShouldFlush(2500, 300, 1500));
     EXPECT_EQ(coord.RemainingWaitMs(2450, 300, 1500), 50u);
 }
@@ -147,7 +142,6 @@ TEST(WatchDebounceTests, SelfMutationSuppressionDefersAndReconcilesOnceAfterDead
     coord.SuppressFor(1000, 600);
     EXPECT_TRUE(coord.IsSuppressed(1200));
 
-    // Events during the suppression window are deferred rather than dropped.
     coord.NoteChange(1200);
     EXPECT_TRUE(coord.HasPending());
     EXPECT_TRUE(coord.HasDeferredDuringSuppression());
@@ -157,7 +151,6 @@ TEST(WatchDebounceTests, SelfMutationSuppressionDefersAndReconcilesOnceAfterDead
     coord.NoteChange(1599);
     EXPECT_FALSE(coord.ShouldFlush(1599, 300, 1500));
 
-    // Once the suppression window ends, exactly one reconciliation flush becomes ready.
     EXPECT_FALSE(coord.IsSuppressed(1600));
     EXPECT_TRUE(coord.ShouldFlush(1600, 300, 1500));
     EXPECT_EQ(coord.RemainingWaitMs(1600, 300, 1500), 0u);
@@ -176,8 +169,8 @@ TEST(DirectoryWatcherTests, CoalescesCreateBurstAfterArmed)
     ASSERT_TRUE(watcher.Start(
         temp.path,
         [counter](uint64_t const tickMs) { counter->Increment(tickMs); },
-        /*debounceMs=*/120,
-        /*maxWaitMs=*/600));
+        120,
+        600));
     ASSERT_TRUE(watcher.WaitUntilArmed(5000));
     EXPECT_TRUE(watcher.IsWatching());
     EXPECT_EQ(watcher.WatchedPath(), temp.path);
@@ -189,7 +182,6 @@ TEST(DirectoryWatcherTests, CoalescesCreateBurstAfterArmed)
     }
 
     ASSERT_TRUE(counter->WaitForAtLeast(1));
-    // Wait for debounce window to drain and verify the burst was coalesced.
     std::this_thread::sleep_for(std::chrono::milliseconds{ 300 });
     int const totalAfterDrain = counter->Snapshot();
     EXPECT_GE(totalAfterDrain, 1);
@@ -267,12 +259,10 @@ TEST(DirectoryWatcherTests, ReportsFailureForMissingDirectoryAndSupportsCleanRet
     ASSERT_TRUE(watcher.WaitUntilArmed(5000));
     EXPECT_TRUE(watcher.IsWatching());
 
-    // Retarget to dirB without waiting for any events.
     ASSERT_TRUE(watcher.Start(dirB.path, [](uint64_t) {}, 100, 500));
     ASSERT_TRUE(watcher.WaitUntilArmed(5000));
     EXPECT_EQ(watcher.WatchedPath(), dirB.path);
 
-    // Idempotent Stop.
     watcher.Stop();
     watcher.Stop();
     EXPECT_FALSE(watcher.IsWatching());

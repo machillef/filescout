@@ -171,7 +171,6 @@ TEST(UserSettingsTests, ResolveRestoredWindowBoundsHandlesDefaultsMultiMonitorAn
     ScreenWorkArea const leftSecondary{ -1920, 0, 0, 1040 };
     std::vector<ScreenWorkArea> const dualMonitors{ primary, leftSecondary };
 
-    // No saved bounds -> centered default capped to 94% of primary work area.
     auto const fallback = ResolveRestoredWindowBounds(
         WindowBounds{},
         dualMonitors,
@@ -184,7 +183,6 @@ TEST(UserSettingsTests, ResolveRestoredWindowBoundsHandlesDefaultsMultiMonitorAn
     EXPECT_EQ(fallback.x, (1920 - 1520) / 2);
     EXPECT_EQ(fallback.y, (1040 - 920) / 2);
 
-    // Valid window on left secondary monitor -> stays on secondary monitor.
     WindowBounds const onLeft{
         .x = -1700,
         .y = 80,
@@ -199,7 +197,6 @@ TEST(UserSettingsTests, ResolveRestoredWindowBoundsHandlesDefaultsMultiMonitorAn
     EXPECT_EQ(restoredLeft.width, 1200);
     EXPECT_EQ(restoredLeft.height, 800);
 
-    // Secondary monitor unplugged -> falls back inside primary work area and clamps oversized dimensions.
     WindowBounds const unplugged{
         .x = -1700,
         .y = 80,
@@ -236,7 +233,6 @@ TEST(UserSettingsTests, ServiceSavesAtomicallyAndReloadsFromLocalAppData)
 
     ScopedEnvVar const env{ L"LOCALAPPDATA", tempRoot.wstring() };
 
-    // Missing file returns clean defaults.
     auto const initial = UserSettingsService::Load();
     EXPECT_FALSE(initial.window.has_bounds);
     EXPECT_FALSE(initial.show_hidden_files);

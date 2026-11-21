@@ -26,7 +26,6 @@ namespace FileScoutNative::Shell
         ComApartment(ComApartment const&) = delete;
         ComApartment& operator=(ComApartment const&) = delete;
 
-        // True when COM calls can be made on this thread.
         [[nodiscard]] bool IsUsable() const noexcept
         {
             return SUCCEEDED(m_result) || m_result == RPC_E_CHANGED_MODE;

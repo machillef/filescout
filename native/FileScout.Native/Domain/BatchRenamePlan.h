@@ -36,9 +36,6 @@ namespace FileScoutNative::Domain
         TitleCase = 2,
     };
 
-    // The batch-rename dialog's case combo lists the transforms in enum order and opens on Title
-    // Case. Any other index (-1 = nothing selected) gets Title Case too, the same fallback
-    // detail::ApplyCaseTransform uses for an unknown transform.
     [[nodiscard]] inline BatchRenameCaseTransform BatchRenameCaseTransformFromIndex(
         int32_t const selectedIndex) noexcept
     {

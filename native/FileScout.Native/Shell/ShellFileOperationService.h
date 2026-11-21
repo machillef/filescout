@@ -15,8 +15,6 @@ namespace FileScoutNative::Shell
         std::wstring action;
         std::wstring path;
         std::wstring detail;
-        // True when the user (or a shell confirmation) aborted the operation. Callers test this,
-        // never the localised detail text.
         bool canceled = false;
     };
 
@@ -34,22 +32,14 @@ namespace FileScoutNative::Shell
         FileOperationError m_error;
     };
 
-    // Maps the result of IFileOperation::PerformOperations plus GetAnyOperationsAborted to an
-    // error, or nullopt on success. HRESULT_FROM_WIN32(ERROR_CANCELLED), COPYENGINE_E_USER_CANCELLED,
-    // or the abort flag with a success HRESULT is a canceled outcome; any other failure HRESULT is
-    // a failure even when the abort flag is set.
     [[nodiscard]] std::optional<FileOperationError> ClassifyFileOperationOutcome(
         HRESULT performResult,
         bool anyOperationsAborted,
         std::wstring_view action,
         std::wstring_view path);
 
-    // Returns the IFileOperation flags for Recycle Bin deletion (permanent == false)
-    // or permanent deletion bypassing the Recycle Bin (permanent == true).
     [[nodiscard]] DWORD DeleteOperationFlags(bool permanent) noexcept;
 
-    // Formats the Windows Terminal `-d "<dir>"` parameter string with CommandLineToArgvW-safe
-    // escaping for trailing backslashes (e.g. drive roots like "C:\\").
     [[nodiscard]] std::wstring FormatWindowsTerminalDirectoryArgs(std::filesystem::path const& directory);
 
     struct RenameRequest
@@ -111,8 +101,6 @@ namespace FileScoutNative::Shell
         [[nodiscard]] winrt::com_ptr<IFileOperation> CreateFileOperation(
             HWND ownerWindow,
             DWORD operationFlags) const;
-        // Runs the queued operations. Throws FileOperationException naming action and path (or the
-        // item that failed), with IsCanceled() when the user aborted.
         void PerformFileOperation(
             IFileOperation* fileOperation,
             std::wstring_view action,

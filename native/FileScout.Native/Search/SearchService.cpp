@@ -75,7 +75,6 @@ namespace FileScoutNative::Search
     {
         if (m_cancelled_flag) *m_cancelled_flag = true;
         if (m_generation) ++(*m_generation);
-        // Non-blocking: thread exits at its next cancellation checkpoint.
     }
 
     void SearchService::Start(
@@ -85,14 +84,12 @@ namespace FileScoutNative::Search
         CompleteCallback on_complete,
         PostFn post_fn)
     {
-        // Signal the old walk and retire its worker; it is joined once it has finished.
         if (m_cancelled_flag) *m_cancelled_flag = true;
         if (m_generation) ++(*m_generation);
         if (m_worker.thread.joinable()) m_retired_workers.push_back(std::move(m_worker));
         m_worker = {};
         ReapFinishedWorkers();
 
-        // Fresh cancellation token and shared generation counter for this walk.
         m_cancelled_flag = std::make_shared<std::atomic<bool>>(false);
         if (!m_generation)
         {
@@ -295,4 +292,4 @@ namespace FileScoutNative::Search
         }
     }
 
-} // namespace FileScoutNative::Search
+}

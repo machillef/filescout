@@ -7,7 +7,7 @@ FileScout is a Windows 11 file explorer built with C++/WinRT and WinUI 3. It foc
 - Shell-backed browsing, metadata, icons, and file operations
 - Dual-pane and multi-tab workflow with active-pane routing
 - Keyboard shortcuts, breadcrumb/address navigation, and fuzzy search
-- Native shell hand-off for Properties, Open With, and non-beta archive flows
+- Native shell hand-off for Properties, Open With, and archive flows
 - Fuzzy search with live filtering, recursive search, and result activation
 
 ## What FileScout Can Do Today
@@ -39,13 +39,13 @@ FileScout is a Windows 11 file explorer built with C++/WinRT and WinUI 3. It foc
 - Use keyboard shortcuts including `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Delete`, `F2`, `F5`, `Ctrl+T`, `Ctrl+W`, `Ctrl+Tab`, `Alt+Enter`, `Alt+Left`, and `Alt+Right`
 - Browse with custom title bar chrome, active-pane indicators, and shell-backed sidebar visuals
 
-## Closed Beta Scope
+## Not Included Yet
 
-The current closed beta intentionally keeps a few previously prototyped features out of the shipped surface while the core explorer hardens:
+A few previously prototyped features stay out of the shipped app while the core explorer hardens:
 
-- Command palette is not part of the current closed beta
-- In-app archive browsing and extract flows are not part of the current closed beta
-- Batch rename is not part of the current closed beta; rename currently works one item at a time
+- Command palette
+- In-app archive browsing and extract flows
+- Batch rename (rename works one item at a time)
 
 ## Build and Test
 
@@ -84,12 +84,12 @@ native\bin\x64\Debug\Tests\FileScout.Tests.exe --gtest_color=no
 
 - `native/FileScout.Native/` - WinUI 3 application, shell integration, view models, and UI workflows
 - `native/FileScout.Tests/` - GoogleTest-based native test suite
-- `docs/ai/` - internal planning notes, status logs, and initiative records
+- `docs/` - design notes, the overhaul decision log, and initiative records
 - `assets/` - project assets used by the app and repository
 
 ## Status
 
-FileScout is under active development. The current closed-beta focus is on a trustworthy core explorer: shell-backed browsing, search, dual-pane workflows, and everyday file operations with accurate docs and runtime messaging.
+FileScout is an early preview under active development. Releases are published as pre-releases on GitHub. The focus is a trustworthy core explorer: shell-backed browsing, search, dual-pane workflows, and everyday file operations.
 
 ## License
 

@@ -10,9 +10,6 @@
 
 using FileScoutNative::Shell::ShellStaWorker;
 
-// S-03: IFileOperation::PerformOperations ran on the UI thread (paste, drop, new folder, rename,
-// batch rename) or on a thread-pool thread with no apartment (delete). File operations now run on
-// one dedicated single-threaded apartment.
 TEST(ShellStaWorker, RunsTasksInOrderOnOneStaThreadThatIsNotTheCaller)
 {
     ShellStaWorker worker;
@@ -70,7 +67,6 @@ TEST(ShellStaWorker, DestructorRunsQueuedTasksAndJoins)
 
 namespace
 {
-    // A minimal coroutine type so the awaiter can be tested without WinRT.
     struct Task
     {
         struct promise_type
@@ -85,7 +81,6 @@ namespace
 
     Task RunAndCollect(ShellStaWorker& worker, std::promise<std::pair<int, DWORD>>& out, std::promise<std::string>& error)
     {
-        // "Resume" runs the continuation inline on the worker thread, which a test can observe.
         auto const resume = [](std::function<void()> continuation) { continuation(); };
         auto const value = co_await FileScoutNative::Shell::RunOnShellThread(worker, resume, [] { return 7; });
         out.set_value({ value, ::GetCurrentThreadId() });

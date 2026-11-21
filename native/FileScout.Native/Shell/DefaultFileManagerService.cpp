@@ -88,8 +88,6 @@ namespace FileScoutNative::Shell
             return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
         }
 
-        // Deletes the key only when it has no subkeys and no values left (something else may have
-        // written there since FileScout created it; that data is not ours to remove).
         bool DeleteKeyIfEmpty(std::wstring const& path)
         {
             HKEY key{};
@@ -263,9 +261,8 @@ namespace FileScoutNative::Shell
                     values.push_back({ key, L"DelegateExecute", L"" });
                 }
             }
-            // Edge's "Open downloads folder" forces the Folder class with the explore verb (traced on
-            // win1: Folder\shell\explore received C:\Users\<user>\Downloads). Folder also covers
-            // virtual folders; FileScout hands "::{CLSID}" paths back to Explorer (main.cpp).
+            // Edge's "Open downloads folder" forces the Folder class with the explore verb. Folder also
+            // covers virtual folders; FileScout hands "::{CLSID}" paths back to Explorer (main.cpp).
             values.push_back({ L"Folder\\shell\\explore\\command", L"", BuildFolderCommandValue(exePath) });
             values.push_back({ L"Folder\\shell\\explore\\command", L"DelegateExecute", L"" });
             values.push_back({ winEKey, L"", BuildWinECommandValue(exePath) });
@@ -382,9 +379,6 @@ namespace FileScoutNative::Shell
         }
         auto const values = detail::BuildDefaultValues(m_exePath);
 
-        // Prior state is recorded once per value: entries already in the manifest are kept (a second
-        // Set must not overwrite the original Explorer state with FileScout's own values), and values
-        // or keys a newer build writes that an older manifest does not cover are appended.
         {
             auto manifest = ReadManifest(m_manifestKey);
             auto const originalSize = manifest.size();
@@ -406,7 +400,6 @@ namespace FileScoutNative::Shell
             }
             for (auto const& spec : values)
             {
-                // Each missing path component below the classes root is a key FileScout creates.
                 std::wstring prefix;
                 for (auto const& part : std::filesystem::path{ spec.subKey })
                 {
@@ -457,7 +450,6 @@ namespace FileScoutNative::Shell
         }
 
         bool ok = true;
-        // Values first (reverse write order), then the keys FileScout created, deepest first.
         for (auto it = entries.rbegin(); it != entries.rend(); ++it)
         {
             if (it->isKey)
@@ -484,7 +476,6 @@ namespace FileScoutNative::Shell
         if (ok)
         {
             ::RegDeleteKeyW(HKEY_CURRENT_USER, m_manifestKey.c_str());
-            // The manifest's parent (HKCU\Software\FileScout) goes too when nothing else lives there.
             auto const parent = std::filesystem::path{ m_manifestKey }.parent_path().wstring();
             if (!parent.empty())
             {

@@ -14,8 +14,6 @@ namespace FileScoutNative::Domain
         DateModified = 3,
     };
 
-    // Pixel widths (DIPs) shared between the List-view sort header and every realized ListRowGrid
-    // in a pane so header labels and row cells align to the exact pixel and resize together.
     struct ListColumnWidths
     {
         static constexpr double kDefaultName = 240.0;

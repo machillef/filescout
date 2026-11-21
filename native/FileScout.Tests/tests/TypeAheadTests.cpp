@@ -9,7 +9,6 @@ using namespace FileScoutNative::Domain;
 
 namespace
 {
-    // Runs one key press against `names` (the displayed rows) and returns the matched row.
     std::optional<std::size_t> Type(
         TypeAheadBuffer& buffer,
         std::vector<std::wstring> const& names,
@@ -28,7 +27,7 @@ TEST(TypeAhead, CharactersWithinTheTimeout_BuildAPrefix)
     std::vector<std::wstring> const names{ L"alpha", L"beta", L"bravo", L"charlie" };
     TypeAheadBuffer buffer;
     EXPECT_EQ(Type(buffer, names, std::nullopt, L'b', 1000), 1u);
-    EXPECT_EQ(Type(buffer, names, 1, L'r', 1300), 2u);  // "br" -> bravo
+    EXPECT_EQ(Type(buffer, names, 1, L'r', 1300), 2u);
     EXPECT_EQ(buffer.text, L"br");
 }
 
@@ -37,7 +36,7 @@ TEST(TypeAhead, PauseLongerThanTheTimeout_StartsANewPrefix)
     std::vector<std::wstring> const names{ L"alpha", L"beta", L"bravo", L"rome" };
     TypeAheadBuffer buffer;
     EXPECT_EQ(Type(buffer, names, std::nullopt, L'b', 1000), 1u);
-    EXPECT_EQ(Type(buffer, names, 1, L'r', 1000 + kTypeAheadResetMs + 1), 3u);  // "r" -> rome
+    EXPECT_EQ(Type(buffer, names, 1, L'r', 1000 + kTypeAheadResetMs + 1), 3u);
     EXPECT_EQ(buffer.text, L"r");
 }
 
@@ -48,7 +47,7 @@ TEST(TypeAhead, RepeatedSameLetter_CyclesThroughMatches)
     EXPECT_EQ(Type(buffer, names, std::nullopt, L'b', 0), 0u);
     EXPECT_EQ(Type(buffer, names, 0, L'b', 100), 2u);
     EXPECT_EQ(Type(buffer, names, 2, L'b', 200), 3u);
-    EXPECT_EQ(Type(buffer, names, 3, L'b', 300), 0u);  // wraps
+    EXPECT_EQ(Type(buffer, names, 3, L'b', 300), 0u);
 }
 
 TEST(TypeAhead, SingleLetter_StartsAfterTheFocusedRow)
@@ -70,7 +69,6 @@ TEST(TypeAhead, CaseInsensitive_GreekAndDigits)
 {
     std::vector<std::wstring> const names{ L"2024 report", L"\u0388\u03B3\u03B3\u03C1\u03B1\u03C6\u03B1", L"\u03A6\u03C9\u03C4\u03BF\u03B3\u03C1\u03B1\u03C6\u03AF\u03B5\u03C2" };
     TypeAheadBuffer buffer;
-    // Greek "phi omega" typed in lower case matches the capitalised name.
     EXPECT_EQ(Type(buffer, names, std::nullopt, L'\u03C6', 0), 2u);
     EXPECT_EQ(Type(buffer, names, 2, L'\u03C9', 100), 2u);
     TypeAheadBuffer digits;
@@ -96,8 +94,6 @@ TEST(TypeAhead, AcceptsPrintableCharactersButNotControlOrLeadingSpace)
     EXPECT_FALSE(AcceptsTypeAheadCharacter(L'\b', false));
 }
 
-// Navigating to another folder ends the prefix: "f" + Enter into foo, then "b" must find "bar",
-// not search for "fb" (the load resets the pane's buffer).
 TEST(TypeAhead, ResetStartsANewPrefixWithinTheTimeout)
 {
     std::vector<std::wstring> const names{ L"alpha", L"bar" };

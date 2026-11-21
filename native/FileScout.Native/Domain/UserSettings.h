@@ -62,14 +62,10 @@ namespace FileScoutNative::Domain
         SavedSortDirection sort_direction{ SavedSortDirection::Ascending };
     };
 
-    // Serializes settings to a flat UTF-8 JSON object.
     [[nodiscard]] std::string SerializeUserSettings(UserSettings const& settings);
 
-    // Parses a flat UTF-8 JSON object; missing, unknown, or invalid fields fall back to defaults.
     [[nodiscard]] UserSettings DeserializeUserSettings(std::string_view json);
 
-    // Clamps and validates saved window bounds against the active display work areas.
-    // Falls back to centered default bounds on `primaryWorkArea` when saved bounds are absent or invalid.
     [[nodiscard]] WindowBounds ResolveRestoredWindowBounds(
         WindowBounds const& saved,
         std::vector<ScreenWorkArea> const& monitors,

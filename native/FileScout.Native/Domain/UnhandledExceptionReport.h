@@ -10,13 +10,10 @@ namespace FileScoutNative::Domain
     struct UnhandledExceptionReport
     {
         std::wstring title;
-        std::wstring message;   // MessageBoxW body
-        std::wstring log_line;  // TraceLog / startup log
+        std::wstring message;
+        std::wstring log_line;
     };
 
-    // UA-09: an exception that reaches App::UnhandledException leaves the app in an unknown state
-    // while it holds the user's files, so it is never marked handled: the app logs, tells the user and
-    // lets WinUI terminate the process (which also produces a crash report).
     [[nodiscard]] constexpr bool ShouldMarkUnhandledExceptionHandled() noexcept
     {
         return false;

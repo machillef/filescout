@@ -17,7 +17,6 @@ TEST(NavigationHistory, NavigatingAway_PushesThePreviousFolder)
 
 TEST(NavigationHistory, RecycleBin_BackReturnsToThePreviousFolder)
 {
-    // UB-12: the Recycle Bin click pushed the NEW path, so Back stayed in the Recycle Bin.
     std::vector<path> back;
     std::vector<path> forward;
     RecordNavigation(back, forward, L"C:\\Users\\Docs", path{ kRecycleBinLocation });
@@ -68,8 +67,6 @@ TEST(NavigationHistory, RootIsNotTrimmed)
     EXPECT_EQ(FileScoutNative::Domain::NormalizeFolderForCompare(L"C:\\Users\\"), std::filesystem::path{ L"C:\\Users" });
 }
 
-// Recycle Bin opened from A, then folder B chosen before the bin's listing arrived: Back from B
-// must return to the Recycle Bin, not to A.
 TEST(NavigationHistory, NavigationBeforeThePreviousLoadFinishes_RecordsThePendingTarget)
 {
     std::vector<std::filesystem::path> back;
@@ -96,7 +93,6 @@ TEST(NavigationHistory, HistoryStep_MovesWithoutRecording)
     EXPECT_EQ(current, std::filesystem::path{ L"C:\\A" });
 }
 
-// Recents record the folder being left (Back/Forward included), not the destination.
 TEST(NavigationHistory, RecentsRecordTheFolderLeft_ToAnotherFolderAndToTheRecycleBin)
 {
     using FileScoutNative::Domain::FolderToRecordOnLeave;
@@ -107,12 +103,9 @@ TEST(NavigationHistory, RecentsRecordTheFolderLeft_ToAnotherFolderAndToTheRecycl
     EXPECT_FALSE(FolderToRecordOnLeave(recycleBin, L"C:\\B").has_value());
     EXPECT_FALSE(FolderToRecordOnLeave(L"C:\\A", L"C:\\A\\").has_value());
     EXPECT_FALSE(FolderToRecordOnLeave(L"", L"C:\\B").has_value());
-    // To This PC (no path): the folder left is recorded.
     EXPECT_EQ(FolderToRecordOnLeave(L"C:\\A", std::filesystem::path{}), std::filesystem::path{ L"C:\\A" });
 }
 
-// The full navigation step: A -> B records A; A -> Recycle Bin records A; history and the pending
-// current folder move with it.
 TEST(NavigationHistory, NavigationFlow_RecentsGetTheFolderLeft)
 {
     using FileScoutNative::Domain::NavigateAndRecordRecent;
@@ -132,7 +125,6 @@ TEST(NavigationHistory, NavigationFlow_RecentsGetTheFolderLeft)
         EXPECT_TRUE(NavigateAndRecordRecent(back, forward, current, recents, recycleBin, false, 8));
         EXPECT_EQ(recents, (std::vector<std::filesystem::path>{ L"C:\\A" }));
         EXPECT_EQ(current, recycleBin);
-        // Leaving the Recycle Bin adds nothing.
         EXPECT_FALSE(NavigateAndRecordRecent(back, forward, current, recents, L"C:\\B", false, 8));
         EXPECT_EQ(recents.size(), 1u);
     }

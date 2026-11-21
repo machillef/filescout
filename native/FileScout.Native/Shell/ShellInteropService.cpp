@@ -116,8 +116,6 @@ namespace FileScoutNative::Shell
             DWORD const fileAttributes,
             bool const useLiteralPath = false)
         {
-            // Callers on background threads hold a ComApartment (see EnumerateDirectory and the
-            // icon backfill workers); the UI thread is the app's STA.
             SHFILEINFOW shellInfo{};
             DWORD const flags = useLiteralPath
                 ? SHGFI_ICON | SHGFI_SMALLICON
@@ -331,7 +329,6 @@ namespace FileScoutNative::Shell
             }
         }
 
-        // Extract icon outside the lock — GDI/SHGetFileInfoW can be slow.
         // For literal-path lookups (e.g. per-item .exe), SHGetFileInfoW without SHGFI_USEFILEATTRIBUTES
         // may fail on MTA background threads when shell extensions require an STA context. If the
         // literal-path extraction yields an empty bitmap, fall back to the extension-based lookup
@@ -351,10 +348,6 @@ namespace FileScoutNative::Shell
         return icon;
     }
 
-    // S6: BuildFastShellItemRef — all data from WIN32_FIND_DATAW, no per-item shell calls.
-    // Icon: two-bucket fallback (folder or generic file); at most 2 SHGetFileInfoW calls total
-    // per enumeration (both cached after the first call to each bucket).
-    // Archive detection: extension-based heuristic; no CanEnumerateShellNamespace call.
     FileScoutNative::Domain::ShellItemRef ShellInteropService::BuildFastShellItemRef(
         WIN32_FIND_DATAW const& findData,
         std::filesystem::path const& dirPath,
@@ -369,12 +362,10 @@ namespace FileScoutNative::Shell
         item.file_attributes_available = true;
         item.kind_label = BuildKindLabel(item.path, item.is_folder);
 
-        // Two-bucket icon: synthetic paths route to the "__folder__" or "__file__" cache entry.
         item.icon = GetIconForItem(
             item.is_folder ? std::filesystem::path{ L"folder" } : std::filesystem::path{ L"file" },
             item.is_folder);
 
-        // Size from WIN32_FIND_DATA (files only; folders report no size).
         if (!item.is_folder)
         {
             ULARGE_INTEGER size{};
@@ -384,7 +375,6 @@ namespace FileScoutNative::Shell
             item.size_available = true;
         }
 
-        // Date modified from WIN32_FIND_DATA, formatted in the user's locale (cached per day/minute).
         if (findData.ftLastWriteTime.dwLowDateTime != 0 || findData.ftLastWriteTime.dwHighDateTime != 0)
         {
             item.date_modified = FileTimeToChrono(findData.ftLastWriteTime);
@@ -392,17 +382,12 @@ namespace FileScoutNative::Shell
             item.date_modified_str = dateFormatter.FormatFileTime(findData.ftLastWriteTime);
         }
 
-        // Date created from WIN32_FIND_DATA — fast path (same approach).
         if (findData.ftCreationTime.dwLowDateTime != 0 || findData.ftCreationTime.dwHighDateTime != 0)
         {
             item.date_created_available = true;
             item.date_created_str = dateFormatter.FormatFileTime(findData.ftCreationTime);
         }
 
-        // Archive detection: extension-based, no shell call.
-        // is_supported_archive is a heuristic: .zip and .tar have confirmed Windows shell
-        // namespace support. Other formats are not whitelisted — if the user navigates into one
-        // and it turns out to be supported, the existing fallback path handles it.
         if (!item.is_folder)
         {
             if (auto const archiveKindLabel = TryGetArchiveKindLabel(item.path); archiveKindLabel.has_value())
@@ -415,7 +400,6 @@ namespace FileScoutNative::Shell
                 item.is_supported_archive = (ext == L".zip" || ext == L".tar");
             }
 
-            // Image detection by extension.
             auto ext = item.path.extension().wstring();
             std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t const ch)
                 { return static_cast<wchar_t>(towlower(ch)); });
@@ -434,11 +418,7 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& path,
         bool const includeHidden)
     {
-        // S6: Use FindFirstFileW/FindNextFileW instead of std::filesystem::directory_iterator.
-        // WIN32_FIND_DATA already contains name, size, attributes, write time, and creation time —
-        // no additional stat calls. BuildFastShellItemRef uses a two-bucket icon fallback and
-        // extension-based archive detection, eliminating all per-item shell calls.
-        ComApartment apartment; // SHGetFileInfoW for the two icon buckets, and the shell fallback.
+        ComApartment apartment;
         auto const searchPattern = (path / L"*").wstring();
         WIN32_FIND_DATAW findData{};
         // FindExInfoBasic skips the 8.3 short name and FIND_FIRST_EX_LARGE_FETCH asks for bigger
@@ -454,8 +434,6 @@ namespace FileScoutNative::Shell
             return {};
         }
 
-        // Phase 1 (sequential, I/O): collect the raw records. Phase 2 (CPU): build the items in
-        // parallel ranges; on win1 building 100k items took ~400 ms on one thread.
         std::vector<WIN32_FIND_DATAW> records;
         do
         {
@@ -475,22 +453,18 @@ namespace FileScoutNative::Shell
 
         FindClose(findHandle);
 
-        // Warm the two icon buckets once so the parallel builders only read the cache.
         (void)GetIconForItem(std::filesystem::path{ L"folder" }, true);
         (void)GetIconForItem(std::filesystem::path{ L"file" }, false);
 
         std::vector<FileScoutNative::Domain::ShellItemRef> items(records.size());
         ::FileScoutNative::Domain::ParallelForRanges(records.size(), [&](std::size_t begin, std::size_t end)
             {
-                // The formatter caches per day/minute and is not thread-safe: one per range.
                 LocaleDateTimeFormatter dateFormatter;
                 for (auto i = begin; i < end; ++i)
                 {
                     items[i] = BuildFastShellItemRef(records[i], path, dateFormatter);
                 }
             });
-        // NOTE: Sorting is intentionally omitted here — callers apply the user-selected
-        // sort column and direction after enumeration.
         return items;
     }
 
@@ -504,7 +478,6 @@ namespace FileScoutNative::Shell
         }
 
         LocaleDateTimeFormatter dateFormatter;
-        // One apartment for the whole walk; COM objects below are released before it ends.
         ComApartment apartment;
 
         std::vector<FileScoutNative::Domain::ShellItemRef> items;
@@ -601,7 +574,6 @@ namespace FileScoutNative::Shell
 
             const UINT driveType = GetDriveTypeW(cursor);
 
-            // Skip drive letters that have no accessible root.
             if (driveType == DRIVE_UNKNOWN || driveType == DRIVE_NO_ROOT_DIR)
             {
                 continue;
@@ -617,7 +589,6 @@ namespace FileScoutNative::Shell
             default:              kindLabel = L"Local Disk";       break;
             }
 
-            // Use the volume label as the display name when available.
             wchar_t volLabel[MAX_PATH]{};
             GetVolumeInformationW(cursor, volLabel, MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0);
 
@@ -649,7 +620,6 @@ namespace FileScoutNative::Shell
     std::vector<FileScoutNative::Domain::ShellItemRef> ShellInteropService::EnumerateRecycleBin() const
     {
         LocaleDateTimeFormatter dateFormatter;
-        // One apartment for the whole walk; COM objects below are released before it ends.
         ComApartment apartment;
 
         std::vector<FileScoutNative::Domain::ShellItemRef> items;
@@ -756,11 +726,11 @@ namespace FileScoutNative::Shell
         }
 
         TraceLog(L"[icon-cache] MISS: " + path.wstring());
-        auto icon = ExtractShellIconBitmap(path.wstring(), FILE_ATTRIBUTE_NORMAL, /*useLiteralPath=*/true)
+        auto icon = ExtractShellIconBitmap(path.wstring(), FILE_ATTRIBUTE_NORMAL, true)
             .value_or(FileScoutNative::Domain::IconBitmap{});
         if (icon.IsEmpty())
         {
-            icon = GetIconForItem(path, /*isFolder=*/true);
+            icon = GetIconForItem(path, true);
         }
 
         {

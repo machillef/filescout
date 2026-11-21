@@ -5,8 +5,7 @@
 
 namespace FileScoutNative::Domain
 {
-    // Number of parallel icon-extraction workers: hardware_concurrency capped at maxWorkers and at
-    // the item count, and never 0 (hardware_concurrency may return 0, and callers divide by it).
+    // hardware_concurrency() may legally return 0.
     [[nodiscard]] constexpr std::size_t ComputeIconWorkerCount(
         std::size_t const hardwareConcurrency,
         std::size_t const itemCount,

@@ -9,11 +9,6 @@ using namespace FileScoutNative::Domain;
 
 namespace
 {
-    // Creates a temp directory with 4 known entries:
-    //   SubFolder/    (directory)
-    //   sample.txt    (non-empty text file)
-    //   photo.png     (non-empty file with image extension)
-    //   archive.7z    (archive-like extension; shell support is machine-dependent)
     class ShellInteropFixture : public ::testing::Test
     {
     protected:
@@ -58,8 +53,6 @@ namespace
         }
     };
 }
-
-// ── EnumerateDirectory ─────────────────────────────────────────────────────────
 
 TEST_F(ShellInteropFixture, EnumerateDirectory_ReturnsItems)
 {
@@ -187,11 +180,6 @@ TEST_F(ShellInteropFixture, EnumerateShellDirectory_ReturnsItemsForExistingDirec
     EXPECT_TRUE(folder.is_folder);
 }
 
-// S6: archive heuristic tests (BuildFastShellItemRef replaces CanEnumerateShellNamespace).
-// The new heuristic sets is_supported_archive = true only for .zip and .tar by extension,
-// without any shell call. These tests would fail with the old CanEnumerateShellNamespace path
-// for fake files (shell can't parse non-archive content).
-
 TEST_F(ShellInteropFixture, EnumerateDirectory_ZipIsSupportedArchive)
 {
     { std::ofstream f{ m_root / L"fake.zip" }; f << "not a real zip file"; }
@@ -214,8 +202,6 @@ TEST_F(ShellInteropFixture, EnumerateDirectory_TarIsSupportedArchive)
 
 TEST_F(ShellInteropFixture, EnumerateDirectory_7zIsNotSupportedArchive)
 {
-    // .7z is an archive candidate but NOT in the supported whitelist.
-    // Old CanEnumerateShellNamespace was non-deterministic (depended on installed shell handlers).
     ShellInteropService svc;
     auto items = svc.EnumerateDirectory(m_root);
     auto archive = FindItem(items, L"archive.7z");
@@ -251,8 +237,6 @@ TEST(IconCachePolicy, DocumentsAndFoldersKeepSharedBuckets)
         L"__file__");
 }
 
-// D-09: a drive root is looked up literally (drive-specific icon), so it must not share the
-// generic "__folder__" cache slot, and two drives must not share a slot either.
 TEST(IconCachePolicy, DriveRootsGetTheirOwnKeys)
 {
     using FileScoutNative::Domain::BuildFileIconCacheKey;
@@ -267,8 +251,6 @@ TEST(IconCachePolicy, DriveRootsGetTheirOwnKeys)
     EXPECT_EQ(cKey, BuildFileIconCacheKey(LR"(c:\)", true));
 }
 
-// D-09: every path the icon loader looks up literally gets a per-item key; every other path
-// gets a shared bucket.
 TEST(IconCachePolicy, LiteralLookupAndPerItemKeysAgree)
 {
     struct Case { wchar_t const* path; bool is_folder; };
@@ -292,8 +274,6 @@ TEST(IconCachePolicy, LiteralLookupAndPerItemKeysAgree)
     }
 }
 
-// ── EnumerateDrives ────────────────────────────────────────────────────────────
-
 TEST(EnumerateDrivesTest, ReturnsAtLeastOneDrive)
 {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -302,11 +282,6 @@ TEST(EnumerateDrivesTest, ReturnsAtLeastOneDrive)
     EXPECT_GE(drives.size(), 1u);
     CoUninitialize();
 }
-
-// ── Large directory enumeration benchmark ──────────────────────────────────────
-// Regression gate for the enumeration hot path: 1000 files across 10 extensions
-// must enumerate in < 300 ms. If this starts failing it means EnumerateDirectory
-// performance regressed (e.g. a blocking shell call was re-introduced per item).
 
 namespace
 {
@@ -330,7 +305,6 @@ namespace
             m_root = std::filesystem::path{ tempPath } / L"FileScoutTests_LargeDir";
             std::filesystem::remove_all(m_root);
             std::filesystem::create_directories(m_root);
-            // 100 files per extension × 10 extensions = 1000 files
             for (int e = 0; e < k_ext_count; ++e)
             {
                 for (int i = 0; i < k_file_count / k_ext_count; ++i)

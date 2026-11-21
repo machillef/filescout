@@ -1,10 +1,5 @@
 #pragma once
 
-// Measurement-only bench mode. Off unless FILESCOUT_BENCH_OUT names a JSON output file; then the app
-// records named milestones (milliseconds since process creation) and frame intervals, and writes
-// them when the bench finishes. It changes no behaviour, so the build of the PR that adds it is the
-// "before" binary of docs/overhaul/perf.md.
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -18,7 +13,6 @@
 
 namespace FileScoutNative::Bench
 {
-    // Nearest-rank percentile (p in [0,100]) of an unsorted sample; nullopt when empty.
     [[nodiscard]] inline std::optional<double> Percentile(std::vector<double> values, double const p)
     {
         if (values.empty())
@@ -87,7 +81,6 @@ namespace FileScoutNative::Bench
 
         [[nodiscard]] bool Enabled() const noexcept { return !m_outPath.empty(); }
 
-        // Milliseconds since this process was created (same clock as the external launcher).
         [[nodiscard]] double NowMs() const
         {
             FILETIME now{};
@@ -98,10 +91,10 @@ namespace FileScoutNative::Bench
         void Mark(std::wstring_view name)
         {
             if (!Enabled()) { return; }
-            std::lock_guard lock{ m_mutex };   // marks come from the UI thread and the load worker
+            std::lock_guard lock{ m_mutex };
             for (auto const& [existing, _] : m_report.marks)
             {
-                if (existing == name) { return; }   // first occurrence wins
+                if (existing == name) { return; }
             }
             m_report.marks.emplace_back(std::wstring{ name }, NowMs());
         }

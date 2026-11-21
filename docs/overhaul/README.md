@@ -56,6 +56,11 @@ Newest last. Each entry: date, decision, why, alternatives rejected.
   for this code yet. GoogleTest 1.8.1 (the old Microsoft NuGet) works; moving to 1.18 via vcpkg is
   worth doing but is not a blocker. ItemsView vs ListView: Microsoft documents data virtualization for
   ListView (`IItemsRangeInfo`) and no performance claim for ItemsView, so the list stays a ListView.
+- **2026-11-21 — CI and Release move to GitHub-hosted `windows-2022`; the win1 runner is removed.**
+  The repo goes public: hosted Windows minutes are free there, and a self-hosted runner on a public
+  repo lets any workflow change run as Administrator on a LAN machine. PR and issue creation are
+  restricted to collaborators. `windows-2022`, not `windows-latest`: the latter moved to VS 2026,
+  which has no v143 toolset. win1 stays the box for GUI, perf and default-file-manager runs.
 
 ## Open items (2026-11-16)
 

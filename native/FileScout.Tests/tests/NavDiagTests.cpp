@@ -6,7 +6,6 @@ using namespace FileScoutNative::NavDiag;
 
 namespace
 {
-    // A completed, staged sidebar navigation with every stage stamped 1 ms apart from `base`.
     Trace StagedSidebarTrace(Tick const base)
     {
         auto at = [base](int const ms) { return base + std::chrono::milliseconds(ms); };
@@ -75,7 +74,7 @@ TEST(NavDiag, UnreachedStagesAreMinusOne)
     Trace t;
     t.active = true;
     t.load_start = Now();
-    EXPECT_EQ(SpanOf(t, "click_to_load_start"), -1);   // not a sidebar click
+    EXPECT_EQ(SpanOf(t, "click_to_load_start"), -1);
     EXPECT_EQ(SpanOf(t, "dispatch_wait"), -1);
     EXPECT_EQ(SpanUs(t.load_start, t.load_start - std::chrono::milliseconds(1)), -1);
 }
@@ -90,7 +89,6 @@ TEST(NavDiag, JsonLineIsAnonymousAndKeepsModelAndFrameApart)
     EXPECT_NE(json.find("\"sidebar_rebuild\":18000"), std::string::npos);
     EXPECT_NE(json.find("\"frame_us\":{\"final_publish_to_frame\":40000"), std::string::npos);
     EXPECT_NE(json.find("\"onscreen_verified\":false}"), std::string::npos);
-    // Nothing that could carry a path or a name: no backslash, colon-drive or slash anywhere.
     EXPECT_EQ(json.find('\\'), std::string::npos);
     EXPECT_EQ(json.find('/'), std::string::npos);
     EXPECT_EQ(json.find('\n'), std::string::npos);

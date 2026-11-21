@@ -29,7 +29,6 @@
                 <Setter Property="Margin" Value="0,0,28,4" />
                 <Setter Property="MinHeight" Value="0" />
             </Style>
-            <!-- New look (docs/overhaul/look.md): compact Fluent chrome, subtle 32 px controls. -->
             <Style x:Key="ChromeToolbarButtonStyle" TargetType="Button">
                 <Setter Property="MinHeight" Value="32" />
                 <Setter Property="MinWidth" Value="32" />
@@ -79,8 +78,6 @@
                 <Setter Property="HorizontalAlignment" Value="Right" />
             </Style>
 
-            <!-- P2: DataTemplates for file rows. x:DataType enables x:Bind code-gen against FileRowViewModel.
-                 ItemTemplate is assigned in CreateTabListView (P3). -->
             <DataTemplate x:Key="CardRowTemplate"
                           x:DataType="local:FileRowViewModel">
                 <Grid>
@@ -410,8 +407,6 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- Dedicated 32 px title bar / drag strip (never contains right-side toolbar buttons,
-                 so system caption buttons never overlap the theme picker or dual-pane toggle). -->
             <Grid Grid.Row="0"
                   x:Name="TitleBarDragHost"
                   Height="32"
@@ -450,7 +445,6 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Navigation, address/breadcrumb, search, and chrome actions below the caption strip -->
             <Grid Grid.Row="1">
                 <Grid x:Name="ChromeGrid"
                       Padding="12,4,12,8"
@@ -516,9 +510,7 @@
                         </Button>
                     </StackPanel>
 
-                    <!-- Breadcrumb + address overlay (col 1) -->
                     <Grid Grid.Column="1" VerticalAlignment="Center">
-                        <!-- Breadcrumb bar — default view; tap to reveal address TextBox -->
                         <Border x:Name="BreadcrumbBarBorder"
                                 Height="32"
                                 Padding="6,0,8,0"
@@ -537,7 +529,6 @@
                                                 Spacing="0"
                                                 VerticalAlignment="Center" />
                                 </ScrollViewer>
-                                <!-- Address TextBox — hidden; shown on tap or F4 -->
                                 <TextBox x:Name="AddressTextBox"
                                          Style="{StaticResource ChromeInlineAddressTextBoxStyle}"
                                          PlaceholderText="Enter a filesystem path"
@@ -548,7 +539,6 @@
                         </Border>
                     </Grid>
 
-                    <!-- Dedicated search box (col 2) -->
                     <TextBox x:Name="SearchTextBox"
                              Grid.Column="2"
                              Style="{StaticResource ChromeAddressTextBoxStyle}"
@@ -635,7 +625,6 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                               VerticalScrollMode="Auto">
                     <StackPanel Spacing="6">
-                        <!-- Quick Access: favorites populated by BuildSidebarFavorites(). -->
                         <Expander x:Name="QuickAccessExpander"
                                   Header="Quick Access"
                                   IsExpanded="True"
@@ -647,7 +636,6 @@
                                   HorizontalContentAlignment="Stretch">
                             <StackPanel x:Name="SidebarPlacesPanel" Spacing="2" Margin="0,2,0,0" />
                         </Expander>
-                        <!-- This PC: drive list populated in S3. -->
                         <Expander x:Name="ThisPCExpander"
                                   Header="This PC"
                                   IsExpanded="True"
@@ -659,7 +647,6 @@
                                   HorizontalContentAlignment="Stretch">
                             <StackPanel x:Name="ThisPCPanel" Spacing="2" Margin="0,2,0,0" />
                         </Expander>
-                        <!-- Bookmarks: pinned folders populated in S4. -->
                         <Expander x:Name="BookmarksExpander"
                                   Header="Bookmarks"
                                   IsExpanded="False"
@@ -671,7 +658,6 @@
                                   HorizontalContentAlignment="Stretch">
                             <StackPanel x:Name="BookmarksPanel" Spacing="2" Margin="0,2,0,0" />
                         </Expander>
-                        <!-- Compact, themed Selection inspector card -->
                         <Border x:Name="SelectionInspectorCard"
                                 Margin="0,2,0,0"
                                 Padding="10,8,10,8"
@@ -680,7 +666,6 @@
                                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                 Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
                             <StackPanel Spacing="6">
-                                <!-- Image preview — shown when an image file is selected (R10). -->
                                 <Border x:Name="PreviewBorder"
                                         MaxHeight="120"
                                         CornerRadius="6"
@@ -690,7 +675,6 @@
                                            MaxHeight="120"
                                            Stretch="Uniform" />
                                 </Border>
-                                <!-- Compact horizontal header: icon tile + title & metadata -->
                                 <Grid ColumnSpacing="8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -748,7 +732,6 @@
                 </ScrollViewer>
             </Border>
 
-            <!-- Left pane — active indicator applied as the accent border -->
             <Border Grid.Column="1"
                     x:Name="LeftPaneBorder"
                     CornerRadius="8"
@@ -761,12 +744,10 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
                     <Border x:Name="LeftPaneSortHeader"
                             Grid.Row="0"
                             Padding="12,4,12,2"
                             Background="Transparent" />
-                    <!-- Search progress indicator — visible only during Recursive search (R17d). -->
                     <ProgressBar x:Name="LeftPaneSearchProgress"
                                  Grid.Row="1"
                                  IsIndeterminate="True"
@@ -782,7 +763,6 @@
                 </Grid>
             </Border>
 
-            <!-- Right pane — inactive by default -->
             <Border Grid.Column="2"
                     x:Name="RightPaneBorder"
                     CornerRadius="8"
@@ -795,12 +775,10 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <!-- Sort column header row — populated programmatically in BuildSortHeader(). -->
                     <Border x:Name="RightPaneSortHeader"
                             Grid.Row="0"
                             Padding="12,4,12,2"
                             Background="Transparent" />
-                    <!-- Search progress indicator — visible only during Recursive search (R17d). -->
                     <ProgressBar x:Name="RightPaneSearchProgress"
                                  Grid.Row="1"
                                  IsIndeterminate="True"
@@ -831,7 +809,6 @@
             </StackPanel>
         </Border>
 
-        <!-- Command palette overlay: shown by Ctrl+P (the palette feature gate is on). -->
         <Grid x:Name="CommandPaletteOverlay"
               Grid.RowSpan="3"
               Background="#80000000"

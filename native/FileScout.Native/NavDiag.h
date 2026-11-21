@@ -1,20 +1,5 @@
 #pragma once
 
-// Navigation diagnostics: per-navigation stage timings for a folder load, measurement only.
-//
-// Off unless BOTH hold:
-//   - the binary was built with FILESCOUT_NAVDIAG defined (msbuild /p:FileScoutNavDiag=true), and
-//   - FILESCOUT_NAVDIAG_OUT names an output file at process start.
-// Otherwise every call is a no-op and nothing is written.
-//
-// The output is one anonymous JSON object per navigation (JSON Lines): durations in microseconds,
-// item counts and path-taken flags. It never contains a file name, a folder path or any other text
-// taken from the file system.
-//
-// "model" spans are code timestamps (steady_clock around our own calls). The only frame signal is the
-// second CompositionTarget::Rendering callback after the last publish: a pre-render callback, not a
-// verified present, so every record says onscreen_verified=false.
-
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -37,7 +22,7 @@ namespace FileScoutNative::NavDiag
 #endif
 
     using Clock = std::chrono::steady_clock;
-    using Tick = Clock::time_point;  // Tick{} means "not reached"
+    using Tick = Clock::time_point;
 
     enum class Source { Other, Sidebar };
     enum class Kind { Folder, RecycleBin, Archive };
@@ -46,7 +31,6 @@ namespace FileScoutNative::NavDiag
 
     [[nodiscard]] inline Tick Now() noexcept { return Clock::now(); }
 
-    // Sub-stage breakdown of a sidebar rebuild triggered during a click.
     struct SidebarRebuildTiming
     {
         long long total_us = -1;
@@ -57,7 +41,6 @@ namespace FileScoutNative::NavDiag
         long long thispc_us = -1;
     };
 
-    // One navigation, carried by value through the load's lambdas (no shared mutable state).
     struct Trace
     {
         bool active = false;
@@ -65,41 +48,40 @@ namespace FileScoutNative::NavDiag
         Source source = Source::Other;
         Kind kind = Kind::Folder;
         int pane = 0;
-        bool sidebar_rebuilt = false;   // the click also rebuilt the sidebar (recents changed)
-        bool staged = false;            // first batch + deferred full publish
+        bool sidebar_rebuilt = false;
+        bool staged = false;
         StagedTrigger staged_trigger = StagedTrigger::None;
-        bool enqueue_ok = true;         // DispatcherQueue::TryEnqueue result for the publish
-        bool frame_observed = false;    // Rendering#2 after the last publish arrived before the timeout
+        bool enqueue_ok = true;
+        bool frame_observed = false;
         Outcome outcome = Outcome::Completed;
         std::size_t items = 0;
         std::size_t first_batch_rows = 0;
         long long recents_update_us = -1;
         SidebarRebuildTiming sidebar_timing{};
 
-        Tick click{};                // sidebar Click handler entry (Source::Sidebar only)
-        Tick load_start{};           // LoadDirectoryAsync entry (UI thread)
-        Tick pre_reset_begin{};      // rows.Clear() of the folder being left
+        Tick click{};
+        Tick load_start{};
+        Tick pre_reset_begin{};
         Tick pre_reset_end{};
-        Tick ui_pre_done{};          // UI-thread work done, about to resume on the thread pool
+        Tick ui_pre_done{};
         Tick enumerate_begin{};
         Tick enumerate_end{};
         Tick sort_begin{};
         Tick sort_end{};
-        Tick rows_begin{};           // FileRowViewModel construction
+        Tick rows_begin{};
         Tick rows_end{};
-        Tick enqueue{};              // TryEnqueue of the publish callback
-        Tick callback{};             // publish callback entry on the UI thread
-        Tick reset_begin{};          // rows.Clear() inside the publish callback
+        Tick enqueue{};
+        Tick callback{};
+        Tick reset_begin{};
         Tick reset_end{};
-        Tick first_append_end{};     // first batch appended
-        Tick first_publish{};        // first batch + ApplyPaneStateToRows + chrome done
-        Tick final_callback{};       // staged: deferred full-publish callback entry
-        Tick replace_end{};          // staged: ReplaceAll done
-        Tick final_publish{};        // full list published (== first_publish when not staged)
-        Tick frame_after_final{};    // Rendering#2 after final_publish (not a verified present)
+        Tick first_append_end{};
+        Tick first_publish{};
+        Tick final_callback{};
+        Tick replace_end{};
+        Tick final_publish{};
+        Tick frame_after_final{};
     };
 
-    // Microseconds from a to b, or -1 when either end was not reached.
     [[nodiscard]] inline long long SpanUs(Tick const a, Tick const b) noexcept
     {
         if (a == Tick{} || b == Tick{} || b < a)
@@ -141,7 +123,6 @@ namespace FileScoutNative::NavDiag
         }
     }
 
-    // Named spans, in pipeline order. Names are fixed literals; nothing user-derived.
     [[nodiscard]] inline std::vector<std::pair<char const*, long long>> ModelSpans(Trace const& t)
     {
         Tick const origin = t.click != Tick{} ? t.click : t.load_start;
@@ -215,7 +196,6 @@ namespace FileScoutNative::NavDiag
 
         [[nodiscard]] bool Enabled() const noexcept { return kCompiledIn && !m_outPath.empty(); }
 
-        // UI thread. Wraps a sidebar Click: the load started inside it picks the click up.
         void BeginSidebarClick() noexcept
         {
             if (!Enabled()) { return; }
@@ -236,8 +216,6 @@ namespace FileScoutNative::NavDiag
                 m_pendingSidebarTiming = timing;
             }
         }
-        // UI thread, after the Click handler's LoadDirectory returned. A click that started no load
-        // (e.g. an archive opened externally) is counted, not attributed to the next navigation.
         void EndSidebarClick()
         {
             if (!Enabled() || m_pendingClick == Tick{}) { return; }
@@ -246,7 +224,6 @@ namespace FileScoutNative::NavDiag
                 ",\"event\":\"sidebar_click_without_load\",\"onscreen_verified\":false}");
         }
 
-        // UI thread, LoadDirectoryAsync entry. Returns an inactive trace when disabled.
         [[nodiscard]] Trace StartLoad(int const pane, Kind const kind)
         {
             Trace t;
@@ -317,11 +294,11 @@ namespace FileScoutNative::NavDiag
         }
         std::string m_outPath;
 #endif
-        Tick m_pendingClick{};           // UI thread only
-        bool m_pendingRebuilt = false;   // UI thread only
-        long long m_pendingRecentsUs = -1; // UI thread only
-        SidebarRebuildTiming m_pendingSidebarTiming{}; // UI thread only
-        std::uint64_t m_navId = 0;       // UI thread only
+        Tick m_pendingClick{};
+        bool m_pendingRebuilt = false;
+        long long m_pendingRecentsUs = -1;
+        SidebarRebuildTiming m_pendingSidebarTiming{};
+        std::uint64_t m_navId = 0;
         std::atomic<std::uint64_t> m_seq{ 0 };
         std::mutex m_mutex;
     };

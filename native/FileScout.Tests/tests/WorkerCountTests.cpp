@@ -4,8 +4,6 @@
 
 using FileScoutNative::Domain::ComputeIconWorkerCount;
 
-// std::thread::hardware_concurrency() may return 0 ("not computable"); the icon backfill
-// divides by the worker count, so it must never be 0.
 TEST(WorkerCountTests, UnknownHardwareConcurrencyStillGivesOneWorker)
 {
     EXPECT_EQ(ComputeIconWorkerCount(0, 1000), 1u);

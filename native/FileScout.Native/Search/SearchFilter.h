@@ -67,4 +67,4 @@ namespace FileScoutNative::Search
 
         return results;
     }
-} // namespace FileScoutNative::Search
+}

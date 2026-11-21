@@ -8,12 +8,10 @@ namespace winrt::FileScoutNative::implementation
     {
         FileRowViewModel() = default;
 
-        // INotifyPropertyChanged
         winrt::event_token PropertyChanged(
             winrt::Microsoft::UI::Xaml::Data::PropertyChangedEventHandler const& handler);
         void PropertyChanged(winrt::event_token const& token) noexcept;
 
-        // Property getters (IDL-exposed)
         winrt::hstring Name()      const noexcept { return m_name; }
         winrt::hstring TypeLabel() const noexcept { return m_typeLabel; }
         winrt::hstring SizeText()  const noexcept { return m_sizeText; }
@@ -36,10 +34,8 @@ namespace winrt::FileScoutNative::implementation
             return m_iconSource;
         }
 
-        // IconSource setter fires PropertyChanged so bound Image updates in-place.
         void IconSource(winrt::Microsoft::UI::Xaml::Media::ImageSource const& value);
 
-        // Internal setters — not in IDL; used by MakeFileRowViewModel factory.
         void SetName(std::wstring_view value)       { m_name       = value; }
         void SetTypeLabel(std::wstring_view value)  { m_typeLabel  = value; }
         void SetSizeText(std::wstring_view value)   { m_sizeText   = value; }
@@ -77,7 +73,5 @@ namespace winrt::FileScoutNative::factory_implementation
     };
 }
 
-// Free function: construct a FileRowViewModel from a ShellItemRef.
-// Not part of the IDL — used by MainWindow row-creation code (P3).
 winrt::FileScoutNative::FileRowViewModel MakeFileRowViewModel(
     ::FileScoutNative::Domain::ShellItemRef const& item);

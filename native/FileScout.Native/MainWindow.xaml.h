@@ -34,19 +34,14 @@
 
 namespace winrt::FileScoutNative::implementation
 {
-    // Sort column applied to a file-list pane.
     enum class SortColumn { Name, Type, Size, DateModified };
 
-    // Sort direction applied to a file-list pane.
     enum class SortDirection { Ascending, Descending };
 
-    // Presentation mode for the file list — cards show rich cards; list shows compact rows.
     enum class ViewMode { Cards, List };
 
-    // Search state for the address bar.
     enum class SearchMode { None, Filter, Recursive };
 
-    // Per-pane UI and browse state. One instance per visible pane.
     struct PaneLoadTiming
     {
         uint64_t load_start_tick{ 0 };
@@ -66,20 +61,15 @@ namespace winrt::FileScoutNative::implementation
         winrt::Microsoft::UI::Xaml::Controls::ListView active_list_view{ nullptr };
         int32_t active_tab_index{ 0 };
         bool tab_switching{ false };
-        bool is_drives_view{ false };   // True when the pane shows the "This PC" drives list.
-        bool is_archive_view{ false };  // True when the pane shows a virtual archive folder.
-        bool is_recycle_bin_view{ false };  // True when the pane shows the Recycle Bin.
-        // View toggles — per-pane to match Explorer behavior.
+        bool is_drives_view{ false };
+        bool is_archive_view{ false };
+        bool is_recycle_bin_view{ false };
         bool show_hidden_files{ false };
         bool show_file_extensions{ false };
-        // Sort state — shared across all tabs in this pane (same as Explorer behaviour).
         SortColumn sort_column{ SortColumn::Name };
         SortDirection sort_direction{ SortDirection::Ascending };
-        // When true, rows render group headers derived from the active sort column.
         bool group_by_sort_column{ false };
-        // View mode — cards (rich cards) or list (compact rows).
         ViewMode view_mode{ ViewMode::List };
-        // Shared List-view column widths (DIPs) for header and realized rows in this pane.
         ::FileScoutNative::Domain::ListColumnWidths list_column_widths{};
         std::array<winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition, 4> sort_header_columns{
             nullptr, nullptr, nullptr, nullptr
@@ -87,7 +77,6 @@ namespace winrt::FileScoutNative::implementation
         winrt::Microsoft::UI::Xaml::Controls::ScrollViewer sort_header_scroll_viewer{ nullptr };
         double sort_header_toggle_width{ 168.0 };
         bool list_header_offset_unreconciled{ false };
-        // Per-pane navigation history (back/forward stacks).
         std::vector<std::filesystem::path> back_stack;
         std::vector<std::filesystem::path> forward_stack;
         struct ClosedTabEntry
@@ -97,36 +86,22 @@ namespace winrt::FileScoutNative::implementation
         };
         std::vector<ClosedTabEntry> closed_tabs;
 
-        // Incremented each time LoadDirectory is called; lets background loads detect stale results.
         uint32_t load_generation{ 0 };
         PaneLoadTiming last_load_timing{};
-        // Set to true while a staged final-batch publish is still pending. Cleared by
-        // RebuildAllTabRowsForPane so any mid-load sort/group/view-mode change cancels the append.
         bool awaiting_final_batch{ false };
-        ::FileScoutNative::Domain::PendingFilter pending_filter;  // UA-05 filter typed during a load
-        ::FileScoutNative::Domain::TypeAheadBuffer type_ahead;  // UB-18 list type-ahead
-        // Set to true when the user interacts with the pane after the first batch appears.
-        // Prevents the final-batch publish from overwriting live selection/focus state.
+        ::FileScoutNative::Domain::PendingFilter pending_filter;
+        ::FileScoutNative::Domain::TypeAheadBuffer type_ahead;
         bool user_interacted_after_first_batch{ false };
 
-        // --- Search state (R17) ---
         SearchMode search_mode{ SearchMode::None };
         std::wstring search_query;
-        // Snapshot of current tab's items taken at Filter entry.
-        // Used for both scoring and Escape-restore; avoids live pane.items divergence.
         std::vector<::FileScoutNative::Domain::ShellItemRef> search_snapshot;
-        // Visible search-mode items, indexed in lockstep with the current ListView rows.
         std::vector<::FileScoutNative::Domain::ShellItemRef> filtered_items;
-        // Incremented whenever recursive search publishes or tears down visible rows so pending
-        // icon backfills for older search snapshots cannot mutate the current list.
         uint32_t search_view_generation{ 0 };
-        // Replaced whenever recursive rows are rebuilt or search mode tears down so stale
-        // background icon extraction can abandon work before touching the shell repeatedly.
         std::shared_ptr<std::atomic<bool>> search_icon_backfill_cancel{
             std::make_shared<std::atomic<bool>>(false) };
         ::FileScoutNative::Search::SearchService search_service;
 
-        // Live directory change watcher for this pane's active folder.
         std::unique_ptr<::FileScoutNative::Shell::DirectoryWatcher> directory_watcher;
         std::wstring watched_path_key;
         uint64_t watch_token{ 0 };
@@ -215,7 +190,6 @@ namespace winrt::FileScoutNative::implementation
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 
-        // R13a: command palette event handlers (must be public for XAML Connect).
         void CommandPalette_TextChanged(
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& args);
@@ -232,9 +206,7 @@ namespace winrt::FileScoutNative::implementation
         winrt::Microsoft::UI::Windowing::AppWindow m_appWindow{ nullptr };
         winrt::Microsoft::UI::Input::InputNonClientPointerSource m_titleBarPointerSource{ nullptr };
 
-        // Dual-pane state: index 0 = left, index 1 = right.
         std::array<PaneContext, 2> m_panes{};
-        // Folders the user left in either pane, oldest first (UB-11); feeds the sidebar recents.
         std::vector<std::filesystem::path> m_recentFolders;
         static constexpr std::size_t kRecentFolderCapacity = 32;
         int32_t m_activePaneIndex{ 0 };
@@ -242,7 +214,6 @@ namespace winrt::FileScoutNative::implementation
         // Guards against deferred WinUI TabView SelectionChanged events during init
         // overriding the intended default active pane (0 = left).
         bool m_initComplete{ false };
-        // Panel visibility state — toggled by togglePreview / toggleDualPane commands.
         bool m_previewPanelVisible{ true };
         bool m_dualPaneVisible{ true };
         std::optional<std::filesystem::path> m_deferredRightPanePath;
@@ -251,7 +222,6 @@ namespace winrt::FileScoutNative::implementation
         bool m_windowMaximized{ false };
         bool m_windowConfigured{ false };
         bool m_windowClosing{ false };
-        // S4: letter-jump border flash timer (single-shot, 300 ms).
         winrt::Microsoft::UI::Xaml::DispatcherTimer m_letterJumpTimer{ nullptr };
         std::wstring m_currentThemeId{ L"default-dark" };
 
@@ -261,11 +231,9 @@ namespace winrt::FileScoutNative::implementation
         ::FileScoutNative::Shell::DefaultFileManagerService m_defaultFileManager;
         ::FileScoutNative::Shell::ShellClipboardService m_shellClipboardService;
         ::FileScoutNative::Shell::ShellFileOperationService m_shellFileOperationService;
-        // S-03: IFileOperation work runs here, never on the UI thread. Declared after the services its
-        // tasks use, so it is destroyed (and joins) first.
+        // Members are destroyed in reverse order: declared after the services its tasks use, so it joins first.
         ::FileScoutNative::Shell::ShellStaWorker m_shellWorker;
 
-        // co_await OnShellThread(fn): fn runs on the shell STA, the coroutine resumes on the UI thread.
         template <typename Fn>
         auto OnShellThread(Fn fn)
         {
@@ -278,20 +246,13 @@ namespace winrt::FileScoutNative::implementation
         winrt::fire_and_forget PasteIntoAsync(std::filesystem::path destination);
         ::FileScoutNative::Shell::ShellOverflowMenuService m_shellOverflowMenuService;
         ::FileScoutNative::Shell::ShellInteropService m_shellInterop;
-        // UB-10: the sidebar is rebuilt on navigation; the drives (with free space) are read once
-        // and reload on a volume change or Refresh. Sidebar icons are cached by ShellInteropService.
         ::FileScoutNative::Domain::CachedValue<std::vector<::FileScoutNative::Domain::SidebarDriveUsage>> m_sidebarDrives;
         ::FileScoutNative::Shell::CommandRegistry m_commandRegistry;
         POINT m_lastContextMenuPoint{};
         bool m_hasLastContextMenuPoint{ false };
 
-        // L3: Session-persistent icon cache. Key = lowercase extension (e.g. L".exe"),
-        // L"__folder__" for directories, or L"__file__" for files with no extension.
-        // Avoids one WriteableBitmap allocation per item — one per unique extension per session.
         std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::Media::ImageSource> m_iconSourceCache;
 
-        // Lightweight sidebar row tracking so navigation updates selection highlights in place
-        // and only touches the Recents tail when the visible recents list actually changes.
         struct SidebarRowSurfaceEntry
         {
             std::filesystem::path path;
@@ -311,10 +272,8 @@ namespace winrt::FileScoutNative::implementation
         bool m_sidebarRecentsRefreshPending{ false };
         std::filesystem::path m_lastBreadcrumbPath;
 
-        // Paths of items currently in cut state (for faded icon feedback).
         std::unordered_set<std::wstring> m_cutItemPaths;
 
-        // Active-pane accessors.
         [[nodiscard]] PaneContext& ActivePane() noexcept { return m_panes[m_activePaneIndex]; }
         [[nodiscard]] PaneContext const& ActivePane() const noexcept { return m_panes[m_activePaneIndex]; }
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::TabView ActiveTabView();
@@ -384,7 +343,6 @@ namespace winrt::FileScoutNative::implementation
         void LoadDirectory(std::filesystem::path const& path,
             std::optional<std::filesystem::path> selectAfter = std::nullopt,
             bool skipHistoryRecord = false);
-        // Loads `path` into pane `paneIndex` without making it active (UB-07).
         void LoadDirectoryInPane(int32_t paneIndex, std::filesystem::path const& path,
             std::optional<std::filesystem::path> selectAfter = std::nullopt,
             bool skipHistoryRecord = false);
@@ -392,10 +350,8 @@ namespace winrt::FileScoutNative::implementation
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
             std::optional<std::filesystem::path> selectAfter,
             bool preserveAddressEntry = false);
-        // Reloads every pane whose current folder is `folder` (a file operation changed it).
         void RefreshPanesShowing(std::filesystem::path const& folder,
             std::optional<std::filesystem::path> selectAfter = std::nullopt);
-        // S7: backfill real per-extension icons asynchronously after fast rows appear.
         winrt::fire_and_forget BackfillIconsAsync(
             int32_t paneIndex, int32_t tabIndex, uint32_t generation,
             std::vector<::FileScoutNative::Domain::ShellItemRef> items);
@@ -476,27 +432,22 @@ namespace winrt::FileScoutNative::implementation
         void UpdateBookmarksSection();
         void LoadDrivesView(bool skipHistoryRecord = false);
 
-        // R18b: breadcrumb navigation bar + address overlay.
         void UpdateBreadcrumbs(std::filesystem::path const& path);
         void ShowAddressTextBox();
         void HideAddressTextBox();
         void UpdateSearchPlaceholder(std::filesystem::path const& path);
-        // R18c: keyboard type-ahead in file list.
         void ApplyPendingFilter(int32_t paneIndex);
-        // restoreSnapshot=false when the caller replaces the rows at once (This PC).
         void EndSearchOnNavigation(int32_t paneIndex, bool restoreSnapshot = true);
         void FileRowsListView_KeyDown(
             winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args);
         void FileRowsListView_CharacterReceived(
             winrt::Microsoft::UI::Xaml::Input::CharacterReceivedRoutedEventArgs const& args);
 
-        // R13b: navigation history.
         void NavigateBack();
         void NavigateForward();
         void NavigateUp();
         void UpdateNavButtons();
 
-        // R13a: command palette overlay.
         void ShowCommandPalette();
         void HideCommandPalette();
         void RefreshCommandPalette(std::wstring_view query);
@@ -504,20 +455,16 @@ namespace winrt::FileScoutNative::implementation
         void ApplyPaneLayoutVisibility();
         [[nodiscard]] winrt::Windows::Foundation::IInspectable CreateCommandRowView(
             ::FileScoutNative::Domain::CommandEntry const& cmd);
-        // R13e: panel toggle commands.
         void TogglePreviewPanel();
         void ToggleDualPane();
         void ResetSearchState(int32_t paneIndex, bool restoreSnapshot);
 
-        // R17d: per-pane search ProgressBar accessor.
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);
 
-        // R10: async image preview with a generation counter to cancel stale loads.
         uint32_t m_previewGeneration{ 0 };
         winrt::fire_and_forget LoadImagePreviewAsync(
             std::filesystem::path path, uint32_t generation);
 
-        // Sort header helpers.
         void BuildSortHeader(int32_t paneIndex);
         void ApplyListColumnWidthsToPane(int32_t paneIndex);
         void SyncListHeaderHorizontalOffset(int32_t paneIndex);
@@ -527,11 +474,9 @@ namespace winrt::FileScoutNative::implementation
                               SortColumn column, SortDirection direction);
         void SetGroupingEnabled(int32_t paneIndex, bool enabled);
 
-        // View toggles
         void ToggleHiddenFiles(int32_t paneIndex);
         void ToggleExtensions(int32_t paneIndex);
 
-        // View mode helpers (R9b).
         void SetViewMode(int32_t paneIndex, ViewMode mode);
         void RebuildAllTabRowsForPane(int32_t paneIndex);
 

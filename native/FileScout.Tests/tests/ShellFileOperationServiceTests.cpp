@@ -8,8 +8,6 @@
 using namespace FileScoutNative::Domain;
 using namespace FileScoutNative::Shell;
 
-// ─── Fixture ─────────────────────────────────────────────────────────────────
-
 class ShellFileOperationFixture : public ::testing::Test
 {
 protected:
@@ -36,7 +34,6 @@ protected:
         CoUninitialize();
     }
 
-    // Write a small file at path and return its path.
     static std::filesystem::path WriteFile(
         std::filesystem::path const& path,
         std::string_view content)
@@ -108,8 +105,6 @@ TEST(FileNameValidationTests, RejectsReservedDeviceNamesEvenWithExtensions)
         ValidateWindowsFileName(L"Lpt1.log"),
         std::optional<std::wstring>{ L"That name is reserved on Windows." });
 }
-
-// ─── BuildSequentialBatchRenamePlan ──────────────────────────────────────────
 
 TEST(BatchRenamePlanTests, BuildSequentialPlanPreservesExtensionsAndFolderNames)
 {
@@ -371,8 +366,6 @@ TEST(ShellFileOperationDetail, BuildPropertiesLaunchSpec_UsesShopFilePathAndNoPa
     EXPECT_TRUE(spec.property_page.empty());
 }
 
-// ─── CreateFolder ────────────────────────────────────────────────────────────
-
 TEST_F(ShellFileOperationFixture, CreateFolderCreatesDirectory)
 {
     auto result = m_svc.CreateFolder(nullptr, m_root, L"NewDir");
@@ -384,8 +377,6 @@ TEST_F(ShellFileOperationFixture, CreateFolderReturnsCorrectPath)
     auto result = m_svc.CreateFolder(nullptr, m_root, L"SomeFolder");
     EXPECT_EQ(result, m_root / L"SomeFolder");
 }
-
-// ─── RenameItem ──────────────────────────────────────────────────────────────
 
 TEST_F(ShellFileOperationFixture, RenameItemRenamesFile)
 {
@@ -421,12 +412,9 @@ TEST_F(ShellFileOperationFixture, RenameItemsRenamesMultipleFiles)
     EXPECT_TRUE(std::filesystem::exists(results[1]));
 }
 
-// ─── CopyItemsFromPaths ───────────────────────────────────────────────────────
-
 TEST_F(ShellFileOperationFixture, CopyItemsFromPathsEmptySpanIsNoOp)
 {
     std::vector<std::filesystem::path> empty;
-    // Should return without error when no source paths are provided.
     EXPECT_NO_THROW(
         m_svc.CopyItemsFromPaths(
             nullptr,
@@ -434,8 +422,6 @@ TEST_F(ShellFileOperationFixture, CopyItemsFromPathsEmptySpanIsNoOp)
             m_root,
             false));
 }
-
-// ─── CopyItemFromPath ────────────────────────────────────────────────────────
 
 TEST_F(ShellFileOperationFixture, CopyItemFromPathCopiesFile)
 {
@@ -445,8 +431,8 @@ TEST_F(ShellFileOperationFixture, CopyItemFromPathCopiesFile)
 
     m_svc.CopyItemFromPath(nullptr, src, destDir, L"copy.txt");
 
-    EXPECT_TRUE(std::filesystem::exists(src));              // original still present
-    EXPECT_TRUE(std::filesystem::exists(destDir / L"copy.txt")); // copy created
+    EXPECT_TRUE(std::filesystem::exists(src));
+    EXPECT_TRUE(std::filesystem::exists(destDir / L"copy.txt"));
 }
 
 TEST_F(ShellFileOperationFixture, CopyItemsFromPathsIntoSameFolderCreatesDuplicateInsteadOfFailing)
@@ -478,8 +464,6 @@ TEST_F(ShellFileOperationFixture, CopyItemsFromPathsIntoSameFolderCreatesDuplica
     EXPECT_EQ(payloadCopies.size(), 2u);
 }
 
-// ─── DeleteItem ───────────────────────────────────────────────────────────────
-
 TEST_F(ShellFileOperationFixture, DeleteItemRemovesFileFromOriginalPath)
 {
     auto target = WriteFile(m_root / L"to_delete.txt", "ephemeral");
@@ -487,7 +471,6 @@ TEST_F(ShellFileOperationFixture, DeleteItemRemovesFileFromOriginalPath)
 
     m_svc.DeleteItem(nullptr, target);
 
-    // File moved to Recycle Bin — should no longer be at original path.
     EXPECT_FALSE(std::filesystem::exists(target));
 }
 
@@ -505,12 +488,12 @@ TEST_F(ShellFileOperationFixture, DeleteItemsRemovesFilesFromOriginalPaths)
 
 TEST(DeleteOperationFlagsTests, RecycleVsPermanentFlagsAreDistinct)
 {
-    DWORD const recycleFlags = DeleteOperationFlags(/*permanent=*/false);
+    DWORD const recycleFlags = DeleteOperationFlags(false);
     EXPECT_NE(recycleFlags & FOFX_RECYCLEONDELETE, 0u);
     EXPECT_NE(recycleFlags & FOFX_ADDUNDORECORD, 0u);
     EXPECT_NE(recycleFlags & FOF_NOCONFIRMATION, 0u);
 
-    DWORD const permanentFlags = DeleteOperationFlags(/*permanent=*/true);
+    DWORD const permanentFlags = DeleteOperationFlags(true);
     EXPECT_EQ(permanentFlags & FOFX_RECYCLEONDELETE, 0u);
     EXPECT_EQ(permanentFlags & FOF_ALLOWUNDO, 0u);
     EXPECT_EQ(permanentFlags & FOFX_ADDUNDORECORD, 0u);
@@ -524,7 +507,7 @@ TEST_F(ShellFileOperationFixture, PermanentDeleteItemRemovesFile)
     auto const target = WriteFile(m_root / L"perm_single.txt", "gone forever");
     ASSERT_TRUE(std::filesystem::exists(target));
 
-    m_svc.DeleteItem(nullptr, target, /*permanent=*/true);
+    m_svc.DeleteItem(nullptr, target, true);
 
     EXPECT_FALSE(std::filesystem::exists(target));
 }
@@ -538,7 +521,7 @@ TEST_F(ShellFileOperationFixture, PermanentDeleteItemsRemovesMultipleFilesAndFol
     auto const nested = WriteFile(folder / L"nested.txt", "three");
 
     std::vector<std::filesystem::path> paths{ first, second, folder };
-    m_svc.DeleteItems(nullptr, paths, /*permanent=*/true);
+    m_svc.DeleteItems(nullptr, paths, true);
 
     EXPECT_FALSE(std::filesystem::exists(first));
     EXPECT_FALSE(std::filesystem::exists(second));
@@ -595,8 +578,6 @@ TEST_F(ShellFileOperationFixture, RenameFailureIncludesActionAndSourcePath)
     ExpectContains(message, "Rename");
     ExpectContains(message, winrt::to_string(winrt::hstring{ original.wstring() }));
 }
-
-// ─── ClassifyFileOperationOutcome (S-05) ──────────────────────────────────────
 
 TEST(FileOperationOutcomeTests, AbortedOperationMapsToCanceled)
 {
@@ -656,11 +637,8 @@ TEST(FileOperationOutcomeTests, CancelDoesNotDependOnMessageText)
     EXPECT_TRUE(FileOperationException{ error }.IsCanceled());
 }
 
-// ─── RenameItems failure from PerformOperations (S-06) ───────────────────────
-
 namespace
 {
-    // Runs RenameItems and reports how it failed: "FileOperationException", "hresult_error", or "none".
     std::string RenameItemsFailureKind(
         ShellFileOperationService const& service,
         std::vector<RenameRequest> const& requests,
@@ -686,7 +664,6 @@ namespace
 TEST_F(ShellFileOperationFixture, RenameItemsFailureDuringPerformCarriesActionAndPath)
 {
     auto const source = WriteFile(m_root / L"alpha.txt", "data");
-    // Queued fine, but the shell refuses the name when the operation runs.
     std::vector<RenameRequest> requests{ { source, L"bad<name>.txt" } };
 
     FileOperationError captured;
@@ -704,7 +681,6 @@ TEST_F(ShellFileOperationFixture, RenameItemsFailureDuringPerformCarriesActionAn
 TEST_F(ShellFileOperationFixture, RenameItemsSourceGoneDuringPerformCarriesActionAndPath)
 {
     auto const source = WriteFile(m_root / L"alpha.txt", "data");
-    // The second request's source no longer exists once the first one has run.
     std::vector<RenameRequest> requests{
         { source, L"beta.txt" },
         { source, L"gamma.txt" },

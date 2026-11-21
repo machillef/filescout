@@ -1,9 +1,5 @@
 #pragma once
 
-// pch for test project.
-// Includes needed to compile domain, ContextMenuService (pure C++),
-// and ShellInteropService (requires COM + winrt::com_ptr).
-
 // COM/Shell headers — included before <winrt/base.h> as required.
 #include <windows.h>
 #include <unknwn.h>
@@ -40,5 +36,4 @@
 #include <queue>
 #include <thread>
 
-// CppWinRT base (winrt::com_ptr) — headers from main project's Generated Files.
 #include <winrt/base.h>

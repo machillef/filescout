@@ -179,7 +179,6 @@ TEST_F(FavoritesServiceFixture, RemovePinnedFavorite_PersistsDeletion)
     ASSERT_TRUE(service.AddPinnedFavorite(targetPath));
     ASSERT_TRUE(service.RemovePinnedFavorite(targetPath));
 
-    // Fresh service instance reads the same storage file.
     FavoritesService freshService;
     EXPECT_FALSE(freshService.IsSidebarFavorite(targetPath));
 }
