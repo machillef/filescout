@@ -8019,7 +8019,7 @@ namespace winrt::FileScoutNative::implementation
         catch (std::exception const& error)
         {
             StatusTextBlock().Text(ToHString(
-                L"Couldn't restore from Recycle Bin. " + winrt::to_hstring(error.what()).c_str()));
+                BuildFileOperationErrorStatus(L"Couldn't restore from Recycle Bin", winrt::to_hstring(error.what()).c_str())));
         }
     }
 
@@ -8105,7 +8105,7 @@ namespace winrt::FileScoutNative::implementation
         catch (std::exception const& error)
         {
             StatusTextBlock().Text(ToHString(
-                L"Couldn't empty Recycle Bin. " + winrt::to_hstring(error.what()).c_str()));
+                BuildFileOperationErrorStatus(L"Couldn't empty Recycle Bin", winrt::to_hstring(error.what()).c_str())));
         }
     }
 
@@ -8161,7 +8161,7 @@ namespace winrt::FileScoutNative::implementation
         {
             SearchProgressForPane(activePaneIndex).Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             StatusTextBlock().Text(ToHString(
-                L"Couldn't compress to ZIP. " + winrt::to_hstring(error.what()).c_str()));
+                BuildFileOperationErrorStatus(L"Couldn't compress to ZIP", winrt::to_hstring(error.what()).c_str())));
         }
     }
 
