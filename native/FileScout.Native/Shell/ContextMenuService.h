@@ -14,6 +14,7 @@ namespace FileScoutNative::Shell
         bool is_read_only_archive_view{ false };
         bool is_recycle_bin_view{ false };
         bool is_drives_view{ false };
+        bool can_compress_to_zip{ true };
     };
 
     class ContextMenuService

@@ -260,6 +260,17 @@ TEST(ContextMenuServiceTest, DrivesView_HidesCompressToZip)
     EXPECT_FALSE(HasGroupCommand(model, L"compressToZip"));
 }
 
+TEST(ContextMenuServiceTest, IneligibleSelection_HidesCompressToZip)
+{
+    ContextMenuService svc;
+    ContextMenuScenario scenario{ MakeFile() };
+    scenario.can_compress_to_zip = false;
+
+    auto model = svc.BuildMenu(scenario);
+
+    EXPECT_FALSE(HasGroupCommand(model, L"compressToZip"));
+}
+
 // ---------------------------------------------------------------------------
 // MakeCommand factory produces correct field values
 // ---------------------------------------------------------------------------

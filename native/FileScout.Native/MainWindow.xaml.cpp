@@ -2789,7 +2789,24 @@ namespace winrt::FileScoutNative::implementation
             !ActivePane().is_archive_view &&
             !ActivePane().is_recycle_bin_view &&
             m_shellClipboardService.CanPasteInto(ActivePane().current_path);
-        scenario.selection_count = static_cast<uint32_t>(GetSelectedItemIndices().size());
+        auto const selectedIndices = GetSelectedItemIndices();
+        scenario.selection_count = static_cast<uint32_t>(selectedIndices.size());
+        {
+            std::vector<std::filesystem::path> selectedPaths;
+            selectedPaths.reserve(selectedIndices.size());
+            for (int32_t const idx : selectedIndices)
+            {
+                if (auto const* selItem = TryGetDisplayedItemByIndex(idx))
+                {
+                    selectedPaths.push_back(selItem->path);
+                }
+            }
+            scenario.can_compress_to_zip =
+                !ActivePane().is_drives_view &&
+                !ActivePane().is_recycle_bin_view &&
+                !ActivePane().is_archive_view &&
+                ::FileScoutNative::Domain::TryGetCommonParentDirectory(selectedPaths).has_value();
+        }
         if (itemIndex.has_value())
         {
             if (auto const* item = TryGetDisplayedItemByIndex(*itemIndex))
@@ -2902,7 +2919,24 @@ namespace winrt::FileScoutNative::implementation
             !ActivePane().is_archive_view &&
             !ActivePane().is_recycle_bin_view &&
             m_shellClipboardService.CanPasteInto(ActivePane().current_path);
-        scenario.selection_count = static_cast<uint32_t>(GetSelectedItemIndices().size());
+        auto const selectedIndices = GetSelectedItemIndices();
+        scenario.selection_count = static_cast<uint32_t>(selectedIndices.size());
+        {
+            std::vector<std::filesystem::path> selectedPaths;
+            selectedPaths.reserve(selectedIndices.size());
+            for (int32_t const idx : selectedIndices)
+            {
+                if (auto const* selItem = TryGetDisplayedItemByIndex(idx))
+                {
+                    selectedPaths.push_back(selItem->path);
+                }
+            }
+            scenario.can_compress_to_zip =
+                !ActivePane().is_drives_view &&
+                !ActivePane().is_recycle_bin_view &&
+                !ActivePane().is_archive_view &&
+                ::FileScoutNative::Domain::TryGetCommonParentDirectory(selectedPaths).has_value();
+        }
         if (itemIndex.has_value())
         {
             if (auto const* item = TryGetDisplayedItemByIndex(*itemIndex))
@@ -3156,11 +3190,8 @@ namespace winrt::FileScoutNative::implementation
                         ::FileScoutNative::Domain::UndoPathPair undoPair{};
                         undoPair.source = pair.source;
                         undoPair.target = pair.destination;
-                        if (!isMove)
-                        {
-                            undoPair.target_identity =
-                                ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.destination);
-                        }
+                        undoPair.target_identity =
+                            ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.destination);
                         out.completed_items.push_back(std::move(undoPair));
                     }
                     return out;
@@ -6258,7 +6289,20 @@ namespace winrt::FileScoutNative::implementation
                 return;
             }
 
-            CompressSelectionToZipAsync(pane.current_path, std::move(targets));
+            std::vector<std::filesystem::path> targetPaths;
+            targetPaths.reserve(targets.size());
+            for (auto const& target : targets)
+            {
+                targetPaths.push_back(target.path);
+            }
+            auto const commonParent = ::FileScoutNative::Domain::TryGetCommonParentDirectory(targetPaths);
+            if (!commonParent.has_value())
+            {
+                StatusTextBlock().Text(L"All selected items must be in the same folder to compress to ZIP.");
+                return;
+            }
+
+            CompressSelectionToZipAsync(*commonParent, std::move(targets));
             return;
         }
 
@@ -6566,11 +6610,8 @@ namespace winrt::FileScoutNative::implementation
                         ::FileScoutNative::Domain::UndoPathPair undoPair{};
                         undoPair.source = pair.source;
                         undoPair.target = pair.destination;
-                        if (!out.outcome.was_move)
-                        {
-                            undoPair.target_identity =
-                                ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.destination);
-                        }
+                        undoPair.target_identity =
+                            ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.destination);
                         out.completed_items.push_back(std::move(undoPair));
                     }
                     return out;
@@ -6780,14 +6821,21 @@ namespace winrt::FileScoutNative::implementation
 
             auto const owner = GetWindowHandle();
             auto const source = item.path;
-            auto const renamedPath = co_await OnShellThread([this, owner, source, newName]
+            auto const renamed = co_await OnShellThread([this, owner, source, newName]
                 {
-                    return m_shellFileOperationService.RenameItem(owner, source, newName);
+                    auto path = m_shellFileOperationService.RenameItem(owner, source, newName);
+                    auto identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(path);
+                    return std::pair{ std::move(path), identity };
                 });
+            auto const& renamedPath = renamed.first;
+            ::FileScoutNative::Domain::UndoPathPair pair{};
+            pair.source = source;
+            pair.target = renamedPath;
+            pair.target_identity = renamed.second;
             m_undoStack.Push(::FileScoutNative::Domain::UndoEntry{
                 .kind = ::FileScoutNative::Domain::UndoActionKind::Rename,
                 .description = L"Rename '" + source.filename().wstring() + L"' to '" + renamedPath.filename().wstring() + L"'",
-                .items = { { source, renamedPath } },
+                .items = { std::move(pair) },
             });
             RefreshPanesShowing(source.parent_path(), renamedPath);
             StatusTextBlock().Text(ToHString(L"Renamed to " + renamedPath.filename().wstring()));
@@ -7288,11 +7336,20 @@ namespace winrt::FileScoutNative::implementation
             ScopedPendingMutation mutationGuard{ m_pendingMutationCount };
 
             auto const owner = GetWindowHandle();
-            auto const renamedPaths = co_await OnShellThread([this, owner, requests]
+            auto const renamedBatch = co_await OnShellThread([this, owner, requests]
                 {
-                    return m_shellFileOperationService.RenameItems(
+                    auto paths = m_shellFileOperationService.RenameItems(
                         owner, std::span<::FileScoutNative::Shell::RenameRequest const>{ requests.data(), requests.size() });
+                    std::vector<std::optional<::FileScoutNative::Domain::FileIdentity>> identities;
+                    identities.reserve(paths.size());
+                    for (auto const& path : paths)
+                    {
+                        identities.push_back(::FileScoutNative::Shell::TryCaptureFileIdentity(path));
+                    }
+                    return std::pair{ std::move(paths), std::move(identities) };
                 });
+            auto const& renamedPaths = renamedBatch.first;
+            auto const& renamedIdentities = renamedBatch.second;
             if (renamedPaths.size() == requests.size() && !requests.empty())
             {
                 ::FileScoutNative::Domain::UndoEntry entry{};
@@ -7302,7 +7359,14 @@ namespace winrt::FileScoutNative::implementation
                 entry.items.reserve(requests.size());
                 for (std::size_t i = 0; i < requests.size(); ++i)
                 {
-                    entry.items.push_back({ requests[i].path, renamedPaths[i] });
+                    ::FileScoutNative::Domain::UndoPathPair pair{};
+                    pair.source = requests[i].path;
+                    pair.target = renamedPaths[i];
+                    if (i < renamedIdentities.size())
+                    {
+                        pair.target_identity = renamedIdentities[i];
+                    }
+                    entry.items.push_back(std::move(pair));
                 }
                 m_undoStack.Push(std::move(entry));
             }
@@ -7859,12 +7923,22 @@ namespace winrt::FileScoutNative::implementation
                 case Kind::BatchRename:
                     for (std::size_t rev = items.size(); rev-- > 0;)
                     {
-                        auto const& pair = items[rev];
+                        auto pair = items[rev];
+                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.target);
+                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
+                            *liveIdentity != *pair.target_identity)
+                        {
+                            recordFailure(rev, /*isReverse=*/true, false,
+                                L"Item at '" + pair.target.filename().wstring() +
+                                L"' changed since it was renamed; cannot safely undo.");
+                            break;
+                        }
                         try
                         {
                             (void)m_shellFileOperationService.RenameItem(
                                 owner, pair.target, pair.source.filename().wstring());
-                            out.completed.push_back(pair);
+                            pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
+                            out.completed.push_back(std::move(pair));
                         }
                         catch (::FileScoutNative::Shell::FileOperationException const& err)
                         {
@@ -7912,6 +7986,19 @@ namespace winrt::FileScoutNative::implementation
                                 break;
                             }
                         }
+                        else if (entry.kind == Kind::CreateFile)
+                        {
+                            std::error_code ec;
+                            bool const isRegular = std::filesystem::is_regular_file(pair.target, ec);
+                            auto const fileSize = (!ec && isRegular) ? std::filesystem::file_size(pair.target, ec) : 1u;
+                            if (ec || !isRegular || fileSize != 0)
+                            {
+                                recordFailure(i, /*isReverse=*/false, false,
+                                    L"File '" + pair.target.filename().wstring() +
+                                    L"' is no longer empty; cannot undo creation.");
+                                break;
+                            }
+                        }
 
                         try
                         {
@@ -7935,7 +8022,16 @@ namespace winrt::FileScoutNative::implementation
                 case Kind::Move:
                     for (std::size_t rev = items.size(); rev-- > 0;)
                     {
-                        auto const& pair = items[rev];
+                        auto pair = items[rev];
+                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.target);
+                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
+                            *liveIdentity != *pair.target_identity)
+                        {
+                            recordFailure(rev, /*isReverse=*/true, false,
+                                L"Item at '" + pair.target.filename().wstring() +
+                                L"' changed since it was moved; cannot safely undo.");
+                            break;
+                        }
                         try
                         {
                             m_shellFileOperationService.MoveItemFromPath(
@@ -7943,7 +8039,8 @@ namespace winrt::FileScoutNative::implementation
                                 pair.target,
                                 pair.source.parent_path(),
                                 pair.source.filename().wstring());
-                            out.completed.push_back(pair);
+                            pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
+                            out.completed.push_back(std::move(pair));
                         }
                         catch (::FileScoutNative::Shell::FileOperationException const& err)
                         {
@@ -7972,9 +8069,9 @@ namespace winrt::FileScoutNative::implementation
                     }
                     if (targetParsingNames.empty())
                     {
+                        // Permanently unidentifiable entry: retire it rather than blocking older undo entries.
                         out.failed = true;
-                        out.error_detail = L"Cannot identify the exact Recycle Bin item(s) to restore.";
-                        out.remaining = items;
+                        out.error_detail = L"Skipped deleted item(s) whose Recycle Bin identity was unavailable.";
                         break;
                     }
 
@@ -8003,24 +8100,30 @@ namespace winrt::FileScoutNative::implementation
                             return false;
                         };
 
-                        for (auto const& pair : items)
+                        std::size_t missingCount = 0;
+                        for (auto pair : items)
                         {
                             if (wasRestored(pair.recycle_bin_parsing_name))
                             {
-                                out.completed.push_back(pair);
+                                // Capture the restored file's live identity so Redo verifies it
+                                // before recycling the path again.
+                                pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
+                                out.completed.push_back(std::move(pair));
                             }
                             else
                             {
-                                out.remaining.push_back(pair);
+                                ++missingCount;
                             }
                         }
 
-                        if (!out.remaining.empty())
+                        if (missingCount > 0)
                         {
+                            // Confirmed absent from the Recycle Bin: retire the missing items so
+                            // subsequent Ctrl+Z can reach earlier history entries.
                             out.failed = true;
                             out.error_detail = out.completed.empty()
-                                ? L"The deleted item(s) could not be found in the Recycle Bin."
-                                : L"Some deleted items were no longer in the Recycle Bin.";
+                                ? L"The deleted item(s) are no longer in the Recycle Bin (skipped)."
+                                : L"Some deleted items were no longer in the Recycle Bin (skipped).";
                         }
                     }
                     catch (::FileScoutNative::Shell::FileOperationException const& err)
@@ -8028,7 +8131,15 @@ namespace winrt::FileScoutNative::implementation
                         out.failed = true;
                         out.canceled = err.IsCanceled();
                         out.error_detail = err.Error().detail;
-                        out.remaining = items;
+                        // If RestoreRecycleBinItems confirmed none of the items exist in the bin,
+                        // retire the entry; keep transient/canceled errors retryable.
+                        bool const confirmedMissing =
+                            !err.IsCanceled() &&
+                            err.Error().detail.find(L"could not be found in the Recycle Bin") != std::wstring::npos;
+                        if (!confirmedMissing)
+                        {
+                            out.remaining = items;
+                        }
                     }
                     catch (std::exception const& err)
                     {
@@ -8172,12 +8283,22 @@ namespace winrt::FileScoutNative::implementation
                 case Kind::BatchRename:
                     for (std::size_t i = 0; i < items.size(); ++i)
                     {
-                        auto const& pair = items[i];
+                        auto pair = items[i];
+                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
+                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
+                            *liveIdentity != *pair.target_identity)
+                        {
+                            recordFailure(i, false,
+                                L"Item at '" + pair.source.filename().wstring() +
+                                L"' changed since it was undone; cannot safely redo rename.");
+                            break;
+                        }
                         try
                         {
                             (void)m_shellFileOperationService.RenameItem(
                                 owner, pair.source, pair.target.filename().wstring());
-                            out.completed.push_back(pair);
+                            pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.target);
+                            out.completed.push_back(std::move(pair));
                         }
                         catch (::FileScoutNative::Shell::FileOperationException const& err)
                         {
@@ -8245,7 +8366,16 @@ namespace winrt::FileScoutNative::implementation
                 case Kind::Move:
                     for (std::size_t i = 0; i < items.size(); ++i)
                     {
-                        auto const& pair = items[i];
+                        auto pair = items[i];
+                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
+                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
+                            *liveIdentity != *pair.target_identity)
+                        {
+                            recordFailure(i, false,
+                                L"Item at '" + pair.source.filename().wstring() +
+                                L"' changed since it was undone; cannot safely redo move.");
+                            break;
+                        }
                         try
                         {
                             m_shellFileOperationService.MoveItemFromPath(
@@ -8253,7 +8383,8 @@ namespace winrt::FileScoutNative::implementation
                                 pair.source,
                                 pair.target.parent_path(),
                                 pair.target.filename().wstring());
-                            out.completed.push_back(pair);
+                            pair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.target);
+                            out.completed.push_back(std::move(pair));
                         }
                         catch (::FileScoutNative::Shell::FileOperationException const& err)
                         {
@@ -8299,30 +8430,48 @@ namespace winrt::FileScoutNative::implementation
                     for (std::size_t i = 0; i < items.size(); ++i)
                     {
                         auto pair = items[i];
+                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
+                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
+                            *liveIdentity != *pair.target_identity)
+                        {
+                            recordFailure(i, false,
+                                L"Item at '" + pair.source.filename().wstring() +
+                                L"' changed since it was restored; cannot safely redo delete.");
+                            break;
+                        }
+
                         std::vector<::FileScoutNative::Shell::DeletedItemRecord> deletedRecords;
+                        auto applyCompletedDeleteIfPresent = [&]() -> bool
+                        {
+                            if (deletedRecords.empty())
+                            {
+                                return false;
+                            }
+                            pair.recycle_bin_parsing_name = deletedRecords.front().recycle_bin_parsing_name;
+                            out.completed.push_back(std::move(pair));
+                            return true;
+                        };
                         try
                         {
                             std::filesystem::path const singleTarget[1]{ pair.source };
                             m_shellFileOperationService.DeleteItems(
                                 owner, singleTarget, /*permanent=*/false, &deletedRecords);
-                            if (!deletedRecords.empty())
-                            {
-                                pair.recycle_bin_parsing_name = deletedRecords.front().recycle_bin_parsing_name;
-                            }
-                            else
+                            if (!applyCompletedDeleteIfPresent())
                             {
                                 pair.recycle_bin_parsing_name.clear();
+                                out.completed.push_back(std::move(pair));
                             }
-                            out.completed.push_back(std::move(pair));
                         }
                         catch (::FileScoutNative::Shell::FileOperationException const& err)
                         {
-                            recordFailure(i, err.IsCanceled(), err.Error().detail);
+                            bool const completedCurrent = applyCompletedDeleteIfPresent();
+                            recordFailure(completedCurrent ? (i + 1) : i, err.IsCanceled(), err.Error().detail);
                             break;
                         }
                         catch (std::exception const& err)
                         {
-                            recordFailure(i, false, winrt::to_hstring(err.what()).c_str());
+                            bool const completedCurrent = applyCompletedDeleteIfPresent();
+                            recordFailure(completedCurrent ? (i + 1) : i, false, winrt::to_hstring(err.what()).c_str());
                             break;
                         }
                     }
@@ -8567,20 +8716,8 @@ namespace winrt::FileScoutNative::implementation
         dialog.PrimaryButtonText(L"Empty Recycle Bin");
         dialog.CloseButtonText(L"Cancel");
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
-        std::wstring confirmMessage;
-        if (!itemCount.has_value())
-        {
-            confirmMessage = L"Are you sure you want to permanently delete all items in the Recycle Bin? This cannot be undone.";
-        }
-        else if (*itemCount == 1)
-        {
-            confirmMessage = L"Are you sure you want to permanently delete 1 item in the Recycle Bin? This cannot be undone.";
-        }
-        else
-        {
-            confirmMessage = L"Are you sure you want to permanently delete all " +
-                std::to_wstring(*itemCount) + L" items in the Recycle Bin? This cannot be undone.";
-        }
+        std::wstring const confirmMessage =
+            L"Are you sure you want to permanently delete all items in the Recycle Bin? This cannot be undone.";
         dialog.Content(winrt::box_value(confirmMessage));
 
         winrt::Microsoft::UI::Xaml::Controls::ContentDialogResult dialogResult =

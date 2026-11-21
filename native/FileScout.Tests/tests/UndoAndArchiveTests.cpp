@@ -147,6 +147,15 @@ TEST(ArchiveCompressionTests, SuggestsCollisionSafeZipNamesForFilesFoldersAndMul
     // Exhausted candidate range returns std::nullopt instead of an occupied path.
     auto alwaysExists = [](std::filesystem::path const&) { return true; };
     EXPECT_FALSE(SuggestZipArchivePath(L"C:\\Work", singleFile, alwaysExists, false).has_value());
+
+    // Common parent directory helper accepts same-folder items and rejects mixed-parent selections.
+    std::vector<std::filesystem::path> sameParent{ L"C:\\Work\\Sub\\a.txt", L"c:\\work\\sub\\b.txt" };
+    auto const common = TryGetCommonParentDirectory(sameParent);
+    ASSERT_TRUE(common.has_value());
+    EXPECT_EQ(common->wstring(), L"C:\\Work\\Sub");
+
+    std::vector<std::filesystem::path> mixedParent{ L"C:\\Work\\a.txt", L"C:\\Work\\Sub\\b.txt" };
+    EXPECT_FALSE(TryGetCommonParentDirectory(mixedParent).has_value());
 }
 
 TEST(ArchiveCompressionTests, BuildsTarCommandWithOptionSeparatorAndQuoting)

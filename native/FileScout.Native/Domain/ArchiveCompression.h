@@ -59,6 +59,43 @@ namespace FileScoutNative::Domain
         return result;
     }
 
+    // Returns the shared parent directory when every path is non-empty, has a filename, and
+    // resides in the exact same folder (case-insensitively); otherwise returns std::nullopt.
+    [[nodiscard]] inline std::optional<std::filesystem::path> TryGetCommonParentDirectory(
+        std::span<std::filesystem::path const> paths)
+    {
+        if (paths.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::filesystem::path commonParent;
+        std::filesystem::path normCommonParent;
+        for (auto const& path : paths)
+        {
+            if (path.empty() || path.filename().empty() || !path.has_parent_path())
+            {
+                return std::nullopt;
+            }
+            auto const parent = path.parent_path();
+            auto const normParent = NormalizeFolderForCompare(parent);
+            if (normParent.empty())
+            {
+                return std::nullopt;
+            }
+            if (commonParent.empty())
+            {
+                commonParent = parent;
+                normCommonParent = normParent;
+            }
+            else if (!PathsEqualIgnoringCase(normParent, normCommonParent))
+            {
+                return std::nullopt;
+            }
+        }
+        return commonParent;
+    }
+
     // Computes the base archive name (without `.zip`) for a selection in `parentDirectory`.
     [[nodiscard]] inline std::wstring BuildZipArchiveBaseName(
         std::filesystem::path const& parentDirectory,
