@@ -7985,7 +7985,10 @@ namespace winrt::FileScoutNative::implementation
         pane.selection = tab.selection;
 
         if (tab.is_drives_view)
+        {
             BreadcrumbPanel().Children().Clear();
+            UpdateNavButtons();
+        }
         else
         {
             UpdateBreadcrumbs(pane.current_path);
@@ -9293,32 +9296,15 @@ namespace winrt::FileScoutNative::implementation
             rowGrid.Children().Append(label);
 
             auto const isSelected =
-                (entry.is_drives_view && activePane.is_drives_view) ||
-                (!entry.path.empty() && activeFavoriteScore > 0 &&
-                    SidebarPathsEqual(entry.path, activeFavoritePath));
+                !entry.path.empty() && activeFavoriteScore > 0 &&
+                SidebarPathsEqual(entry.path, activeFavoritePath);
 
             auto surface = BuildSidebarRowSurface(isSelected);
             surface.Child(rowGrid);
             btn.Content(surface);
 
-            if (entry.is_drives_view)
-            {
-                btn.Click([this](auto const&, auto const&) { LoadDrivesView(); });
-                btn.AddHandler(
-                    winrt::Microsoft::UI::Xaml::UIElement::PointerPressedEvent(),
-                    winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
-                        [this](auto const&, auto const& args)
-                        {
-                            if (args.GetCurrentPoint(nullptr).Properties().PointerUpdateKind() ==
-                                winrt::Microsoft::UI::Input::PointerUpdateKind::MiddleButtonPressed)
-                            {
-                                args.Handled(true);
-                                AddTabForDrivesView();
-                            }
-                        })),
-                    /*handledEventsToo=*/true);
-            }
-            else if (entry.is_recycle_bin)
+            // Note: entry.is_drives_view is skipped above because This PC has its own Expander section.
+            if (entry.is_recycle_bin)
             {
                 auto const recycleTarget = std::filesystem::path{ ::FileScoutNative::Domain::kRecycleBinLocation };
                 btn.Click([this, recycleTarget](auto const&, auto const&)
