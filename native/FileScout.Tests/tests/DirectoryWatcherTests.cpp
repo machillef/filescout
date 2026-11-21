@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -46,12 +47,14 @@ namespace
         std::mutex mutex;
         std::condition_variable cv;
         int count{ 0 };
+        uint64_t lastEventTick{ 0 };
 
-        void Increment()
+        void Increment(uint64_t const eventTickMs)
         {
             {
                 std::lock_guard lock{ mutex };
                 ++count;
+                lastEventTick = eventTickMs;
             }
             cv.notify_all();
         }
@@ -81,6 +84,22 @@ TEST(WatchDebounceTests, ShouldWatchLocationRejectsVirtualAndEmptyLocations)
     EXPECT_TRUE(ShouldWatchLocation(L"C:\\Users\\Docs", false, false, false));
 }
 
+TEST(WatchDebounceTests, SnapshotCoverageAndInactivePaneSelectionRestoreRules)
+{
+    // Events strictly before enumeration started are already covered by that snapshot.
+    EXPECT_TRUE(IsWatchEventCoveredBySnapshot(1000, 1050));
+    EXPECT_FALSE(IsWatchEventCoveredBySnapshot(1050, 1050));
+    EXPECT_FALSE(IsWatchEventCoveredBySnapshot(1100, 1050));
+    EXPECT_FALSE(IsWatchEventCoveredBySnapshot(0, 1050));
+    EXPECT_FALSE(IsWatchEventCoveredBySnapshot(1000, 0));
+
+    // Active pane always restores selection; inactive right pane (1) restores when background
+    // watch refresh requests selection preservation while left pane (0) stays active.
+    EXPECT_TRUE(ShouldRestoreSelectionInLoadedPane(/*loadedPaneIndex=*/0, /*activePaneIndex=*/0, false));
+    EXPECT_FALSE(ShouldRestoreSelectionInLoadedPane(/*loadedPaneIndex=*/1, /*activePaneIndex=*/0, false));
+    EXPECT_TRUE(ShouldRestoreSelectionInLoadedPane(/*loadedPaneIndex=*/1, /*activePaneIndex=*/0, true));
+}
+
 TEST(WatchDebounceTests, CoalescesBurstsAndFlushesAfterQuietPeriod)
 {
     DirectoryWatchCoordinator coord;
@@ -89,11 +108,13 @@ TEST(WatchDebounceTests, CoalescesBurstsAndFlushesAfterQuietPeriod)
 
     coord.NoteChange(1000);
     EXPECT_TRUE(coord.HasPending());
+    EXPECT_EQ(coord.LastEventTickMs(), 1000u);
     EXPECT_FALSE(coord.ShouldFlush(1100, 300, 1500));
     EXPECT_EQ(coord.RemainingWaitMs(1100, 300, 1500), 200u);
 
     // Another event arrives at 1200 -> quiet window slides to 1500.
     coord.NoteChange(1200);
+    EXPECT_EQ(coord.LastEventTickMs(), 1200u);
     EXPECT_FALSE(coord.ShouldFlush(1450, 300, 1500));
     EXPECT_EQ(coord.RemainingWaitMs(1450, 300, 1500), 50u);
 
@@ -149,12 +170,12 @@ TEST(WatchDebounceTests, SelfMutationSuppressionDefersAndReconcilesOnceAfterDead
 TEST(DirectoryWatcherTests, CoalescesCreateBurstAfterArmed)
 {
     ScopedTempDir temp{ L"create-burst" };
-    ChangeCounter counter;
+    auto counter = std::make_shared<ChangeCounter>();
 
     DirectoryWatcher watcher;
     ASSERT_TRUE(watcher.Start(
         temp.path,
-        [&]() { counter.Increment(); },
+        [counter](uint64_t const tickMs) { counter->Increment(tickMs); },
         /*debounceMs=*/120,
         /*maxWaitMs=*/600));
     ASSERT_TRUE(watcher.WaitUntilArmed(5000));
@@ -167,10 +188,10 @@ TEST(DirectoryWatcherTests, CoalescesCreateBurstAfterArmed)
         out << "hello";
     }
 
-    ASSERT_TRUE(counter.WaitForAtLeast(1));
+    ASSERT_TRUE(counter->WaitForAtLeast(1));
     // Wait for debounce window to drain and verify the burst was coalesced.
     std::this_thread::sleep_for(std::chrono::milliseconds{ 300 });
-    int const totalAfterDrain = counter.Snapshot();
+    int const totalAfterDrain = counter->Snapshot();
     EXPECT_GE(totalAfterDrain, 1);
     EXPECT_LT(totalAfterDrain, 12);
 
@@ -187,13 +208,17 @@ TEST(DirectoryWatcherTests, DetectsRenameInIsolatedDirectory)
         out << "rename-me";
     }
 
-    ChangeCounter counter;
+    auto counter = std::make_shared<ChangeCounter>();
     DirectoryWatcher watcher;
-    ASSERT_TRUE(watcher.Start(temp.path, [&]() { counter.Increment(); }, 60, 300));
+    ASSERT_TRUE(watcher.Start(
+        temp.path,
+        [counter](uint64_t const tickMs) { counter->Increment(tickMs); },
+        60,
+        300));
     ASSERT_TRUE(watcher.WaitUntilArmed(5000));
 
     std::filesystem::rename(temp.path / L"before.txt", temp.path / L"after.txt");
-    EXPECT_TRUE(counter.WaitForAtLeast(1));
+    EXPECT_TRUE(counter->WaitForAtLeast(1));
 
     watcher.Stop();
 }
@@ -206,13 +231,17 @@ TEST(DirectoryWatcherTests, DetectsDeleteInIsolatedDirectory)
         out << "bye";
     }
 
-    ChangeCounter counter;
+    auto counter = std::make_shared<ChangeCounter>();
     DirectoryWatcher watcher;
-    ASSERT_TRUE(watcher.Start(temp.path, [&]() { counter.Increment(); }, 60, 300));
+    ASSERT_TRUE(watcher.Start(
+        temp.path,
+        [counter](uint64_t const tickMs) { counter->Increment(tickMs); },
+        60,
+        300));
     ASSERT_TRUE(watcher.WaitUntilArmed(5000));
 
     std::filesystem::remove(temp.path / L"remove_me.txt");
-    EXPECT_TRUE(counter.WaitForAtLeast(1));
+    EXPECT_TRUE(counter->WaitForAtLeast(1));
 
     watcher.Stop();
 }
@@ -222,24 +251,24 @@ TEST(DirectoryWatcherTests, ReportsFailureForMissingDirectoryAndSupportsCleanRet
     ScopedTempDir dirA{ L"retargetA" };
     ScopedTempDir dirB{ L"retargetB" };
 
-    std::atomic<int> readyStatus{ -1 };
+    auto readyStatus = std::make_shared<std::atomic<int>>(-1);
     DirectoryWatcher watcher;
     ASSERT_TRUE(watcher.Start(
         dirA.path / L"does-not-exist",
-        []() {},
+        [](uint64_t) {},
         100,
         500,
-        [&](bool const armed) { readyStatus.store(armed ? 1 : 0); }));
+        [readyStatus](bool const armed) { readyStatus->store(armed ? 1 : 0); }));
     EXPECT_FALSE(watcher.WaitUntilArmed(5000));
-    EXPECT_EQ(readyStatus.load(), 0);
+    EXPECT_EQ(readyStatus->load(), 0);
     EXPECT_FALSE(watcher.IsWatching());
 
-    ASSERT_TRUE(watcher.Start(dirA.path, []() {}, 100, 500));
+    ASSERT_TRUE(watcher.Start(dirA.path, [](uint64_t) {}, 100, 500));
     ASSERT_TRUE(watcher.WaitUntilArmed(5000));
     EXPECT_TRUE(watcher.IsWatching());
 
     // Retarget to dirB without waiting for any events.
-    ASSERT_TRUE(watcher.Start(dirB.path, []() {}, 100, 500));
+    ASSERT_TRUE(watcher.Start(dirB.path, [](uint64_t) {}, 100, 500));
     ASSERT_TRUE(watcher.WaitUntilArmed(5000));
     EXPECT_EQ(watcher.WatchedPath(), dirB.path);
 

@@ -23,11 +23,14 @@ namespace FileScoutNative::Shell
         DirectoryWatcher& operator=(DirectoryWatcher const&) = delete;
 
         // Starts watching `directory` asynchronously. Stops any previous watch first.
-        // `onReady` (optional) is invoked on the worker thread with `true` right after the first
-        // ReadDirectoryChangesW request is armed, or `false` if startup fails.
+        // `onChanged` receives the GetTickCount64() timestamp of the most recent filesystem event
+        // in the coalesced batch. `onReady` (optional) is invoked on the worker thread with `true`
+        // right after the first ReadDirectoryChangesW request is armed, or `false` on failure.
+        // Callers must ensure any state captured by callbacks remains valid (e.g. via shared/weak
+        // ownership), because Stop() uses a bounded shutdown wait and does not drain in-flight callbacks.
         bool Start(
             std::filesystem::path directory,
-            std::function<void()> onChanged,
+            std::function<void(uint64_t)> onChanged,
             uint32_t debounceMs = 300,
             uint32_t maxWaitMs = 1500,
             std::function<void(bool)> onReady = nullptr);
@@ -35,6 +38,7 @@ namespace FileScoutNative::Shell
         // Requests shutdown without blocking indefinitely on unresponsive network I/O.
         // Local watches join cleanly within a short grace period; hung remote I/O finishes on the
         // detached worker while keeping its OVERLAPPED and buffer alive until completion.
+        // Does not guarantee draining an already-dispatched callback if the grace period expires.
         void Stop();
 
         // Waits up to `timeoutMs` for the worker to submit its first ReadDirectoryChangesW call.

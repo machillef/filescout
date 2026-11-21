@@ -12,6 +12,27 @@ namespace FileScoutNative::Domain
     inline constexpr uint64_t kDefaultWatchMaxWaitMs = 1500;
     inline constexpr uint64_t kDefaultWatchSelfSuppressMs = 600;
 
+    // Returns true when a directory load in `loadedPaneIndex` should restore `selectAfter` in that
+    // pane. Active-pane loads always restore; background watch refreshes also restore selection in
+    // an inactive pane (without touching shared active-pane toolbar/inspector chrome).
+    [[nodiscard]] constexpr bool ShouldRestoreSelectionInLoadedPane(
+        int32_t const loadedPaneIndex,
+        int32_t const activePaneIndex,
+        bool const preserveInactivePaneSelection) noexcept
+    {
+        return loadedPaneIndex == activePaneIndex || preserveInactivePaneSelection;
+    }
+
+    // Returns true when a filesystem event observed at `eventTickMs` occurred strictly before
+    // the latest directory enumeration snapshot started (`snapshotStartTickMs`), meaning the
+    // snapshot already reflects that mutation and no redundant reload is needed.
+    [[nodiscard]] inline bool IsWatchEventCoveredBySnapshot(
+        uint64_t const eventTickMs,
+        uint64_t const snapshotStartTickMs) noexcept
+    {
+        return eventTickMs > 0 && snapshotStartTickMs > 0 && eventTickMs < snapshotStartTickMs;
+    }
+
     // Virtual locations (This PC, Recycle Bin, archive views, empty paths) cannot be watched
     // with ReadDirectoryChangesW.
     [[nodiscard]] inline bool ShouldWatchLocation(
@@ -63,6 +84,7 @@ namespace FileScoutNative::Domain
 
         void NoteChange(uint64_t const nowTickMs) noexcept
         {
+            m_lastEventTickMs = nowTickMs;
             if (IsSuppressed(nowTickMs))
             {
                 m_deferredDuringSuppression = true;
@@ -74,7 +96,11 @@ namespace FileScoutNative::Domain
                 m_pending = true;
                 m_firstPendingTickMs = nowTickMs;
             }
-            m_lastEventTickMs = nowTickMs;
+        }
+
+        [[nodiscard]] uint64_t LastEventTickMs() const noexcept
+        {
+            return m_lastEventTickMs;
         }
 
         [[nodiscard]] bool HasPending() const noexcept

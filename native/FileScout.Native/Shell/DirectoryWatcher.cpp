@@ -55,7 +55,7 @@ namespace FileScoutNative::Shell
     struct DirectoryWatcher::Session
     {
         std::filesystem::path directory;
-        std::function<void()> onChanged;
+        std::function<void(uint64_t)> onChanged;
         std::function<void(bool)> onReady;
         HANDLE stopEvent{ nullptr };
         HANDLE readyEvent{ nullptr };
@@ -79,7 +79,7 @@ namespace FileScoutNative::Shell
 
     bool DirectoryWatcher::Start(
         std::filesystem::path directory,
-        std::function<void()> onChanged,
+        std::function<void(uint64_t)> onChanged,
         uint32_t const debounceMs,
         uint32_t const maxWaitMs,
         std::function<void(bool)> onReady)
@@ -251,7 +251,7 @@ namespace FileScoutNative::Shell
             ::SetEvent(session->readyEvent);
         };
 
-        auto emitChange = [&session]()
+        auto emitChange = [&session](uint64_t const eventTickMs)
         {
             if (session->stopped.load(std::memory_order_acquire))
             {
@@ -259,7 +259,7 @@ namespace FileScoutNative::Shell
             }
             try
             {
-                session->onChanged();
+                session->onChanged(eventTickMs);
             }
             catch (...)
             {
@@ -333,8 +333,9 @@ namespace FileScoutNative::Shell
                     }
                     else if (coordinator.HasPending())
                     {
+                        uint64_t const eventTick = coordinator.LastEventTickMs();
                         coordinator.MarkFlushed();
-                        emitChange();
+                        emitChange(eventTick);
                     }
                     break;
                 }
@@ -352,8 +353,9 @@ namespace FileScoutNative::Shell
                 auto const now = ::GetTickCount64();
                 if (coordinator.ShouldFlush(now, debounceMs, maxWaitMs))
                 {
+                    uint64_t const eventTick = coordinator.LastEventTickMs();
                     coordinator.MarkFlushed();
-                    emitChange();
+                    emitChange(eventTick);
                     continue;
                 }
                 uint64_t const remaining = coordinator.RemainingWaitMs(now, debounceMs, maxWaitMs);
@@ -388,7 +390,7 @@ namespace FileScoutNative::Shell
                             ::WaitForSingleObject(session->stopEvent, 0) != WAIT_OBJECT_0)
                         {
                             coordinator.MarkFlushed();
-                            emitChange();
+                            emitChange(::GetTickCount64());
                         }
                         break;
                     }
@@ -399,8 +401,9 @@ namespace FileScoutNative::Shell
                 if (coordinator.HasPending() &&
                     coordinator.ShouldFlush(::GetTickCount64(), debounceMs, maxWaitMs))
                 {
+                    uint64_t const eventTick = coordinator.LastEventTickMs();
                     coordinator.MarkFlushed();
-                    emitChange();
+                    emitChange(eventTick);
                 }
             }
             else
