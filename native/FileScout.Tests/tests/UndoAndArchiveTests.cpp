@@ -239,6 +239,31 @@ TEST(ShellFileOperationZipTests, CompressesFilesIncludingDashAtAndSpacesAndAvoid
     EXPECT_GT(std::filesystem::file_size(zip2), 0u);
 }
 
+TEST(ShellFileOperationZipTests, RejectsFilenamesTheAnsiCodePageCannotRepresent)
+{
+    if (::GetACP() == CP_UTF8)
+    {
+        GTEST_SKIP() << "A UTF-8 ANSI code page represents every filename.";
+    }
+    ComApartment apartment;
+    ScopedTempDir temp{ L"zip-ansi" };
+    auto const unrepresentable = temp.path / L"emoji-\U0001F600.txt";
+    {
+        std::ofstream out(unrepresentable);
+        out << "content";
+    }
+
+    ShellFileOperationService service;
+    std::vector<std::filesystem::path> sources{ unrepresentable };
+    EXPECT_THROW((void)service.CompressItemsToZip(nullptr, temp.path, sources), FileOperationException);
+
+    // No archive or temporary list file may be left behind.
+    for (auto const& entry : std::filesystem::directory_iterator(temp.path))
+    {
+        EXPECT_EQ(entry.path(), unrepresentable) << entry.path().wstring();
+    }
+}
+
 TEST(ShellFileOperationIdentityTests, DetectsReplacementAtSamePath)
 {
     ScopedTempDir temp{ L"identity" };
