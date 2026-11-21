@@ -78,7 +78,15 @@ namespace FileScoutNative::Shell
                     L"open",
                     scenario.focused_item->is_folder ? L"Enter" : L"");
 
-                if (!scenario.focused_item->is_folder)
+                if (scenario.focused_item->is_folder)
+                {
+                    AppendCommand(
+                        model.primary_commands,
+                        L"openInNewTab",
+                        L"Open in new tab",
+                        L"openInNewTab");
+                }
+                else
                 {
                     AppendCommand(model.primary_commands, L"openWith", L"Open with...", L"openWith");
                 }
@@ -105,6 +113,7 @@ namespace FileScoutNative::Shell
             if (hasSelection)
             {
                 AppendCommand(clipboardGroup.commands, L"copy", L"Copy", L"copy", L"Ctrl+C");
+                AppendCommand(clipboardGroup.commands, L"copyPath", L"Copy path", L"copyPath", L"Ctrl+Shift+C");
                 AppendCommand(clipboardGroup.commands, L"cut", L"Cut", L"cut", L"Ctrl+X");
             }
 
@@ -145,7 +154,13 @@ namespace FileScoutNative::Shell
         {
             AppendCommand(workspaceGroup.commands, L"pinToPlaces", L"Pin current folder to Bookmarks", L"pin");
         }
+        if (!hasSelection)
+        {
+            AppendCommand(workspaceGroup.commands, L"copyPath", L"Copy folder path", L"copyPath", L"Ctrl+Shift+C");
+        }
+        AppendCommand(workspaceGroup.commands, L"openInTerminal", L"Open in Terminal", L"terminal");
         AppendCommand(workspaceGroup.commands, L"newFolder", L"New folder", L"newFolder");
+        AppendCommand(workspaceGroup.commands, L"newFile", L"New file...", L"newFile");
         AppendCommand(workspaceGroup.commands, L"refresh", L"Refresh", L"refresh", L"F5");
         model.groups.push_back(std::move(workspaceGroup));
 

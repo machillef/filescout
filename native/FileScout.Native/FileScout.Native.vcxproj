@@ -145,6 +145,7 @@
     <ClInclude Include="Domain\DriveCapacity.h" />
     <ClInclude Include="Domain\WorkerCount.h" />
     <ClInclude Include="Domain\RowFormatting.h" />
+    <ClInclude Include="Domain\SelectionSummary.h" />
     <ClInclude Include="Domain\RenamePolicy.h" />
     <ClInclude Include="Domain\NavigationHistory.h" />
     <ClInclude Include="Domain\KeyboardShortcuts.h" />

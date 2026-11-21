@@ -8,6 +8,7 @@
 #include "Domain\ListColumnLayout.h"
 #include "Domain\NavigationInput.h"
 #include "Domain\PaneSelectionState.h"
+#include "Domain\SelectionSummary.h"
 #include "Domain\PendingFilter.h"
 #include "Domain\ShellItemRef.h"
 #include "Domain\DriveCapacity.h"
@@ -86,6 +87,12 @@ namespace winrt::FileScoutNative::implementation
         // Per-pane navigation history (back/forward stacks).
         std::vector<std::filesystem::path> back_stack;
         std::vector<std::filesystem::path> forward_stack;
+        struct ClosedTabEntry
+        {
+            std::filesystem::path path;
+            bool is_drives_view{ false };
+        };
+        std::vector<ClosedTabEntry> closed_tabs;
 
         // Incremented each time LoadDirectory is called; lets background loads detect stale results.
         uint32_t load_generation{ 0 };
@@ -125,6 +132,9 @@ namespace winrt::FileScoutNative::implementation
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void ForwardButton_Click(
+            winrt::Windows::Foundation::IInspectable const&,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+        void UpButton_Click(
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void RefreshButton_Click(
@@ -307,6 +317,8 @@ namespace winrt::FileScoutNative::implementation
         void UpdateTitleBarInteractiveRegions();
         void InitializeThemeDropDown();
         void RefreshThemeDropDown();
+        void InitializeViewOptionsDropDown();
+        void RefreshViewOptionsDropDown();
         void ApplyThemeSelection(std::wstring_view themeId);
         void BenchOnFullList(int32_t paneIndex, std::size_t itemCount);
         void SetDefaultFileManager(bool makeDefault);
@@ -380,6 +392,7 @@ namespace winrt::FileScoutNative::implementation
         [[nodiscard]] bool ShouldTextInputOwnFileShortcut(std::wstring_view commandId);
         [[nodiscard]] bool FocusIsInEditableControl();
         winrt::fire_and_forget ShowNewFolderDialogAsync();
+        winrt::fire_and_forget ShowNewFileDialogAsync();
         winrt::fire_and_forget ShowRenameDialogAsync(::FileScoutNative::Domain::ShellItemRef item);
         winrt::fire_and_forget ShowBatchRenameDialogAsync(
             std::vector<::FileScoutNative::Domain::ShellItemRef> items);
@@ -393,6 +406,9 @@ namespace winrt::FileScoutNative::implementation
         void SelectItemByPath(std::filesystem::path const& path);
         [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;
         [[nodiscard]] std::wstring SuggestNewFolderName() const;
+        [[nodiscard]] std::wstring SuggestNewFileName() const;
+        void CopySelectedPaths(std::vector<::FileScoutNative::Domain::ShellItemRef> const& selectedItems);
+        void OpenInTerminalForContext(std::optional<::FileScoutNative::Domain::ShellItemRef> const& item);
         winrt::fire_and_forget OpenArchiveItemAsync(::FileScoutNative::Domain::ShellItemRef item);
         winrt::fire_and_forget ExtractArchiveItemAsync(
             ::FileScoutNative::Domain::ShellItemRef item,
@@ -406,7 +422,7 @@ namespace winrt::FileScoutNative::implementation
         void UpdateThisPCSection();
         void RefreshSidebarCaches();
         void UpdateBookmarksSection();
-        void LoadDrivesView();
+        void LoadDrivesView(bool skipHistoryRecord = false);
 
         // R18b: breadcrumb navigation bar + address overlay.
         void UpdateBreadcrumbs(std::filesystem::path const& path);
@@ -425,6 +441,7 @@ namespace winrt::FileScoutNative::implementation
         // R13b: navigation history.
         void NavigateBack();
         void NavigateForward();
+        void NavigateUp();
         void UpdateNavButtons();
 
         // R13a: command palette overlay.
@@ -471,7 +488,14 @@ namespace winrt::FileScoutNative::implementation
                 winrt::FileScoutNative::FileRowViewModel> const& source,
             int32_t paneIndex);
         void AddTab(std::filesystem::path const& startPath);
+        void AddTabForDrivesView();
         void CloseTab(int32_t index);
+        void ReopenClosedTab();
+        void SwitchToAdjacentTab(int32_t delta);
+        void SelectTabByNumber(int32_t oneBasedIndex);
+        void TryHandleListViewMiddleClick(
+            int32_t paneIndex,
+            winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args);
         void RestoreActiveTab();
         void RestoreSelectionFromState(
             PaneContext& pane,

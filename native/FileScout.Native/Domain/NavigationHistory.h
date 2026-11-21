@@ -12,6 +12,8 @@ namespace FileScoutNative::Domain
     // The location the sidebar's Recycle Bin row navigates to. std::filesystem::absolute() treats it
     // as a relative path and prefixes the working directory, so recognise it by its last component.
     inline constexpr std::wstring_view kRecycleBinLocation = L"shell:RecycleBinFolder";
+    // Sentinel location used in back/forward history stacks to represent the This PC drives view.
+    inline constexpr std::wstring_view kDrivesViewLocation = L"shell:MyComputerFolder";
 
     [[nodiscard]] inline bool PathsEqualIgnoringCase(
         std::filesystem::path const& left,
@@ -28,6 +30,11 @@ namespace FileScoutNative::Domain
     [[nodiscard]] inline bool IsRecycleBinLocation(std::filesystem::path const& path)
     {
         return !path.empty() && PathsEqualIgnoringCase(path.filename(), std::filesystem::path{ kRecycleBinLocation });
+    }
+
+    [[nodiscard]] inline bool IsDrivesViewLocation(std::filesystem::path const& path)
+    {
+        return !path.empty() && PathsEqualIgnoringCase(path.filename(), std::filesystem::path{ kDrivesViewLocation });
     }
 
     // lexically_normal() keeps a trailing separator ("C:\\Users\\Docs\\"), which made a reload of the
@@ -86,7 +93,7 @@ namespace FileScoutNative::Domain
         std::filesystem::path const& leaving,
         std::filesystem::path const& target)
     {
-        if (leaving.empty() || IsRecycleBinLocation(leaving) ||
+        if (leaving.empty() || IsRecycleBinLocation(leaving) || IsDrivesViewLocation(leaving) ||
             PathsEqualIgnoringCase(NormalizeFolderForCompare(leaving), NormalizeFolderForCompare(target)))
         {
             return std::nullopt;
@@ -114,6 +121,47 @@ namespace FileScoutNative::Domain
             return true;
         }
         return false;
+    }
+
+    enum class ParentNavigationKind
+    {
+        None,
+        Folder,
+        DrivesView,
+    };
+
+    struct ParentNavigationTarget
+    {
+        ParentNavigationKind kind{ ParentNavigationKind::None };
+        std::filesystem::path path;
+    };
+
+    // Resolves the Up (Alt+Up / Backspace) destination for a pane.
+    // From a drive root ("C:\\") or Recycle Bin, navigates to This PC (DrivesView).
+    // From This PC or an empty path, there is no parent.
+    [[nodiscard]] inline ParentNavigationTarget ResolveParentNavigationTarget(
+        std::filesystem::path const& currentPath,
+        bool const isDrivesView,
+        bool const isRecycleBinView)
+    {
+        if (isDrivesView || currentPath.empty())
+        {
+            return {};
+        }
+
+        if (isRecycleBinView || IsRecycleBinLocation(currentPath))
+        {
+            return { ParentNavigationKind::DrivesView, {} };
+        }
+
+        auto const normalized = NormalizeFolderForCompare(currentPath);
+        auto const parent = normalized.parent_path();
+        if (parent.empty() || PathsEqualIgnoringCase(normalized, parent))
+        {
+            return { ParentNavigationKind::DrivesView, {} };
+        }
+
+        return { ParentNavigationKind::Folder, parent };
     }
 
     // Two-batch directory publication policy: small and medium folders publish in one ReplaceAll

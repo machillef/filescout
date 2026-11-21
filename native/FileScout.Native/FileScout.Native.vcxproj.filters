@@ -83,6 +83,7 @@
     </ClInclude>
     <ClInclude Include="Domain\ParallelFor.h" />
     <ClInclude Include="Domain\ListColumnLayout.h" />
+    <ClInclude Include="Domain\SelectionSummary.h" />
     <ClInclude Include="Bench.h" />
     <ClInclude Include="NavDiag.h" />
     <ClInclude Include="Domain\ExplorerCommand.h">

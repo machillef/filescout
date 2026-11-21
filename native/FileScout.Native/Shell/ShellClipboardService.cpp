@@ -373,4 +373,58 @@ namespace FileScoutNative::Shell
         CloseClipboard();
         return unchanged;
     }
+
+    bool ShellClipboardService::CopyTextToClipboard(HWND const ownerWindow, std::wstring_view const text)
+    {
+        if (text.empty() || ownerWindow == nullptr)
+        {
+            return false;
+        }
+
+        bool isOpen = false;
+        for (int attempt = 0; attempt < 5 && !isOpen; ++attempt)
+        {
+            isOpen = OpenClipboard(ownerWindow) != FALSE;
+            if (!isOpen)
+            {
+                Sleep(10);
+            }
+        }
+        if (!isOpen)
+        {
+            return false;
+        }
+
+        std::size_t const bytes = (text.size() + 1) * sizeof(wchar_t);
+        HGLOBAL const mem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if (mem == nullptr)
+        {
+            CloseClipboard();
+            return false;
+        }
+
+        auto* const dest = static_cast<wchar_t*>(GlobalLock(mem));
+        if (dest == nullptr)
+        {
+            GlobalFree(mem);
+            CloseClipboard();
+            return false;
+        }
+
+        std::wmemcpy(dest, text.data(), text.size());
+        dest[text.size()] = L'\0';
+        GlobalUnlock(mem);
+
+        EmptyClipboard();
+        if (SetClipboardData(CF_UNICODETEXT, mem) == nullptr)
+        {
+            GlobalFree(mem);
+            CloseClipboard();
+            return false;
+        }
+
+        // Clipboard now owns `mem`.
+        CloseClipboard();
+        return true;
+    }
 }

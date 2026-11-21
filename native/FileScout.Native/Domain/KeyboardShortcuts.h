@@ -29,9 +29,10 @@ namespace FileScoutNative::Domain
 
     // The window-wide accelerators that run a context command. Each chord appears once: the file list
     // does not bind any of them again in its own key handler (UB-05).
-    inline constexpr std::array<FileShortcut, 15> kFileShortcuts{ {
+    inline constexpr std::array<FileShortcut, 31> kFileShortcuts{ {
         { 'A', ShortcutModifiers::Control, L"selectAll" },
         { 'C', ShortcutModifiers::Control, L"copy" },
+        { 'C', ShortcutModifiers::Control | ShortcutModifiers::Shift, L"copyPath" },
         { 'X', ShortcutModifiers::Control, L"cut" },
         { 'V', ShortcutModifiers::Control, L"paste" },
         { 0x2E /*VK_DELETE*/, ShortcutModifiers::None, L"delete" },
@@ -41,9 +42,24 @@ namespace FileScoutNative::Domain
         { 0x0D /*VK_RETURN*/, ShortcutModifiers::Menu, L"properties" },
         { 0x25 /*VK_LEFT*/, ShortcutModifiers::Menu, L"back" },
         { 0x27 /*VK_RIGHT*/, ShortcutModifiers::Menu, L"forward" },
+        { 0x26 /*VK_UP*/, ShortcutModifiers::Menu, L"navigateUp" },
+        { 0x08 /*VK_BACK*/, ShortcutModifiers::None, L"navigateUpBackspace" },
         { 'N', ShortcutModifiers::Control | ShortcutModifiers::Shift, L"newFolder" },
+        { 'H', ShortcutModifiers::Control, L"toggleHiddenFiles" },
         { 'T', ShortcutModifiers::Control, L"newTab" },
+        { 'T', ShortcutModifiers::Control | ShortcutModifiers::Shift, L"reopenClosedTab" },
         { 'W', ShortcutModifiers::Control, L"closeTab" },
+        { 0x21 /*VK_PRIOR (PageUp)*/, ShortcutModifiers::Control, L"prevTab" },
+        { 0x22 /*VK_NEXT (PageDown)*/, ShortcutModifiers::Control, L"nextTab" },
+        { '1', ShortcutModifiers::Control, L"selectTab1" },
+        { '2', ShortcutModifiers::Control, L"selectTab2" },
+        { '3', ShortcutModifiers::Control, L"selectTab3" },
+        { '4', ShortcutModifiers::Control, L"selectTab4" },
+        { '5', ShortcutModifiers::Control, L"selectTab5" },
+        { '6', ShortcutModifiers::Control, L"selectTab6" },
+        { '7', ShortcutModifiers::Control, L"selectTab7" },
+        { '8', ShortcutModifiers::Control, L"selectTab8" },
+        { '9', ShortcutModifiers::Control, L"selectTab9" },
         { 0x09 /*VK_TAB*/, ShortcutModifiers::Control, L"switchPane" },
     } };
 
@@ -64,10 +80,12 @@ namespace FileScoutNative::Domain
     {
         return commandId == L"selectAll" ||
             commandId == L"copy" ||
+            commandId == L"copyPath" ||
             commandId == L"cut" ||
             commandId == L"paste" ||
             commandId == L"delete" ||
             commandId == L"permanentDelete" ||
+            commandId == L"navigateUpBackspace" ||
             commandId == L"rename" ||
             commandId == L"properties";
     }

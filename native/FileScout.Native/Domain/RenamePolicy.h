@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace FileScoutNative::Domain
 {
@@ -10,5 +12,26 @@ namespace FileScoutNative::Domain
     [[nodiscard]] inline bool IsRenameNoOp(std::wstring const& newName, std::wstring const& currentName)
     {
         return newName == currentName;
+    }
+
+    // Explorer-style initial rename selection: select the stem before the last '.' for files
+    // (leaving the extension unselected), and select the full name for folders, dotfiles
+    // (".gitignore"), or extensionless files ("README").
+    [[nodiscard]] inline int32_t ComputeRenameSelectionLength(
+        std::wstring_view const displayName,
+        bool const isFolder) noexcept
+    {
+        if (isFolder || displayName.empty())
+        {
+            return static_cast<int32_t>(displayName.size());
+        }
+
+        auto const dotPos = displayName.rfind(L'.');
+        if (dotPos == std::wstring_view::npos || dotPos == 0)
+        {
+            return static_cast<int32_t>(displayName.size());
+        }
+
+        return static_cast<int32_t>(dotPos);
     }
 }

@@ -461,6 +461,7 @@
                         <ColumnDefinition Width="240" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Orientation="Horizontal"
@@ -473,7 +474,7 @@
                                 IsEnabled="False"
                                 Click="BackButton_Click"
                                 AutomationProperties.Name="Back"
-                                ToolTipService.ToolTip="Back">
+                                ToolTipService.ToolTip="Back (Alt+Left)">
                             <FontIcon Glyph="&#xE76B;"
                                       FontSize="13"
                                       FontFamily="Segoe Fluent Icons" />
@@ -485,8 +486,20 @@
                                 IsEnabled="False"
                                 Click="ForwardButton_Click"
                                 AutomationProperties.Name="Forward"
-                                ToolTipService.ToolTip="Forward">
+                                ToolTipService.ToolTip="Forward (Alt+Right)">
                             <FontIcon Glyph="&#xE76C;"
+                                      FontSize="13"
+                                      FontFamily="Segoe Fluent Icons" />
+                        </Button>
+                        <Button x:Name="UpButton"
+                                Style="{StaticResource ChromeToolbarButtonStyle}"
+                                Height="32"
+                                Width="32"
+                                IsEnabled="False"
+                                Click="UpButton_Click"
+                                AutomationProperties.Name="Up"
+                                ToolTipService.ToolTip="Up (Alt+Up)">
+                            <FontIcon Glyph="&#xE74A;"
                                       FontSize="13"
                                       FontFamily="Segoe Fluent Icons" />
                         </Button>
@@ -496,7 +509,7 @@
                                 Width="32"
                                 Click="RefreshButton_Click"
                                 AutomationProperties.Name="Refresh"
-                                ToolTipService.ToolTip="Refresh">
+                                ToolTipService.ToolTip="Refresh (F5)">
                             <FontIcon Glyph="&#xE72C;"
                                       FontSize="13"
                                       FontFamily="Segoe Fluent Icons" />
@@ -543,8 +556,26 @@
                              KeyDown="SearchTextBox_KeyDown"
                              TextChanged="SearchTextBox_TextChanged" />
 
+                    <DropDownButton x:Name="ViewOptionsDropDownButton"
+                                    Grid.Column="3"
+                                    Style="{StaticResource ChromeDropDownButtonStyle}"
+                                    AutomationProperties.Name="View options"
+                                    ToolTipService.ToolTip="View options">
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="6"
+                                    VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE890;"
+                                      FontFamily="Segoe Fluent Icons"
+                                      FontSize="13" />
+                            <TextBlock Text="View"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </DropDownButton>
+
                     <Button x:Name="DualPaneButton"
-                            Grid.Column="3"
+                            Grid.Column="4"
                             Style="{StaticResource ChromeToolbarButtonStyle}"
                             Height="32"
                             MinWidth="96"
@@ -566,7 +597,7 @@
                     </Button>
 
                     <DropDownButton x:Name="ThemeDropDownButton"
-                                    Grid.Column="4"
+                                    Grid.Column="5"
                                     Style="{StaticResource ChromeDropDownButtonStyle}"
                                     AutomationProperties.Name="Theme"
                                     ToolTipService.ToolTip="Change theme">

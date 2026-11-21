@@ -93,9 +93,13 @@ TEST(ContextMenuServiceTest, FolderSelected_NoOpenWith)
     auto model = svc.BuildMenu(scenario);
 
     EXPECT_TRUE(HasPrimaryCommand(model, L"open"));
+    EXPECT_TRUE(HasPrimaryCommand(model, L"openInNewTab"));
     EXPECT_FALSE(HasPrimaryCommand(model, L"openWith"));
     EXPECT_TRUE(HasPrimaryCommand(model, L"rename"));
     EXPECT_TRUE(HasPrimaryCommand(model, L"delete"));
+    EXPECT_TRUE(HasGroupCommand(model, L"copyPath"));
+    EXPECT_TRUE(HasGroupCommand(model, L"openInTerminal"));
+    EXPECT_TRUE(HasGroupCommand(model, L"newFile"));
     EXPECT_TRUE(HasGroupCommand(model, L"pinToPlaces"));
 }
 
