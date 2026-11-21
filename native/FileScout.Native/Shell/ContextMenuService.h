@@ -12,6 +12,9 @@ namespace FileScoutNative::Shell
         bool can_paste{ false };
         bool can_pin_to_places{ false };
         bool is_read_only_archive_view{ false };
+        bool is_recycle_bin_view{ false };
+        bool is_drives_view{ false };
+        bool can_compress_to_zip{ true };
     };
 
     class ContextMenuService

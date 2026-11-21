@@ -160,6 +160,8 @@
     <ClInclude Include="Domain\ShellItemRef.h" />
     <ClInclude Include="Domain\ThemeDefinition.h" />
     <ClInclude Include="Domain\ThemeService.h" />
+    <ClInclude Include="Domain\ArchiveCompression.h" />
+    <ClInclude Include="Domain\UndoStack.h" />
     <ClInclude Include="Domain\UserSettings.h" />
     <ClInclude Include="Domain\WatchDebounce.h" />
     <ClInclude Include="Shell\CommandRegistry.h" />

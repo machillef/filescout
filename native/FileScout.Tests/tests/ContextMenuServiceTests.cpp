@@ -154,13 +154,46 @@ TEST(ContextMenuServiceTest, MultiSelection_HidesRenameWhenBatchRenameIsOutsideC
 
     auto model = svc.BuildMenu(scenario);
 
-    EXPECT_FALSE(HasPrimaryCommand(model, L"open"));
+    EXPECT_TRUE(HasPrimaryCommand(model, L"open"));
     EXPECT_FALSE(HasPrimaryCommand(model, L"openWith"));
     EXPECT_FALSE(HasPrimaryCommand(model, L"rename"));
-    EXPECT_FALSE(HasGroupCommand(model, L"properties"));
+    EXPECT_TRUE(HasGroupCommand(model, L"properties"));
+    EXPECT_TRUE(HasGroupCommand(model, L"compressToZip"));
     EXPECT_FALSE(HasGroupCommand(model, L"moreWindowsActions"));
     EXPECT_TRUE(HasGroupCommand(model, L"copy"));
     EXPECT_TRUE(HasGroupCommand(model, L"cut"));
+}
+
+TEST(ContextMenuServiceTest, RecycleBinView_NoSelection_HasEmptyAndRefreshOnly)
+{
+    ContextMenuService svc;
+    ContextMenuScenario scenario{};
+    scenario.is_recycle_bin_view = true;
+
+    auto model = svc.BuildMenu(scenario);
+
+    EXPECT_TRUE(model.primary_commands.empty());
+    EXPECT_FALSE(model.has_overflow_menu);
+    EXPECT_TRUE(HasGroupCommand(model, L"emptyRecycleBin"));
+    EXPECT_TRUE(HasGroupCommand(model, L"refresh"));
+    EXPECT_FALSE(HasGroupCommand(model, L"newFolder"));
+    EXPECT_FALSE(HasGroupCommand(model, L"compressToZip"));
+}
+
+TEST(ContextMenuServiceTest, RecycleBinView_Selected_HasRestorePermanentDeletePropertiesAndEmpty)
+{
+    ContextMenuService svc;
+    ContextMenuScenario scenario{ MakeFile() };
+    scenario.is_recycle_bin_view = true;
+
+    auto model = svc.BuildMenu(scenario);
+
+    EXPECT_TRUE(HasPrimaryCommand(model, L"restoreFromRecycleBin"));
+    EXPECT_TRUE(HasPrimaryCommand(model, L"permanentDelete"));
+    EXPECT_FALSE(HasPrimaryCommand(model, L"rename"));
+    EXPECT_TRUE(HasGroupCommand(model, L"properties"));
+    EXPECT_TRUE(HasGroupCommand(model, L"emptyRecycleBin"));
+    EXPECT_TRUE(HasGroupCommand(model, L"refresh"));
 }
 
 TEST(ContextMenuServiceTest, ArchiveView_NoSelection_RefreshOnly)
@@ -190,6 +223,28 @@ TEST(ContextMenuServiceTest, ArchiveView_FileSelected_HasOpenAndExtract)
     EXPECT_FALSE(HasPrimaryCommand(model, L"delete"));
     EXPECT_TRUE(HasGroupCommand(model, L"extractToArchiveFolder"));
     EXPECT_TRUE(HasGroupCommand(model, L"extractReveal"));
+}
+
+TEST(ContextMenuServiceTest, DrivesView_HidesCompressToZip)
+{
+    ContextMenuService svc;
+    ContextMenuScenario scenario{ MakeFile() };
+    scenario.is_drives_view = true;
+
+    auto model = svc.BuildMenu(scenario);
+
+    EXPECT_FALSE(HasGroupCommand(model, L"compressToZip"));
+}
+
+TEST(ContextMenuServiceTest, IneligibleSelection_HidesCompressToZip)
+{
+    ContextMenuService svc;
+    ContextMenuScenario scenario{ MakeFile() };
+    scenario.can_compress_to_zip = false;
+
+    auto model = svc.BuildMenu(scenario);
+
+    EXPECT_FALSE(HasGroupCommand(model, L"compressToZip"));
 }
 
 TEST(ContextMenuServiceTest, MakeCommand_SetsAllFields)

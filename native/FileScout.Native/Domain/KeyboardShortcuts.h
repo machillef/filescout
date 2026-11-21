@@ -41,12 +41,14 @@ namespace FileScoutNative::Domain
         std::wstring_view command_id;
     };
 
-    inline constexpr std::array<FileShortcut, 31> kFileShortcuts{ {
+    inline constexpr std::array<FileShortcut, 33> kFileShortcuts{ {
         { 'A', ShortcutModifiers::Control, L"selectAll" },
         { 'C', ShortcutModifiers::Control, L"copy" },
         { 'C', ShortcutModifiers::Control | ShortcutModifiers::Shift, L"copyPath" },
         { 'X', ShortcutModifiers::Control, L"cut" },
         { 'V', ShortcutModifiers::Control, L"paste" },
+        { 'Z', ShortcutModifiers::Control, L"undo" },
+        { 'Y', ShortcutModifiers::Control, L"redo" },
         { Key::Delete, ShortcutModifiers::None, L"delete" },
         { Key::Delete, ShortcutModifiers::Shift, L"permanentDelete" },
         { Key::F2, ShortcutModifiers::None, L"rename" },
@@ -94,6 +96,8 @@ namespace FileScoutNative::Domain
             commandId == L"copyPath" ||
             commandId == L"cut" ||
             commandId == L"paste" ||
+            commandId == L"undo" ||
+            commandId == L"redo" ||
             commandId == L"delete" ||
             commandId == L"permanentDelete" ||
             commandId == L"navigateUpBackspace" ||

@@ -63,6 +63,18 @@ TEST(KeyboardShortcuts, ExplorerNavigationAndTabShortcutsAreBound)
     auto const* toggleHidden = FindFileShortcut('H', ShortcutModifiers::Control);
     ASSERT_NE(toggleHidden, nullptr);
     EXPECT_EQ(toggleHidden->command_id, L"toggleHiddenFiles");
+
+    auto const* undo = FindFileShortcut('Z', ShortcutModifiers::Control);
+    ASSERT_NE(undo, nullptr);
+    EXPECT_EQ(undo->command_id, L"undo");
+    EXPECT_TRUE(ShouldTextInputOwnShortcut(L"undo", true));
+    EXPECT_FALSE(ShouldTextInputOwnShortcut(L"undo", false));
+
+    auto const* redo = FindFileShortcut('Y', ShortcutModifiers::Control);
+    ASSERT_NE(redo, nullptr);
+    EXPECT_EQ(redo->command_id, L"redo");
+    EXPECT_TRUE(ShouldTextInputOwnShortcut(L"redo", true));
+    EXPECT_FALSE(ShouldTextInputOwnShortcut(L"redo", false));
 }
 
 TEST(KeyboardShortcuts, EveryChordIsBoundOnce)

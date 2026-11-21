@@ -67,17 +67,56 @@ namespace FileScoutNative::Shell
             return model;
         }
 
-        if (hasSelection)
+        if (scenario.is_recycle_bin_view)
         {
-            if (selectionCount == 1)
+            if (hasSelection)
             {
                 AppendCommand(
                     model.primary_commands,
-                    L"open",
-                    L"Open",
-                    L"open",
-                    scenario.focused_item->is_folder ? L"Enter" : L"");
+                    L"restoreFromRecycleBin",
+                    L"Restore",
+                    L"undo");
+                AppendCommand(
+                    model.primary_commands,
+                    L"permanentDelete",
+                    L"Delete permanently",
+                    L"delete",
+                    L"Del",
+                    true,
+                    FileScoutNative::Domain::ExplorerCommandSource::App,
+                    /*isDestructive=*/true);
 
+                FileScoutNative::Domain::ContextMenuGroup inspectGroup;
+                AppendCommand(inspectGroup.commands, L"properties", L"Properties", L"properties", L"Alt+Enter");
+                model.groups.push_back(std::move(inspectGroup));
+            }
+
+            FileScoutNative::Domain::ContextMenuGroup workspaceGroup;
+            AppendCommand(
+                workspaceGroup.commands,
+                L"emptyRecycleBin",
+                L"Empty Recycle Bin",
+                L"delete",
+                {},
+                true,
+                FileScoutNative::Domain::ExplorerCommandSource::App,
+                /*isDestructive=*/true);
+            AppendCommand(workspaceGroup.commands, L"refresh", L"Refresh", L"refresh", L"F5");
+            model.groups.push_back(std::move(workspaceGroup));
+            return model;
+        }
+
+        if (hasSelection)
+        {
+            AppendCommand(
+                model.primary_commands,
+                L"open",
+                L"Open",
+                L"open",
+                (selectionCount == 1 && scenario.focused_item->is_folder) ? L"Enter" : L"");
+
+            if (selectionCount == 1)
+            {
                 if (scenario.focused_item->is_folder)
                 {
                     AppendCommand(
@@ -122,31 +161,39 @@ namespace FileScoutNative::Shell
                 AppendCommand(clipboardGroup.commands, L"paste", L"Paste", L"paste", L"Ctrl+V");
             }
 
+            if (hasSelection && !scenario.is_drives_view && scenario.can_compress_to_zip)
+            {
+                AppendCommand(clipboardGroup.commands, L"compressToZip", L"Compress to ZIP", L"archive");
+            }
+
             if (!clipboardGroup.commands.empty())
             {
                 model.groups.push_back(std::move(clipboardGroup));
             }
         }
 
-        if (hasSelection && selectionCount == 1)
+        if (hasSelection)
         {
             FileScoutNative::Domain::ContextMenuGroup inspectGroup;
-            if (scenario.can_pin_to_places)
+            if (selectionCount == 1 && scenario.can_pin_to_places)
             {
                 AppendCommand(inspectGroup.commands, L"pinToPlaces", L"Pin to Bookmarks", L"pin");
             }
             AppendCommand(inspectGroup.commands, L"properties", L"Properties", L"properties", L"Alt+Enter");
-            AppendCommand(
-                inspectGroup.commands,
-                L"moreWindowsActions",
-                L"More Windows actions...",
-                L"overflow",
-                {},
-                true,
-                FileScoutNative::Domain::ExplorerCommandSource::Overflow);
+            if (selectionCount == 1)
+            {
+                AppendCommand(
+                    inspectGroup.commands,
+                    L"moreWindowsActions",
+                    L"More Windows actions...",
+                    L"overflow",
+                    {},
+                    true,
+                    FileScoutNative::Domain::ExplorerCommandSource::Overflow);
+                model.has_overflow_menu = true;
+            }
 
             model.groups.push_back(std::move(inspectGroup));
-            model.has_overflow_menu = true;
         }
 
         FileScoutNative::Domain::ContextMenuGroup workspaceGroup;

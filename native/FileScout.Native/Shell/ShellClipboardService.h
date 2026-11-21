@@ -13,6 +13,7 @@ namespace FileScoutNative::Shell
         std::filesystem::path destination;
         std::wstring attempted_action{ L"Paste copy" };
         std::wstring failure_detail;
+        std::vector<TransferredItemPair> transferred_items;
     };
 
     struct ClipboardSnapshot

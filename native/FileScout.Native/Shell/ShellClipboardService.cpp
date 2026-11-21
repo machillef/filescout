@@ -177,34 +177,41 @@ namespace FileScoutNative::Shell
             winrt::com_ptr<IShellItemArray> itemArray;
             winrt::check_hresult(SHCreateShellItemArrayFromIDLists(
                 static_cast<UINT>(pidls.size()), pidls.data(), itemArray.put()));
-            m_fileOperationService.PasteItems(ownerWindow, itemArray.get(), directory, isMove);
+            m_fileOperationService.PasteItems(
+                ownerWindow, itemArray.get(), directory, isMove, &result.transferred_items);
         }
         catch (FileOperationException const& error)
         {
-            return BuildPasteFailureResult(
+            auto failure = BuildPasteFailureResult(
                 directory,
                 isMove,
                 result.item_count,
                 error.Error().detail.empty()
                     ? winrt::to_hstring(error.what()).c_str()
                     : error.Error().detail);
+            failure.transferred_items = std::move(result.transferred_items);
+            return failure;
         }
         catch (winrt::hresult_error const& error)
         {
             auto const detail = error.message();
-            return BuildPasteFailureResult(
+            auto failure = BuildPasteFailureResult(
                 directory,
                 isMove,
                 result.item_count,
                 detail.empty() ? std::wstring{ L"Paste failed." } : std::wstring{ detail.c_str() });
+            failure.transferred_items = std::move(result.transferred_items);
+            return failure;
         }
         catch (std::runtime_error const& error)
         {
-            return BuildPasteFailureResult(
+            auto failure = BuildPasteFailureResult(
                 directory,
                 isMove,
                 result.item_count,
                 BuildClipboardRuntimeDetail(error));
+            failure.transferred_items = std::move(result.transferred_items);
+            return failure;
         }
 
         if (isMove)

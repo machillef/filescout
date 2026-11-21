@@ -2,6 +2,7 @@
 
 #include "MainWindow.g.h"
 #include "Domain\AddressNavigation.h"
+#include "Domain\ArchiveCompression.h"
 #include "Domain\BatchRenamePlan.h"
 #include "Domain\ContextMenuAnchor.h"
 #include "Domain\ContextMenuModel.h"
@@ -15,6 +16,7 @@
 #include "Domain\SidebarCache.h"
 #include "Domain\TabState.h"
 #include "Domain\TypeAhead.h"
+#include "Domain\UndoStack.h"
 #include "Domain\UserSettings.h"
 #include "Domain\WatchDebounce.h"
 #include "Shell\ContextMenuService.h"
@@ -87,6 +89,8 @@ namespace winrt::FileScoutNative::implementation
         std::vector<ClosedTabEntry> closed_tabs;
 
         uint32_t load_generation{ 0 };
+        bool recursive_search_running{ false };
+        uint32_t background_op_progress_count{ 0 };
         PaneLoadTiming last_load_timing{};
         bool awaiting_final_batch{ false };
         ::FileScoutNative::Domain::PendingFilter pending_filter;
@@ -273,6 +277,9 @@ namespace winrt::FileScoutNative::implementation
         std::filesystem::path m_lastBreadcrumbPath;
 
         std::unordered_set<std::wstring> m_cutItemPaths;
+        ::FileScoutNative::Domain::UndoStack m_undoStack{};
+        bool m_undoOperationInFlight{ false };
+        uint32_t m_pendingMutationCount{ 0 };
 
         [[nodiscard]] PaneContext& ActivePane() noexcept { return m_panes[m_activePaneIndex]; }
         [[nodiscard]] PaneContext const& ActivePane() const noexcept { return m_panes[m_activePaneIndex]; }
@@ -410,6 +417,21 @@ namespace winrt::FileScoutNative::implementation
         winrt::fire_and_forget ShowDeleteDialogAsync(
             std::vector<::FileScoutNative::Domain::ShellItemRef> items,
             bool permanent = false);
+        winrt::fire_and_forget UndoLastOperationAsync();
+        winrt::Windows::Foundation::IAsyncOperation<bool> ConfirmDiscardHistoryStepAsync(std::wstring detail);
+        winrt::fire_and_forget RedoLastOperationAsync();
+        winrt::fire_and_forget OpenMultipleItemsAsync(
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
+        winrt::fire_and_forget RestoreRecycleBinSelectionAsync(
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
+        winrt::fire_and_forget ShowEmptyRecycleBinDialogAsync();
+        winrt::fire_and_forget CompressSelectionToZipAsync(
+            std::filesystem::path parentDirectory,
+            std::vector<::FileScoutNative::Domain::ShellItemRef> items);
+        void RefreshRecycleBinPanes();
+        void RefreshAffectedFolders(
+            std::vector<std::filesystem::path> const& folders,
+            std::optional<std::filesystem::path> selectAfter = std::nullopt);
         bool m_modalDialogOpen{ false };
         void SelectItemByPath(std::filesystem::path const& path);
         [[nodiscard]] std::optional<int32_t> FindItemIndexByPath(std::filesystem::path const& path) const;
@@ -460,6 +482,7 @@ namespace winrt::FileScoutNative::implementation
         void ResetSearchState(int32_t paneIndex, bool restoreSnapshot);
 
         [[nodiscard]] winrt::Microsoft::UI::Xaml::Controls::ProgressBar SearchProgressForPane(int32_t paneIndex);
+        void UpdatePaneProgressBar(int32_t paneIndex);
 
         uint32_t m_previewGeneration{ 0 };
         winrt::fire_and_forget LoadImagePreviewAsync(

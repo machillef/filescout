@@ -429,10 +429,42 @@ TEST_F(ShellFileOperationFixture, CopyItemFromPathCopiesFile)
     auto destDir = m_root / L"Dest";
     std::filesystem::create_directories(destDir);
 
-    m_svc.CopyItemFromPath(nullptr, src, destDir, L"copy.txt");
+    auto const actual = m_svc.CopyItemFromPath(nullptr, src, destDir, L"copy.txt");
+    EXPECT_TRUE(std::filesystem::equivalent(actual, destDir / L"copy.txt")) << actual.wstring();
 
     EXPECT_TRUE(std::filesystem::exists(src));
     EXPECT_TRUE(std::filesystem::exists(destDir / L"copy.txt"));
+}
+
+TEST_F(ShellFileOperationFixture, CopyItemFromPathReturnsTheRenamedDestinationOnCollision)
+{
+    auto const src = WriteFile(m_root / L"source.txt", "payload");
+    auto const occupied = WriteFile(m_root / L"copy.txt", "unrelated");
+
+    auto const actual = m_svc.CopyItemFromPath(nullptr, src, m_root, L"copy.txt");
+
+    ASSERT_TRUE(std::filesystem::exists(actual)) << actual.wstring();
+    EXPECT_FALSE(std::filesystem::equivalent(actual, occupied)) << actual.wstring();
+    std::ifstream stream(actual, std::ios::binary);
+    std::string content((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "payload");
+}
+
+TEST_F(ShellFileOperationFixture, RestoreRecycleBinItemsReportsOnlyItemsThatLeftTheBin)
+{
+    auto const target = WriteFile(m_root / L"recycled.txt", "payload");
+    std::vector<DeletedItemRecord> records;
+    m_svc.DeleteItems(nullptr, std::span<std::filesystem::path const>{ &target, 1 }, false, &records);
+    ASSERT_EQ(records.size(), 1u);
+    ASSERT_FALSE(std::filesystem::exists(target));
+
+    std::wstring const parsingNames[1]{ records.front().recycle_bin_parsing_name };
+    std::vector<std::wstring> restored;
+    EXPECT_EQ(m_svc.RestoreRecycleBinItems(nullptr, parsingNames, &restored), 1u);
+
+    ASSERT_EQ(restored.size(), 1u);
+    EXPECT_TRUE(std::filesystem::exists(target));
+    EXPECT_FALSE(std::filesystem::exists(parsingNames[0]));
 }
 
 TEST_F(ShellFileOperationFixture, CopyItemsFromPathsIntoSameFolderCreatesDuplicateInsteadOfFailing)
