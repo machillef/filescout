@@ -7742,6 +7742,7 @@ namespace winrt::FileScoutNative::implementation
             std::vector<::FileScoutNative::Domain::UndoPathPair> remaining;
             bool failed{ false };
             bool canceled{ false };
+            bool discarded{ false };
             std::wstring error_detail;
         };
 
@@ -7751,22 +7752,26 @@ namespace winrt::FileScoutNative::implementation
                 UndoReplayOutcome out{};
                 auto const& items = entry.items;
 
-                auto recordFailure = [&](std::size_t const failedReverseIdx, bool const isReverse, bool const isCanceled, std::wstring detail)
+                auto recordFailure = [&](std::size_t const failedReverseIdx, bool const isReverse, bool const isCanceled,
+                    std::wstring detail, bool const discardFailed = false)
                 {
                     out.failed = true;
                     out.canceled = isCanceled;
+                    out.discarded = discardFailed;
                     out.error_detail = std::move(detail);
                     if (isReverse)
                     {
-                        // Reverse iteration processes indices [size-1 .. 0]; uncompleted are [0 .. failedReverseIdx].
                         for (std::size_t idx = 0; idx <= failedReverseIdx; ++idx)
                         {
-                            out.remaining.push_back(items[idx]);
+                            if (!discardFailed || idx != failedReverseIdx)
+                            {
+                                out.remaining.push_back(items[idx]);
+                            }
                         }
                     }
                     else
                     {
-                        for (std::size_t idx = failedReverseIdx; idx < items.size(); ++idx)
+                        for (std::size_t idx = failedReverseIdx + (discardFailed ? 1 : 0); idx < items.size(); ++idx)
                         {
                             out.remaining.push_back(items[idx]);
                         }
@@ -7780,13 +7785,13 @@ namespace winrt::FileScoutNative::implementation
                     for (std::size_t rev = items.size(); rev-- > 0;)
                     {
                         auto pair = items[rev];
-                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.target);
-                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
-                            *liveIdentity != *pair.target_identity)
+                        auto const identity = ::FileScoutNative::Shell::CheckRecordedIdentity(pair.target, pair.target_identity);
+                        if (identity != ::FileScoutNative::Shell::RecordedIdentityCheck::Matches)
                         {
                             recordFailure(rev, /*isReverse=*/true, false,
                                 L"Item at '" + pair.target.filename().wstring() +
-                                L"' changed since it was renamed; cannot safely undo.");
+                                L"' changed since it was renamed; cannot safely undo.",
+                                identity == ::FileScoutNative::Shell::RecordedIdentityCheck::Gone);
                             break;
                         }
                         try
@@ -7819,13 +7824,13 @@ namespace winrt::FileScoutNative::implementation
                         auto const& pair = items[i];
                         // Verify filesystem identity before recycling by path so Undo never
                         // deletes a different item that later replaced the original path.
-                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.target);
-                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
-                            *liveIdentity != *pair.target_identity)
+                        auto const identity = ::FileScoutNative::Shell::CheckRecordedIdentity(pair.target, pair.target_identity);
+                        if (identity != ::FileScoutNative::Shell::RecordedIdentityCheck::Matches)
                         {
                             recordFailure(i, /*isReverse=*/false, false,
                                 L"Item at '" + pair.target.filename().wstring() +
-                                L"' changed since it was created; cannot safely undo.");
+                                L"' changed since it was created; cannot safely undo.",
+                                identity == ::FileScoutNative::Shell::RecordedIdentityCheck::Gone);
                             break;
                         }
 
@@ -7879,13 +7884,13 @@ namespace winrt::FileScoutNative::implementation
                     for (std::size_t rev = items.size(); rev-- > 0;)
                     {
                         auto pair = items[rev];
-                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.target);
-                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
-                            *liveIdentity != *pair.target_identity)
+                        auto const identity = ::FileScoutNative::Shell::CheckRecordedIdentity(pair.target, pair.target_identity);
+                        if (identity != ::FileScoutNative::Shell::RecordedIdentityCheck::Matches)
                         {
                             recordFailure(rev, /*isReverse=*/true, false,
                                 L"Item at '" + pair.target.filename().wstring() +
-                                L"' changed since it was moved; cannot safely undo.");
+                                L"' changed since it was moved; cannot safely undo.",
+                                identity == ::FileScoutNative::Shell::RecordedIdentityCheck::Gone);
                             break;
                         }
                         try
@@ -8071,7 +8076,8 @@ namespace winrt::FileScoutNative::implementation
         else
         {
             StatusTextBlock().Text(ToHString(
-                BuildFileOperationErrorStatus(L"Couldn't undo " + entry.description, outcome.error_detail)));
+                BuildFileOperationErrorStatus(L"Couldn't undo " + entry.description,
+                    outcome.discarded ? outcome.error_detail + L" Removed it from history." : outcome.error_detail)));
         }
     }
 
@@ -8113,6 +8119,7 @@ namespace winrt::FileScoutNative::implementation
             std::vector<::FileScoutNative::Domain::UndoPathPair> remaining;
             bool failed{ false };
             bool canceled{ false };
+            bool discarded{ false };
             std::wstring error_detail;
         };
 
@@ -8122,12 +8129,14 @@ namespace winrt::FileScoutNative::implementation
                 RedoReplayOutcome out{};
                 auto const& items = entry.items;
 
-                auto recordFailure = [&](std::size_t const failedIdx, bool const isCanceled, std::wstring detail)
+                auto recordFailure = [&](std::size_t const failedIdx, bool const isCanceled, std::wstring detail,
+                    bool const discardFailed = false)
                 {
                     out.failed = true;
                     out.canceled = isCanceled;
+                    out.discarded = discardFailed;
                     out.error_detail = std::move(detail);
-                    for (std::size_t idx = failedIdx; idx < items.size(); ++idx)
+                    for (std::size_t idx = failedIdx + (discardFailed ? 1 : 0); idx < items.size(); ++idx)
                     {
                         out.remaining.push_back(items[idx]);
                     }
@@ -8140,13 +8149,13 @@ namespace winrt::FileScoutNative::implementation
                     for (std::size_t i = 0; i < items.size(); ++i)
                     {
                         auto pair = items[i];
-                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
-                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
-                            *liveIdentity != *pair.target_identity)
+                        auto const identity = ::FileScoutNative::Shell::CheckRecordedIdentity(pair.source, pair.target_identity);
+                        if (identity != ::FileScoutNative::Shell::RecordedIdentityCheck::Matches)
                         {
                             recordFailure(i, false,
                                 L"Item at '" + pair.source.filename().wstring() +
-                                L"' changed since it was undone; cannot safely redo rename.");
+                                L"' changed since it was undone; cannot safely redo rename.",
+                                identity == ::FileScoutNative::Shell::RecordedIdentityCheck::Gone);
                             break;
                         }
                         try
@@ -8223,13 +8232,13 @@ namespace winrt::FileScoutNative::implementation
                     for (std::size_t i = 0; i < items.size(); ++i)
                     {
                         auto pair = items[i];
-                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
-                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
-                            *liveIdentity != *pair.target_identity)
+                        auto const identity = ::FileScoutNative::Shell::CheckRecordedIdentity(pair.source, pair.target_identity);
+                        if (identity != ::FileScoutNative::Shell::RecordedIdentityCheck::Matches)
                         {
                             recordFailure(i, false,
                                 L"Item at '" + pair.source.filename().wstring() +
-                                L"' changed since it was undone; cannot safely redo move.");
+                                L"' changed since it was undone; cannot safely redo move.",
+                                identity == ::FileScoutNative::Shell::RecordedIdentityCheck::Gone);
                             break;
                         }
                         try
@@ -8286,13 +8295,13 @@ namespace winrt::FileScoutNative::implementation
                     for (std::size_t i = 0; i < items.size(); ++i)
                     {
                         auto pair = items[i];
-                        auto const liveIdentity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.source);
-                        if (!pair.target_identity.has_value() || !liveIdentity.has_value() ||
-                            *liveIdentity != *pair.target_identity)
+                        auto const identity = ::FileScoutNative::Shell::CheckRecordedIdentity(pair.source, pair.target_identity);
+                        if (identity != ::FileScoutNative::Shell::RecordedIdentityCheck::Matches)
                         {
                             recordFailure(i, false,
                                 L"Item at '" + pair.source.filename().wstring() +
-                                L"' changed since it was restored; cannot safely redo delete.");
+                                L"' changed since it was restored; cannot safely redo delete.",
+                                identity == ::FileScoutNative::Shell::RecordedIdentityCheck::Gone);
                             break;
                         }
 
@@ -8388,7 +8397,8 @@ namespace winrt::FileScoutNative::implementation
         else
         {
             StatusTextBlock().Text(ToHString(
-                BuildFileOperationErrorStatus(L"Couldn't redo " + entry.description, outcome.error_detail)));
+                BuildFileOperationErrorStatus(L"Couldn't redo " + entry.description,
+                    outcome.discarded ? outcome.error_detail + L" Removed it from history." : outcome.error_detail)));
         }
     }
 
@@ -9826,9 +9836,20 @@ namespace winrt::FileScoutNative::implementation
             return true;
         }
 
-        auto index = ActivePane().active_list_view
-            ? ActivePane().active_list_view.SelectedIndex()
-            : -1;
+        auto const& listView = ActivePane().active_list_view;
+        int32_t index = -1;
+        if (selectedItems.size() > 1 && listView && listView.XamlRoot())
+        {
+            if (auto const container = winrt::Microsoft::UI::Xaml::Input::FocusManager::GetFocusedElement(
+                    listView.XamlRoot()).try_as<winrt::Microsoft::UI::Xaml::Controls::ListViewItem>())
+            {
+                index = listView.IndexFromContainer(container);
+            }
+        }
+        if (index < 0 && listView)
+        {
+            index = listView.SelectedIndex();
+        }
         if (index < 0)
         {
             auto const& displayedItems = DisplayedItems();

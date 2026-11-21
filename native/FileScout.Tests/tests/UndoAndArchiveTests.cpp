@@ -287,6 +287,30 @@ TEST(ShellFileOperationIdentityTests, DetectsReplacementAtSamePath)
     EXPECT_NE(*id1, *id2);
 }
 
+TEST(ShellFileOperationIdentityTests, CheckRecordedIdentityReportsGoneOnlyWhenTheItemCannotReturn)
+{
+    ScopedTempDir temp{ L"identity-check" };
+    auto const target = temp.path / L"draft.txt";
+    {
+        std::ofstream out(target);
+        out << "original";
+    }
+    auto const recorded = TryCaptureFileIdentity(target);
+    ASSERT_TRUE(recorded.has_value());
+
+    EXPECT_EQ(CheckRecordedIdentity(target, recorded), RecordedIdentityCheck::Matches);
+    EXPECT_EQ(CheckRecordedIdentity(target, std::nullopt), RecordedIdentityCheck::Gone);
+
+    std::filesystem::rename(target, temp.path / L"moved.txt");
+    EXPECT_EQ(CheckRecordedIdentity(target, recorded), RecordedIdentityCheck::Gone);
+
+    {
+        std::ofstream out(target);
+        out << "replacement";
+    }
+    EXPECT_EQ(CheckRecordedIdentity(target, recorded), RecordedIdentityCheck::Gone);
+}
+
 TEST(ShellFileOperationTransferTests, CopyAndMoveRecordTransferredPairsForUndo)
 {
     ComApartment apartment;

@@ -67,6 +67,17 @@ namespace FileScoutNative::Shell
     [[nodiscard]] std::optional<FileScoutNative::Domain::FileIdentity> TryCaptureFileIdentity(
         std::filesystem::path const& path) noexcept;
 
+    enum class RecordedIdentityCheck
+    {
+        Matches,
+        Gone,
+        Unreadable,
+    };
+
+    [[nodiscard]] RecordedIdentityCheck CheckRecordedIdentity(
+        std::filesystem::path const& path,
+        std::optional<FileScoutNative::Domain::FileIdentity> const& recorded) noexcept;
+
     class ShellFileOperationService
     {
     public:

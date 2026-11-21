@@ -671,6 +671,24 @@ namespace FileScoutNative::Shell
         };
     }
 
+    RecordedIdentityCheck CheckRecordedIdentity(
+        std::filesystem::path const& path,
+        std::optional<FileScoutNative::Domain::FileIdentity> const& recorded) noexcept
+    {
+        if (!recorded.has_value())
+        {
+            return RecordedIdentityCheck::Gone;
+        }
+        if (auto const live = TryCaptureFileIdentity(path))
+        {
+            return *live == *recorded ? RecordedIdentityCheck::Matches : RecordedIdentityCheck::Gone;
+        }
+        std::error_code ec;
+        return !std::filesystem::exists(path, ec) && !ec
+            ? RecordedIdentityCheck::Gone
+            : RecordedIdentityCheck::Unreadable;
+    }
+
     void ShellFileOperationService::DeleteItems(
         HWND const ownerWindow,
         std::span<std::filesystem::path const> const paths,
