@@ -9,8 +9,6 @@
 
 namespace FileScoutNative::Domain
 {
-    // Explorer-like type-ahead in the file list (UB-18): characters typed within kTypeAheadResetMs of
-    // each other build a prefix; repeating one character cycles through the rows that start with it.
     inline constexpr std::uint64_t kTypeAheadResetMs = 1000;
 
     struct TypeAheadBuffer
@@ -22,12 +20,9 @@ namespace FileScoutNative::Domain
     struct TypeAheadQuery
     {
         std::wstring prefix;
-        // True for a new or cycling single-character query (move to the next match), false while the
-        // prefix grows (stay on the focused row if it still matches).
         bool start_after_focused{ true };
     };
 
-    // Ends the current prefix (the pane loaded another folder): the next character starts anew.
     inline void ResetTypeAhead(TypeAheadBuffer& buffer) noexcept
     {
         buffer.text.clear();
@@ -39,8 +34,6 @@ namespace FileScoutNative::Domain
         return buffer.text.empty() || nowMs < buffer.last_key_ms || nowMs - buffer.last_key_ms > kTypeAheadResetMs;
     }
 
-    // Any printable character (letters and digits of every script, punctuation, inner spaces). A
-    // leading space is left to the list, where it toggles the selection.
     [[nodiscard]] inline bool AcceptsTypeAheadCharacter(wchar_t const ch, bool const startsNewPrefix)
     {
         if (ch < 0x20 || (ch >= 0x7F && ch <= 0x9F))
@@ -50,9 +43,6 @@ namespace FileScoutNative::Domain
         return !(ch == L' ' && startsNewPrefix);
     }
 
-    // Ordinal, case-insensitive prefix test through the OS uppercase table (Greek, Cyrillic, ...);
-    // towlower/_wcsicmp fold ASCII only because the app never calls setlocale. Switch to
-    // Domain/TextFold.h once D-22 lands.
     [[nodiscard]] inline bool StartsWithIgnoringCase(std::wstring_view const name, std::wstring_view const prefix)
     {
         if (prefix.empty() || name.size() < prefix.size())
@@ -84,8 +74,6 @@ namespace FileScoutNative::Domain
         return TypeAheadQuery{ buffer.text, false };
     }
 
-    // Returns the first displayed row (by index, wrapping) whose name starts with the query prefix,
-    // case-insensitively. `nameAt(i)` gives the display name of displayed row i.
     template <typename NameAt>
     [[nodiscard]] std::optional<std::size_t> FindTypeAheadMatch(
         std::size_t const count,

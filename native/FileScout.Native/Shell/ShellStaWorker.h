@@ -15,11 +15,6 @@
 
 namespace FileScoutNative::Shell
 {
-    // One dedicated single-threaded apartment for shell file operations (IFileOperation and the
-    // clipboard paste that drives it). They used to run on the UI thread (the window froze for the
-    // length of a copy) or on thread-pool threads without a COM apartment. Tasks run in posting
-    // order; the thread pumps messages while idle, as an STA must; a throwing task does not stop it;
-    // the destructor finishes queued tasks and joins.
     class ShellStaWorker
     {
     public:
@@ -40,9 +35,6 @@ namespace FileScoutNative::Shell
         std::thread m_thread;
     };
 
-    // co_await RunOnShellThread(worker, resume, fn): runs fn() on the worker and resumes the
-    // coroutine through `resume` (the UI dispatcher in the app), returning fn's result or rethrowing
-    // its exception there.
     template <typename Resume, typename Fn>
     auto RunOnShellThread(ShellStaWorker& worker, Resume resume, Fn fn)
     {

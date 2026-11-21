@@ -2,8 +2,6 @@
 #include <gtest/gtest.h>
 #include "TraceHelper.h"
 
-// ScopedTimer is header-only; the sink overload allows test capture without file I/O.
-
 TEST(ScopedTimer, SinkCalledExactlyOnce)
 {
     int callCount = 0;
@@ -37,14 +35,12 @@ TEST(ScopedTimer, ElapsedValueIsNumeric)
     {
         ScopedTimer timer{ L"parse", [&](std::wstring const& line) { captured = line; } };
     }
-    // Extract the number between "done in " and "ms".
     auto const prefix = std::wstring{ L"[TIMER] parse: done in " };
     auto const suffix = std::wstring{ L"ms" };
     ASSERT_TRUE(captured.starts_with(prefix));
     ASSERT_TRUE(captured.ends_with(suffix));
     auto const numStr = captured.substr(prefix.size(), captured.size() - prefix.size() - suffix.size());
     EXPECT_FALSE(numStr.empty());
-    // Must be a valid non-negative integer.
     for (wchar_t ch : numStr)
     {
         EXPECT_TRUE(ch >= L'0' && ch <= L'9') << "Non-digit character in elapsed value: " << (int)ch;
@@ -66,8 +62,6 @@ TEST(ScopedTimer, ElapsedIsNonNegative)
     EXPECT_GE(elapsed, 0LL);
 }
 
-// UA-09: crash and trace logs must keep non-ASCII text (a wofstream converts through the "C"
-// locale and drops it), and writing a log line must never throw on an error path.
 TEST(TraceLogFile, AppendsLinesAsUtf8)
 {
     auto const path = std::filesystem::temp_directory_path() / L"FileScoutTests_utf8_log.txt";
@@ -91,8 +85,6 @@ TEST(TraceLogFile, UnwritablePathDoesNotThrow)
     EXPECT_NO_THROW(AppendUtf8LogLine(L"Z:\\no\\such\\dir\\log.txt", L"line"));
 }
 
-// The unhandled-exception handler calls TraceLog before its error dialog: the whole call, not
-// only the file write, must be unable to throw.
 TEST(TraceLogFile, TraceLogAndAppendCannotThrow)
 {
     static_assert(noexcept(TraceLog(std::wstring{})));

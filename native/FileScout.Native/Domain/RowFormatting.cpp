@@ -1,8 +1,7 @@
 #include "pch.h"
 #include "Domain/RowFormatting.h"
 #include <array>
-#include <iomanip>
-#include <sstream>
+#include <format>
 
 namespace FileScoutNative::Domain
 {
@@ -21,11 +20,8 @@ namespace FileScoutNative::Domain
             ++suffixIndex;
         }
 
-        std::wstringstream ss;
-        ss << std::fixed
-           << std::setprecision(value >= 10.0 || suffixIndex == 0 ? 0 : 1)
-           << value;
-        return ss.str() + L" " + std::wstring(suffixes[suffixIndex]);
+        auto const precision = value >= 10.0 || suffixIndex == 0 ? 0 : 1;
+        return std::format(L"{:.{}Lf} {}", value, precision, suffixes[suffixIndex]);
     }
 
     std::wstring BuildDetailText(std::wstring_view const kindLabel,

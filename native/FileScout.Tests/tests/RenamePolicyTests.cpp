@@ -11,7 +11,6 @@ TEST(RenamePolicy, IdenticalName_IsSkipped)
 
 TEST(RenamePolicy, CaseOnlyChange_IsNotSkipped)
 {
-    // UB-17: Explorer allows foo.txt -> Foo.txt; a case-insensitive compare skipped it.
     EXPECT_FALSE(IsRenameNoOp(L"Foo.txt", L"foo.txt"));
     EXPECT_FALSE(IsRenameNoOp(L"foo.TXT", L"foo.txt"));
 }

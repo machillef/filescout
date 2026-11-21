@@ -38,7 +38,6 @@ TEST(SidebarRecents, CapAtMax)
 
 TEST(SidebarRecents, DedupsDuplicatePaths)
 {
-    // back_stack contains repeated paths — each unique path returned once
     std::vector<std::filesystem::path> const candidates{
         L"C:\\Work", L"C:\\Work", L"C:\\Projects", L"C:\\Work",
     };
@@ -49,7 +48,6 @@ TEST(SidebarRecents, DedupsDuplicatePaths)
 
 TEST(SidebarRecents, MostRecentFirst)
 {
-    // back_stack is oldest-first, newest-last — results must be newest-first
     std::vector<std::filesystem::path> const candidates{
         L"C:\\Oldest", L"C:\\Middle", L"C:\\Newest",
     };
@@ -63,7 +61,6 @@ TEST(SidebarRecents, MostRecentFirst)
 
 TEST(SidebarRecents, CaseInsensitiveExclusion)
 {
-    // excluded key generated from uppercase path; candidate uses lowercase — must be excluded
     std::vector<std::filesystem::path> const candidates{ L"C:\\users\\test\\desktop" };
     std::unordered_set<std::wstring> const excluded{
         SidebarPathKey(L"C:\\Users\\Test\\Desktop"),
@@ -82,13 +79,11 @@ TEST(SidebarRecents, EmptyPathsInCandidates_Skipped)
     EXPECT_EQ(result.size(), 2u);
 }
 
-// UB-11: recents read only the left pane's back stack. They now come from one window-wide list of
-// folders the user left, in either pane.
 TEST(SidebarRecents, RecordRecentFolder_MergesBothPanesNewestLast)
 {
     std::vector<std::filesystem::path> recents;
-    RecordRecentFolder(recents, L"C:\\LeftPane\\A", 16);   // left pane navigates away from A
-    RecordRecentFolder(recents, L"D:\\RightPane\\B", 16);  // right pane navigates away from B
+    RecordRecentFolder(recents, L"C:\\LeftPane\\A", 16);
+    RecordRecentFolder(recents, L"D:\\RightPane\\B", 16);
     std::unordered_set<std::wstring> const noExclusions;
     auto const result = SelectRecentPaths(recents, noExclusions, 5);
     ASSERT_EQ(result.size(), 2u);
@@ -118,8 +113,6 @@ TEST(SidebarRecents, RecordRecentFolder_DropsOldestAtCapacityAndIgnoresEmpty)
     EXPECT_EQ(recents.back(), std::filesystem::path(L"C:\\3"));
 }
 
-// A recursive search rooted at a folder shows results from its subfolders, so a file operation
-// in a subfolder must refresh that search (S-03). Path keys are SidebarPathKey values.
 TEST(SidebarRecents, DescendantPathKeyMatchesOnlyWholeSegmentsUnderTheRoot)
 {
     using FileScoutNative::Domain::IsSameOrDescendantPathKey;
@@ -153,7 +146,6 @@ TEST(SidebarRecents, VisibleRecentPathKeys_UnchangedWhenAlternatingBuiltInOrPinn
     EXPECT_EQ(before, afterDownloads);
     EXPECT_EQ(before, afterDocuments);
 
-    // Leaving an unpinned folder changes the visible recents list.
     RecordRecentFolder(recents, L"C:\\Work\\Beta", 32);
     auto const afterUnpinned = VisibleRecentPathKeys(recents, shown, 5);
     EXPECT_NE(before, afterUnpinned);

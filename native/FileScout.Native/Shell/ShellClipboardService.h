@@ -15,14 +15,12 @@ namespace FileScoutNative::Shell
         std::wstring failure_detail;
     };
 
-    // The clipboard's shell items as absolute ID lists, read when the user pressed Paste. Plain
-    // memory, not a COM object, so it can be handed to the shell worker thread (S-03).
     struct ClipboardSnapshot
     {
         std::vector<std::shared_ptr<std::remove_pointer_t<PIDLIST_ABSOLUTE>>> items;
         bool is_move{ false };
         DWORD sequence_number{ 0 };
-        std::wstring failure_detail;  // non-empty when the clipboard could not be read
+        std::wstring failure_detail;
     };
 
     class ShellClipboardService final : public FileScoutNative::Domain::ClipboardService
@@ -34,17 +32,12 @@ namespace FileScoutNative::Shell
         [[nodiscard]] ClipboardPasteResult PasteInto(
             HWND ownerWindow,
             std::filesystem::path const& directory) const;
-        // Reads the clipboard now; PasteCaptured pastes that snapshot later, on any STA thread.
         [[nodiscard]] ClipboardSnapshot CaptureClipboard() const;
         [[nodiscard]] ClipboardPasteResult PasteCaptured(
             HWND ownerWindow,
             std::filesystem::path const& directory,
             ClipboardSnapshot const& snapshot) const;
-        // Empties the clipboard only if nothing was written since `sequenceNumber`. The check and the
-        // clear run while this thread holds the clipboard open, so no writer can slip in between;
-        // if another thread holds it, this backs off and returns false.
         static bool ClearClipboardIfUnchanged(DWORD sequenceNumber);
-        // Copies plain UTF-16 text (e.g. file paths) to the Win32 clipboard with brief retry backoff.
         // Requires a valid application-owned window handle so EmptyClipboard + SetClipboardData succeed.
         static bool CopyTextToClipboard(HWND ownerWindow, std::wstring_view text);
 

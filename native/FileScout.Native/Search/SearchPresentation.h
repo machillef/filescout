@@ -139,4 +139,4 @@ namespace FileScoutNative::Search
 
         return items;
     }
-} // namespace FileScoutNative::Search
+}

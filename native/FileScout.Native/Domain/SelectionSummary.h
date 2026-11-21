@@ -43,7 +43,6 @@ namespace FileScoutNative::Domain
         return summary;
     }
 
-    // Builds the inspector subtitle for multi-selection (e.g. "17 files  |  2 folders  |  4.82 GB").
     [[nodiscard]] inline std::wstring FormatSelectionMetaText(SelectionSummary const& summary)
     {
         std::wstring text;
@@ -70,7 +69,6 @@ namespace FileScoutNative::Domain
         return text;
     }
 
-    // Builds the status bar text for multi-selection (e.g. "19 items selected  |  4.82 GB").
     [[nodiscard]] inline std::wstring FormatSelectionStatusText(SelectionSummary const& summary)
     {
         std::wstring text = std::to_wstring(summary.total_count) +
@@ -82,7 +80,6 @@ namespace FileScoutNative::Domain
         return text;
     }
 
-    // Formats selected item paths (or the current directory if none are selected) for Copy Path.
     [[nodiscard]] inline std::wstring FormatCopyPathsPayload(
         std::span<ShellItemRef const> const items,
         std::filesystem::path const& fallbackDirectory)

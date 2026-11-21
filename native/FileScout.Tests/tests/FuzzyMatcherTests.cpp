@@ -21,7 +21,6 @@ TEST(FuzzyMatcher, NoMatchWhenCharNotInFilename)
 
 TEST(FuzzyMatcher, PrefixScoresHigherThanMidWord)
 {
-    // "doc" at start of "document.txt" should outscore "doc" buried in "readme.doc"
     int prefixScore = FuzzyScore(L"doc", L"document.txt");
     int midScore    = FuzzyScore(L"doc", L"readme.doc");
     EXPECT_GT(prefixScore, midScore);
@@ -38,13 +37,11 @@ TEST(FuzzyMatcher, ConsecutiveScoresHigherThanScattered)
 
 TEST(FuzzyMatcher, WildcardIsLiteralPositive)
 {
-    // Filename literally contains '*' — query should match.
     int score = FuzzyScore(L"a*b", L"a*b_file.txt");
     EXPECT_GE(score, 0);
 }
 
 TEST(FuzzyMatcher, WildcardIsLiteralNegative)
 {
-    // Filename has no '*' — query with '*' should not match.
     EXPECT_EQ(-1, FuzzyScore(L"a*b", L"ab_file.txt"));
 }

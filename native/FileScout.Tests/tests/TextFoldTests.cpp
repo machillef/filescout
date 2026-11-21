@@ -9,9 +9,6 @@
 
 using namespace FileScoutNative::Domain;
 
-// D-22: case-insensitive behaviour must not depend on the C locale (the app never calls
-// setlocale, so towlower folds ASCII only). The user's file names are Greek.
-
 TEST(TextFold, FoldsGreekAndLatin)
 {
     EXPECT_EQ(L"\u03B1\u03C1\u03C7\u03B5\u03AF\u03BF.txt", FoldCase(L"\u0391\u03A1\u03A7\u0395\u038A\u039F.TXT"));
@@ -20,7 +17,6 @@ TEST(TextFold, FoldsGreekAndLatin)
     EXPECT_EQ(0, CompareIgnoreCase(L"\u0391\u03C1\u03C7\u03B5\u03AF\u03BF", L"\u03B1\u03A1\u03A7\u0395\u038A\u039F"));
     EXPECT_TRUE(EqualsIgnoreCase(L"\u03A6\u0391\u039A\u0395\u039B\u039F\u03A3", L"\u03C6\u03B1\u03BA\u03B5\u03BB\u03BF\u03C2"));
     EXPECT_LT(CompareIgnoreCase(L"\u03B1\u03B2\u03B3", L"\u03C9\u03BC\u03AD\u03B3\u03B1"), 0);
-    // Final sigma: folded for comparisons, kept by the lowercase rename.
     EXPECT_EQ(FoldCase(L"\u03C2"), FoldCase(L"\u03A3"));
     EXPECT_EQ(L"\u03C2", LowerCase(L"\u03C2"));
 }
@@ -65,7 +61,7 @@ TEST(TextFold, DriveLetterParsingStaysAscii)
 {
     EXPECT_TRUE(IsDriveLetterOnlyAddressNavigationTarget(L"C:"));
     EXPECT_TRUE(IsDriveLetterOnlyAddressNavigationTarget(L"z:"));
-    EXPECT_FALSE(IsDriveLetterOnlyAddressNavigationTarget(L"\u0391:")); // Greek capital alpha
+    EXPECT_FALSE(IsDriveLetterOnlyAddressNavigationTarget(L"\u0391:"));
     EXPECT_FALSE(IsDriveLetterOnlyAddressNavigationTarget(L"\u00C9:"));
     EXPECT_FALSE(IsDriveLetterOnlyAddressNavigationTarget(L"1:"));
 }
@@ -74,7 +70,6 @@ TEST(TextFold, BatchRenameCaseTransformsHandleGreek)
 {
     EXPECT_EQ(L"\u03B1\u03C1\u03C7\u03B5\u03AF\u03BF", detail::ApplyCaseTransform(L"\u0391\u03A1\u03A7\u0395\u038A\u039F", BatchRenameCaseTransform::Lowercase));
     EXPECT_EQ(L"\u0391\u03A1\u03A7\u0395\u038A\u039F", detail::ApplyCaseTransform(L"\u03B1\u03C1\u03C7\u03B5\u03AF\u03BF", BatchRenameCaseTransform::Uppercase));
-    // Greek "archeio keimenou" -> "Archeio Keimenou"
     EXPECT_EQ(
         L"\u0391\u03C1\u03C7\u03B5\u03AF\u03BF \u039A\u03B5\u03B9\u03BC\u03AD\u03BD\u03BF\u03C5",
         detail::ApplyCaseTransform(
@@ -82,24 +77,22 @@ TEST(TextFold, BatchRenameCaseTransformsHandleGreek)
             BatchRenameCaseTransform::TitleCase));
 }
 
-// Unicode simple case folding entries whose target is not the lowercase mapping.
 TEST(TextFold, SymbolVariantsFoldToTheLetterUsersType)
 {
     using FileScoutNative::Domain::FoldChar;
-    EXPECT_EQ(FoldChar(L'\u03D0'), L'\u03B2');  // beta symbol
-    EXPECT_EQ(FoldChar(L'\u03F1'), L'\u03C1');  // rho symbol
-    EXPECT_EQ(FoldChar(L'\u00B5'), L'\u03BC');  // micro sign
-    EXPECT_EQ(FoldChar(L'\u212A'), L'k');        // Kelvin sign
-    EXPECT_EQ(FoldChar(L'\u017F'), L's');        // long s
+    EXPECT_EQ(FoldChar(L'\u03D0'), L'\u03B2');
+    EXPECT_EQ(FoldChar(L'\u03F1'), L'\u03C1');
+    EXPECT_EQ(FoldChar(L'\u00B5'), L'\u03BC');
+    EXPECT_EQ(FoldChar(L'\u212A'), L'k');
+    EXPECT_EQ(FoldChar(L'\u017F'), L's');
 }
 
-// Group headers use the same folding as the name sort, so Greek case variants share one header.
 TEST(TextFold, NameGroupInitialMatchesTheSortFolding)
 {
     using FileScoutNative::Domain::NameGroupInitial;
-    EXPECT_EQ(NameGroupInitial(L"\u0391a"), L'\u0391');  // Αa
-    EXPECT_EQ(NameGroupInitial(L"\u03B1b"), L'\u0391');  // αb
-    EXPECT_EQ(NameGroupInitial(L"\u03C2x"), L'\u03A3');  // ςx groups under Σ
+    EXPECT_EQ(NameGroupInitial(L"\u0391a"), L'\u0391');
+    EXPECT_EQ(NameGroupInitial(L"\u03B1b"), L'\u0391');
+    EXPECT_EQ(NameGroupInitial(L"\u03C2x"), L'\u03A3');
     EXPECT_EQ(NameGroupInitial(L"7z"), L'7');
     EXPECT_EQ(NameGroupInitial(L"_tmp"), L'#');
     EXPECT_EQ(NameGroupInitial(L""), L'#');

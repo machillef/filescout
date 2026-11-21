@@ -50,8 +50,6 @@ TEST(ShellItemSort, DescendingComparator_RemainsFalseForEqualItems)
     EXPECT_FALSE(comparison > 0);
 }
 
-// D-08: rows whose sort keys tie (same size, names equal ignoring case) must come out in the
-// same order however they went in, so a refresh or re-sort does not shuffle them.
 namespace
 {
     std::vector<ShellItemRef> MakeTiedFiles()

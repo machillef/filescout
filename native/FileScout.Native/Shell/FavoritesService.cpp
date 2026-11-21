@@ -9,7 +9,6 @@ namespace FileScoutNative::Shell
 {
     namespace
     {
-        // RAII wrapper around the CoTaskMem string returned by SHGetKnownFolderPath.
         struct CoTaskMemWString
         {
             wchar_t* ptr{ nullptr };
@@ -118,7 +117,6 @@ namespace FileScoutNative::Shell
             return home;
         }
 
-        // Fallback: USERPROFILE environment variable.
         wchar_t profileBuf[MAX_PATH]{};
         if (GetEnvironmentVariableW(L"USERPROFILE", profileBuf, MAX_PATH) > 0)
         {
@@ -230,21 +228,18 @@ namespace FileScoutNative::Shell
 
         std::vector<FE> favorites;
 
-        // Home folder.
         auto homePath = GetUserHomePath();
         if (!homePath.empty())
         {
             favorites.push_back({ L"Home", homePath, false, false, false });
         }
 
-        // Standard known folders — skip entries whose paths could not be resolved.
         struct KnownFolderSpec
         {
             KNOWNFOLDERID id;
             std::wstring_view name;
         };
 
-        // KNOWNFOLDERID is a GUID (16 bytes); stored by value to avoid pointer-to-external-linkage.
         static std::array<KnownFolderSpec, 6> const knownFolders{ {
             { FOLDERID_Desktop,   L"Desktop"   },
             { FOLDERID_Documents, L"Documents" },
@@ -263,7 +258,6 @@ namespace FileScoutNative::Shell
             }
         }
 
-        // Virtual nodes.
         favorites.push_back({ L"This PC",     {}, true,  false, false });
         favorites.push_back({ L"Recycle Bin", {}, false, true,  false });
 

@@ -39,12 +39,8 @@ inline void AppendUtf8LogLine(std::filesystem::path const& path, std::wstring_vi
     }
 }
 
-// Persistent, append-only trace log for startup crash diagnosis.
-// Writes to %TEMP%\FileScout.Native.trace.log — never deleted.
 inline void TraceLog(std::wstring const& line) noexcept
 {
-    // Best effort as a whole: it runs on error paths (the unhandled-exception handler), where a
-    // throw from building the path or the line would skip the error dialog (UA-09).
     try
     {
         wchar_t tempPath[MAX_PATH]{};
@@ -63,8 +59,6 @@ inline void TraceLog(std::wstring const& line) noexcept
     }
 }
 
-// RAII timer that logs "[TIMER] <label>: done in <N>ms" to sink on destruction.
-// Default sink is TraceLog. Pass a custom sink for testing or alternate output.
 class ScopedTimer
 {
 public:

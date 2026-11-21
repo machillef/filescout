@@ -157,8 +157,6 @@ TEST_F(ShellClipboardServiceFixture, PasteIntoMissingDestinationReturnsStructure
     EXPECT_TRUE(std::filesystem::exists(sourcePath));
 }
 
-// S-03: a paste runs later on the shell worker, behind earlier operations. It must act on the
-// clipboard as it was when the user pressed Paste, not on what the user copied in the meantime.
 TEST_F(ShellClipboardServiceFixture, CapturedPasteUsesTheClipboardAtCaptureTime)
 {
     auto const sourceDirectory = m_root / L"Source";
@@ -180,7 +178,6 @@ TEST_F(ShellClipboardServiceFixture, CapturedPasteUsesTheClipboardAtCaptureTime)
     EXPECT_FALSE(std::filesystem::exists(destination / L"beta.txt"));
 }
 
-// A cut paste clears the clipboard afterwards, but only the cut it pasted: a newer copy stays.
 TEST_F(ShellClipboardServiceFixture, CapturedCutPasteKeepsANewerClipboard)
 {
     auto const sourceDirectory = m_root / L"Source";
@@ -204,7 +201,6 @@ TEST_F(ShellClipboardServiceFixture, CapturedCutPasteKeepsANewerClipboard)
     EXPECT_TRUE(m_service.CanPasteInto(destination));
 }
 
-// The snapshot is taken on the UI thread and pasted on the shell worker's STA.
 TEST_F(ShellClipboardServiceFixture, CapturedPasteRunsOnTheShellWorker)
 {
     auto const sourceDirectory = m_root / L"Source";
@@ -227,9 +223,6 @@ TEST_F(ShellClipboardServiceFixture, CapturedPasteRunsOnTheShellWorker)
     EXPECT_TRUE(std::filesystem::exists(destination / L"alpha.txt"));
 }
 
-// After a cut is pasted the clipboard is cleared, but only if no writer touched it since the
-// snapshot. The check and the clear run while holding the clipboard open, so a writer that has
-// it open (and may be about to replace the content) makes the clear back off instead of racing.
 TEST_F(ShellClipboardServiceFixture, ClearIfUnchangedClearsOnlyTheSnapshotContent)
 {
     auto const sourceDirectory = m_root / L"Source";

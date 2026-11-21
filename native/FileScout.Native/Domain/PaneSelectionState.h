@@ -8,8 +8,6 @@
 
 namespace FileScoutNative::Domain
 {
-    // Selected item ids of one pane, in the order they were selected, plus the focused id.
-    // An empty id never counts as selected.
     class PaneSelectionState
     {
     public:

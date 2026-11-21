@@ -6,8 +6,6 @@ using namespace FileScoutNative::Shell;
 
 namespace
 {
-    // IContextMenu that answers GetCommandString like a shell extension that only fills the
-    // Unicode verb and refuses a buffer that is too small (StringCchCopy semantics).
     struct FakeVerbMenu : winrt::implements<FakeVerbMenu, IContextMenu>
     {
         std::wstring verb;
@@ -28,7 +26,7 @@ namespace
 
             if (cchMax < verb.size() + 1)
             {
-                return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER); // STRSAFE_E_INSUFFICIENT_BUFFER
+                return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
             }
 
             auto* const out = reinterpret_cast<wchar_t*>(name);
@@ -77,7 +75,6 @@ TEST(ShellCommandVerbTests, BlocksClipboardVerbsCaseInsensitively)
 
 namespace
 {
-    // A handler that truncates to the buffer and still returns S_OK.
     struct TruncatingVerbMenu : winrt::implements<TruncatingVerbMenu, IContextMenu>
     {
         std::wstring verb;

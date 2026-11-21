@@ -32,9 +32,6 @@ namespace FileScoutNative::Domain
             return comparison < 0 ? -1 : (comparison > 0 ? 1 : 0);
         }
 
-        // Case-insensitive name first; names equal ignoring case (search hits from different
-        // folders, "a" vs "A") fall back to the ordinal name and then the full path, so the
-        // order never depends on the input order.
         inline int CompareByName(ShellItemRef const& left, ShellItemRef const& right)
         {
             if (auto const comparison = CompareCaseInsensitive(left.display_name, right.display_name);
@@ -108,9 +105,6 @@ namespace FileScoutNative::Domain
         ShellItemSortColumn const column,
         ShellItemSortDirection const direction)
     {
-        // The comparison is a total order (it ends in the full path), so a plain sort gives the same
-        // result as a stable one. Sorting pointers and moving each item once avoids the n log n moves
-        // of a ShellItemRef (several strings and a path) that sorting the items in place costs.
         std::vector<ShellItemRef*> order;
         order.reserve(items.size());
         for (auto& item : items)

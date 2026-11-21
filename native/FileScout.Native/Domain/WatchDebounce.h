@@ -12,9 +12,6 @@ namespace FileScoutNative::Domain
     inline constexpr uint64_t kDefaultWatchMaxWaitMs = 1500;
     inline constexpr uint64_t kDefaultWatchSelfSuppressMs = 600;
 
-    // Returns true when a directory load in `loadedPaneIndex` should restore `selectAfter` in that
-    // pane. Active-pane loads always restore; background watch refreshes also restore selection in
-    // an inactive pane (without touching shared active-pane toolbar/inspector chrome).
     [[nodiscard]] constexpr bool ShouldRestoreSelectionInLoadedPane(
         int32_t const loadedPaneIndex,
         int32_t const activePaneIndex,
@@ -23,9 +20,6 @@ namespace FileScoutNative::Domain
         return loadedPaneIndex == activePaneIndex || preserveInactivePaneSelection;
     }
 
-    // Returns true when a filesystem event observed at `eventTickMs` occurred strictly before
-    // the latest directory enumeration snapshot started (`snapshotStartTickMs`), meaning the
-    // snapshot already reflects that mutation and no redundant reload is needed.
     [[nodiscard]] inline bool IsWatchEventCoveredBySnapshot(
         uint64_t const eventTickMs,
         uint64_t const snapshotStartTickMs) noexcept
@@ -33,8 +27,6 @@ namespace FileScoutNative::Domain
         return eventTickMs > 0 && snapshotStartTickMs > 0 && eventTickMs < snapshotStartTickMs;
     }
 
-    // Virtual locations (This PC, Recycle Bin, archive views, empty paths) cannot be watched
-    // with ReadDirectoryChangesW.
     [[nodiscard]] inline bool ShouldWatchLocation(
         std::filesystem::path const& path,
         bool const isDrivesView,
@@ -48,11 +40,6 @@ namespace FileScoutNative::Domain
         return !IsRecycleBinLocation(path) && !IsDrivesViewLocation(path);
     }
 
-    // Pure debounce and self-mutation suppression coordinator for directory change notifications.
-    // Coalesces bursts of filesystem events until `debounceMs` of quiet, while capping total wait
-    // at `maxWaitMs` so continuous background writes cannot starve refreshes indefinitely.
-    // Notifications observed during a self-mutation suppression window are remembered as a single
-    // deferred change that flushes once the suppression deadline passes.
     class DirectoryWatchCoordinator
     {
     public:
@@ -155,7 +142,6 @@ namespace FileScoutNative::Domain
             return false;
         }
 
-        // Milliseconds until the pending change should flush (0 if ready now or nothing pending).
         [[nodiscard]] uint64_t RemainingWaitMs(
             uint64_t const nowTickMs,
             uint64_t const debounceMs = kDefaultWatchDebounceMs,

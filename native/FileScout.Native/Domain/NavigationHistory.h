@@ -12,7 +12,6 @@ namespace FileScoutNative::Domain
     // The location the sidebar's Recycle Bin row navigates to. std::filesystem::absolute() treats it
     // as a relative path and prefixes the working directory, so recognise it by its last component.
     inline constexpr std::wstring_view kRecycleBinLocation = L"shell:RecycleBinFolder";
-    // Sentinel location used in back/forward history stacks to represent the This PC drives view.
     inline constexpr std::wstring_view kDrivesViewLocation = L"shell:MyComputerFolder";
 
     [[nodiscard]] inline bool PathsEqualIgnoringCase(
@@ -37,8 +36,7 @@ namespace FileScoutNative::Domain
         return !path.empty() && PathsEqualIgnoringCase(path.filename(), std::filesystem::path{ kDrivesViewLocation });
     }
 
-    // lexically_normal() keeps a trailing separator ("C:\\Users\\Docs\\"), which made a reload of the
-    // same folder look like a navigation. Drop it, except for a root ("C:\\").
+    // lexically_normal() keeps a trailing separator ("C:\\Users\\Docs\\"); drop it, except for a root ("C:\\").
     [[nodiscard]] inline std::filesystem::path NormalizeFolderForCompare(std::filesystem::path const& path)
     {
         auto normal = path.lexically_normal();
@@ -49,10 +47,6 @@ namespace FileScoutNative::Domain
         return normal;
     }
 
-    // History rule for a user navigation from `current` to `target`: the folder being left goes onto
-    // the back stack and the forward stack is dropped. Nothing is recorded when there is no current
-    // folder (first load, drives view) or when the target is the current folder (refresh, reload
-    // after rename/create/delete), so Back always leaves the folder.
     inline void RecordNavigation(
         std::vector<std::filesystem::path>& backStack,
         std::vector<std::filesystem::path>& forwardStack,
@@ -69,9 +63,6 @@ namespace FileScoutNative::Domain
         forwardStack.clear();
     }
 
-    // Starts a navigation: records history (unless it is a Back/Forward step) and makes `target` the
-    // pane's current folder right away. A second navigation started before the first one's listing
-    // arrives then records the pending target (e.g. the Recycle Bin), not the folder left earlier.
     inline void BeginNavigation(
         std::vector<std::filesystem::path>& backStack,
         std::vector<std::filesystem::path>& forwardStack,
@@ -86,9 +77,6 @@ namespace FileScoutNative::Domain
         current = target;
     }
 
-    // The folder a navigation from `leaving` to `target` adds to the recents: the folder actually
-    // left (Back/Forward included), never the target, nothing for a reload of the same folder or a
-    // first load, and never the Recycle Bin (it has its own sidebar row).
     [[nodiscard]] inline std::optional<std::filesystem::path> FolderToRecordOnLeave(
         std::filesystem::path const& leaving,
         std::filesystem::path const& target)
@@ -101,9 +89,6 @@ namespace FileScoutNative::Domain
         return leaving;
     }
 
-    // The whole navigation step LoadDirectory performs on history and recents: capture the folder
-    // being left, start the navigation (history + pending current folder), then add the folder left
-    // to the recents. Returns true when the recents changed.
     inline bool NavigateAndRecordRecent(
         std::vector<std::filesystem::path>& backStack,
         std::vector<std::filesystem::path>& forwardStack,
@@ -136,9 +121,6 @@ namespace FileScoutNative::Domain
         std::filesystem::path path;
     };
 
-    // Resolves the Up (Alt+Up / Backspace) destination for a pane.
-    // From a drive root ("C:\\") or Recycle Bin, navigates to This PC (DrivesView).
-    // From This PC or an empty path, there is no parent.
     [[nodiscard]] inline ParentNavigationTarget ResolveParentNavigationTarget(
         std::filesystem::path const& currentPath,
         bool const isDrivesView,
@@ -164,9 +146,6 @@ namespace FileScoutNative::Domain
         return { ParentNavigationKind::Folder, parent };
     }
 
-    // Two-batch directory publication policy: small and medium folders publish in one ReplaceAll
-    // without waiting for two extra CompositionTarget::Rendering frames; very large folders
-    // (e.g. 100k items) publish the first batch immediately and stage the full list after present.
     inline constexpr std::size_t kStagedLoadFirstBatch = 150;
     inline constexpr std::size_t kStagedLoadThreshold = 2000;
 

@@ -49,17 +49,12 @@ namespace FileScoutNative::Shell
             return result == HRESULT_FROM_WIN32(ERROR_CANCELLED) || result == COPYENGINE_E_USER_CANCELLED;
         }
 
-        // Closed beta policy: keep the shell backend non-interactive and surface all outcomes
-        // in FileScout's own dark-themed UI instead of letting Explorer show separate dialogs.
         constexpr DWORD baseMutationFlags =
             FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | FOFX_ADDUNDORECORD;
-        // Copy keeps Windows' collision-safe duplication behavior rather than failing outright.
         constexpr DWORD copyMutationFlags =
             baseMutationFlags | FOF_RENAMEONCOLLISION | FOFX_PRESERVEFILEEXTENSIONS;
-        // Delete skips the extra Explorer confirmation because FileScout already confirms first.
         constexpr DWORD deleteMutationFlags =
             baseMutationFlags | FOF_NOCONFIRMATION | FOFX_RECYCLEONDELETE;
-        // Permanent delete (Shift+Delete) bypasses Recycle Bin and shell undo records entirely.
         constexpr DWORD permanentDeleteMutationFlags =
             FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMATION;
 
@@ -671,7 +666,6 @@ namespace FileScoutNative::Shell
     {
         auto const sink = winrt::make_self<ItemFailureSink>();
         DWORD cookie = 0;
-        // Without the sink, refused items would be reported as success or "canceled"; do not run.
         winrt::check_hresult(fileOperation->Advise(sink.get(), &cookie));
         bool const advised = true;
 
@@ -689,7 +683,6 @@ namespace FileScoutNative::Shell
             operationsAborted = FALSE;
         }
 
-        // A refused item is a failure of that item, even though the shell only aborted the batch.
         std::wstring failurePath = path;
         if (FAILED(sink->first_failure) && (SUCCEEDED(performResult) || performResult == HRESULT_FROM_WIN32(ERROR_CANCELLED) ||
                                             performResult == COPYENGINE_E_USER_CANCELLED))

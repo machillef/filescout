@@ -4,12 +4,11 @@
 
 using namespace FileScoutNative::Domain;
 
-// UA-05: typing in the filter while a large folder was still loading was silently ignored.
 TEST(PendingFilter, TypingDuringALoad_IsAppliedOnTheFinalPublish)
 {
     PendingFilter pending;
-    EXPECT_FALSE(pending.OnQueryChanged(L"rep", /*loadInProgress=*/true));
-    EXPECT_FALSE(pending.OnQueryChanged(L"report", /*loadInProgress=*/true));
+    EXPECT_FALSE(pending.OnQueryChanged(L"rep", true));
+    EXPECT_FALSE(pending.OnQueryChanged(L"report", true));
     EXPECT_TRUE(pending.HasPending());
     auto const query = pending.TakeOnFinalPublish();
     ASSERT_TRUE(query.has_value());
@@ -21,7 +20,7 @@ TEST(PendingFilter, TypingDuringALoad_IsAppliedOnTheFinalPublish)
 TEST(PendingFilter, TypingWhenLoaded_AppliesImmediately)
 {
     PendingFilter pending;
-    EXPECT_TRUE(pending.OnQueryChanged(L"report", /*loadInProgress=*/false));
+    EXPECT_TRUE(pending.OnQueryChanged(L"report", false));
     EXPECT_FALSE(pending.HasPending());
     EXPECT_FALSE(pending.TakeOnFinalPublish().has_value());
 }
@@ -29,7 +28,7 @@ TEST(PendingFilter, TypingWhenLoaded_AppliesImmediately)
 TEST(PendingFilter, ClearingTheBoxDuringALoad_DropsThePendingQuery)
 {
     PendingFilter pending;
-    EXPECT_FALSE(pending.OnQueryChanged(L"rep", /*loadInProgress=*/true));
+    EXPECT_FALSE(pending.OnQueryChanged(L"rep", true));
     pending.Clear();
     EXPECT_FALSE(pending.TakeOnFinalPublish().has_value());
 }
@@ -37,7 +36,7 @@ TEST(PendingFilter, ClearingTheBoxDuringALoad_DropsThePendingQuery)
 TEST(PendingFilter, EmptyQueryDuringALoad_IsNotPending)
 {
     PendingFilter pending;
-    EXPECT_FALSE(pending.OnQueryChanged(L"", /*loadInProgress=*/true));
+    EXPECT_FALSE(pending.OnQueryChanged(L"", true));
     EXPECT_FALSE(pending.HasPending());
 }
 

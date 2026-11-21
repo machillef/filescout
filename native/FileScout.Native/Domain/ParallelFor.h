@@ -9,17 +9,13 @@
 
 namespace FileScoutNative::Domain
 {
-    // Number of worker threads for CPU-bound per-item work: hardware_concurrency() may legally
-    // return 0, so never fewer than one, and never more than `cap`.
+    // hardware_concurrency() may legally return 0.
     [[nodiscard]] inline std::size_t WorkerCount(std::size_t const cap = 8) noexcept
     {
         auto const hw = static_cast<std::size_t>(std::thread::hardware_concurrency());
         return (std::clamp)(hw, std::size_t{ 1 }, (std::max)(cap, std::size_t{ 1 }));
     }
 
-    // Calls body(begin, end) on contiguous index ranges covering [0, count), in parallel when the
-    // range is large enough to pay for the threads. The calling thread takes the first range.
-    // Exceptions from any range are rethrown after all ranges finish.
     template <typename Body>
     void ParallelForRanges(std::size_t const count, Body&& body, std::size_t const minPerWorker = 4096)
     {

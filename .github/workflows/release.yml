@@ -1,7 +1,6 @@
 name: Release
 
-# Builds a Release x64 zip on the self-hosted win1 runner, publishes it to GitHub Releases,
-# and always cleans up all build artifacts on win1 afterward to protect disk space.
+# Builds a Release x64 zip on a GitHub-hosted runner and publishes it to GitHub Releases.
 on:
   workflow_dispatch:
     inputs:
@@ -32,23 +31,19 @@ concurrency:
 
 jobs:
   release:
-    runs-on: [self-hosted, filescout]
+    runs-on: windows-2022
     timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          # Keep the NuGet cache junction at native/packages.
-          clean: false
 
-      - name: Pre-clean untracked files (keep package junction)
+      - name: Check the requested tag
         shell: pwsh
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
-          git clean -ffdx -e native/packages
           if ($env:EVENT_NAME -eq 'workflow_dispatch' -and -not [string]::IsNullOrWhiteSpace($env:INPUT_TAG)) {
             $tag = $env:INPUT_TAG.Trim()
             git fetch --tags --quiet origin
@@ -68,8 +63,7 @@ jobs:
             '-NoProfile', '-File', 'tools/win1/build.ps1',
             '-Root', $env:GITHUB_WORKSPACE,
             '-Configuration', 'Release',
-            '-Target', 'Build',
-            '-PackagesCache', 'C:\fsdev\packages'
+            '-Target', 'Build'
           )
           if ($env:INPUT_NAVDIAG -eq 'true') {
             $argsList += @('-Property', 'FileScoutNavDiag=true')
@@ -176,15 +170,3 @@ jobs:
 
           Write-Host "Published release: $($published.html_url)"
           Write-Host "Uploaded asset   : $($asset.browser_download_url)"
-
-      - name: Auto-cleanup build artifacts on win1
-        if: always()
-        shell: pwsh
-        run: |
-          $shortSha = (git rev-parse --short HEAD 2>$null)
-          if ($shortSha) {
-            Remove-Item -Recurse -Force (Join-Path $env:RUNNER_TEMP "filescout-release-$($shortSha.Trim())") -ErrorAction SilentlyContinue
-          }
-          Remove-Item -Force (Join-Path $env:RUNNER_TEMP "FileScout-Release-x64-*.zip") -ErrorAction SilentlyContinue
-          git clean -ffdx -e native/packages
-          Get-PSDrive C | Format-Table Name, Used, Free -AutoSize
