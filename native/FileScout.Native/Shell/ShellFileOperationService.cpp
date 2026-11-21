@@ -970,37 +970,31 @@ namespace FileScoutNative::Shell
                     break;
                 }
 
-                ScopedPidl fullPidl{ ::ILCombine(binPidl.pidl, child) };
-                bool keep = false;
-                std::wstring matchedName;
-                if (fullPidl.pidl != nullptr)
+                // A lookup failure must surface as a retryable error: skipping the item would
+                // report it as missing and let Undo retire an entry that is still restorable.
+                struct ChildGuard
                 {
-                    winrt::com_ptr<IShellItem> shellItem;
-                    if (SUCCEEDED(::SHCreateItemFromIDList(
-                            fullPidl.pidl, __uuidof(IShellItem), shellItem.put_void())))
-                    {
-                        PWSTR parsingText = nullptr;
-                        if (SUCCEEDED(shellItem->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &parsingText)) &&
-                            parsingText != nullptr)
-                        {
-                            if (matchesTarget(parsingText))
-                            {
-                                keep = true;
-                                matchedName = parsingText;
-                            }
-                            ::CoTaskMemFree(parsingText);
-                        }
-                    }
+                    PITEMID_CHILD pidl;
+                    ~ChildGuard() { if (pidl) { ::ILFree(pidl); } }
+                } childGuard{ child };
+                ScopedPidl fullPidl{ ::ILCombine(binPidl.pidl, child) };
+                if (fullPidl.pidl == nullptr)
+                {
+                    winrt::throw_hresult(E_OUTOFMEMORY);
                 }
+                winrt::com_ptr<IShellItem> shellItem;
+                winrt::check_hresult(::SHCreateItemFromIDList(
+                    fullPidl.pidl, __uuidof(IShellItem), shellItem.put_void()));
+                PWSTR parsingText = nullptr;
+                winrt::check_hresult(shellItem->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &parsingText));
+                std::wstring const parsingName{ parsingText != nullptr ? parsingText : L"" };
+                ::CoTaskMemFree(parsingText);
 
-                if (keep)
+                if (matchesTarget(parsingName))
                 {
                     matchedChildren.items.push_back(child);
-                    matchedParsingNames.push_back(std::move(matchedName));
-                }
-                else
-                {
-                    ::ILFree(child);
+                    childGuard.pidl = nullptr;
+                    matchedParsingNames.push_back(parsingName);
                 }
             }
 
