@@ -1998,6 +1998,7 @@ namespace winrt::FileScoutNative::implementation
             InitializeComponent();
             m_dispatcherQueue = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
         }
+        m_userSettings = ::FileScoutNative::Domain::UserSettingsService::Load();
         {
             ScopedTimer timer{ L"ConfigureWindow" };
             ConfigureWindow();
@@ -2010,10 +2011,21 @@ namespace winrt::FileScoutNative::implementation
         {
             ScopedTimer timer{ L"InitializeThemeDropDown" };
             m_currentThemeId = ::FileScoutNative::Domain::ThemeService::LoadSavedThemeId();
-            m_dualPaneVisible = !::FileScoutNative::Domain::Wave1UsesSinglePaneFirstLaunch();
+            m_dualPaneVisible = m_userSettings.has_dual_pane_setting
+                ? m_userSettings.dual_pane_visible
+                : !::FileScoutNative::Domain::Wave1UsesSinglePaneFirstLaunch();
+            ApplyLoadedUserSettingsToPanes();
             InitializeThemeDropDown();
             InitializeViewOptionsDropDown();
         }
+
+        this->Closed([this](auto const&, auto const&)
+            {
+                m_windowClosing = true;
+                SaveUserSettings();
+                StopPaneDirectoryWatcher(0);
+                StopPaneDirectoryWatcher(1);
+            });
 
         LeftPaneBorder().ContextRequested([this](auto const& sender, auto const& args)
             {
@@ -3304,22 +3316,84 @@ namespace winrt::FileScoutNative::implementation
         const auto hwnd = GetWindowHandle();
         const UINT dpi = GetDpiForWindow(hwnd);
         const float scale = static_cast<float>(dpi) / 96.0f;
-        int width = static_cast<int>(1520 * scale);
-        int height = static_cast<int>(920 * scale);
-        // Never larger than the monitor's work area: it was 1520x920 on win1's 1280x800 screen, so
-        // the title bar buttons and the theme menu were off screen. Centred in the work area.
+        int32_t const defaultWidth = static_cast<int32_t>(1520 * scale);
+        int32_t const defaultHeight = static_cast<int32_t>(920 * scale);
+
+        std::vector<::FileScoutNative::Domain::ScreenWorkArea> monitors;
+        ::EnumDisplayMonitors(
+            nullptr,
+            nullptr,
+            [](HMONITOR const hmon, HDC, LPRECT, LPARAM const lParam) -> BOOL
+            {
+                auto* const list = reinterpret_cast<std::vector<::FileScoutNative::Domain::ScreenWorkArea>*>(lParam);
+                MONITORINFO info{ sizeof(info) };
+                if (::GetMonitorInfoW(hmon, &info))
+                {
+                    list->push_back({
+                        info.rcWork.left,
+                        info.rcWork.top,
+                        info.rcWork.right,
+                        info.rcWork.bottom,
+                    });
+                }
+                return TRUE;
+            },
+            reinterpret_cast<LPARAM>(&monitors));
+
+        ::FileScoutNative::Domain::ScreenWorkArea primaryWorkArea{};
         MONITORINFO monitor{ sizeof(monitor) };
         if (::GetMonitorInfoW(::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor))
         {
-            auto const& work = monitor.rcWork;
-            width = (std::min)(width, static_cast<int>((work.right - work.left) * 0.94));
-            height = (std::min)(height, static_cast<int>((work.bottom - work.top) * 0.94));
-            SetWindowPos(hwnd, nullptr, work.left + ((work.right - work.left) - width) / 2,
-                work.top + ((work.bottom - work.top) - height) / 2, width, height, SWP_NOZORDER);
+            primaryWorkArea = {
+                monitor.rcWork.left,
+                monitor.rcWork.top,
+                monitor.rcWork.right,
+                monitor.rcWork.bottom,
+            };
         }
-        else
+
+        auto const restored = ::FileScoutNative::Domain::ResolveRestoredWindowBounds(
+            m_userSettings.window,
+            monitors,
+            primaryWorkArea,
+            defaultWidth,
+            defaultHeight);
+
+        ::SetWindowPos(
+            hwnd,
+            nullptr,
+            restored.x,
+            restored.y,
+            restored.width,
+            restored.height,
+            SWP_NOZORDER);
+
+        m_lastNormalWindowBounds = restored;
+        m_lastNormalWindowBounds.maximized = false;
+        m_windowMaximized = restored.maximized;
+
+        if (restored.maximized)
         {
-            SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
+            bool maximizedViaPresenter = false;
+            try
+            {
+                if (m_appWindow)
+                {
+                    if (auto const presenter = m_appWindow.Presenter()
+                        .try_as<winrt::Microsoft::UI::Windowing::OverlappedPresenter>())
+                    {
+                        presenter.Maximize();
+                        maximizedViaPresenter = true;
+                    }
+                }
+            }
+            catch (...)
+            {
+            }
+            if (!maximizedViaPresenter)
+            {
+                ::ShowWindow(hwnd, SW_SHOWMAXIMIZED);
+            }
         }
 
         static constexpr UINT_PTR navigationWindowSubclassId = 0x46534E56;
@@ -3328,6 +3402,273 @@ namespace winrt::FileScoutNative::implementation
             &MainWindow::NavigationWindowSubclassProc,
             navigationWindowSubclassId,
             reinterpret_cast<DWORD_PTR>(this));
+
+        m_windowConfigured = true;
+    }
+
+    void MainWindow::ApplyLoadedUserSettingsToPanes()
+    {
+        auto const savedViewMode = m_userSettings.view_mode == ::FileScoutNative::Domain::SavedViewMode::Cards
+            ? ViewMode::Cards
+            : ViewMode::List;
+        auto const savedSortColumn = [&]()
+        {
+            switch (m_userSettings.sort_column)
+            {
+            case ::FileScoutNative::Domain::SavedSortColumn::Type: return SortColumn::Type;
+            case ::FileScoutNative::Domain::SavedSortColumn::Size: return SortColumn::Size;
+            case ::FileScoutNative::Domain::SavedSortColumn::DateModified: return SortColumn::DateModified;
+            case ::FileScoutNative::Domain::SavedSortColumn::Name:
+            default:
+                return SortColumn::Name;
+            }
+        }();
+        auto const savedSortDirection =
+            m_userSettings.sort_direction == ::FileScoutNative::Domain::SavedSortDirection::Descending
+                ? SortDirection::Descending
+                : SortDirection::Ascending;
+
+        for (auto& pane : m_panes)
+        {
+            pane.list_column_widths = m_userSettings.list_column_widths;
+            pane.view_mode = savedViewMode;
+            pane.show_hidden_files = m_userSettings.show_hidden_files;
+            pane.show_file_extensions = m_userSettings.show_file_extensions;
+            pane.group_by_sort_column = m_userSettings.group_by_sort_column;
+            pane.sort_column = savedSortColumn;
+            pane.sort_direction = savedSortDirection;
+        }
+    }
+
+    void MainWindow::CaptureLiveWindowBounds()
+    {
+        if (!m_windowConfigured || m_windowClosing)
+        {
+            return;
+        }
+
+        HWND const hwnd = GetWindowHandle();
+        if (hwnd == nullptr || ::IsIconic(hwnd))
+        {
+            return;
+        }
+
+        bool const isMaximized = (::IsZoomed(hwnd) != FALSE);
+        m_windowMaximized = isMaximized;
+        if (!isMaximized)
+        {
+            RECT rc{};
+            if (::GetWindowRect(hwnd, &rc))
+            {
+                int32_t const width = rc.right - rc.left;
+                int32_t const height = rc.bottom - rc.top;
+                if (width >= 400 && height >= 300)
+                {
+                    m_lastNormalWindowBounds = ::FileScoutNative::Domain::WindowBounds{
+                        .x = rc.left,
+                        .y = rc.top,
+                        .width = width,
+                        .height = height,
+                        .maximized = false,
+                        .has_bounds = true,
+                    };
+                }
+            }
+        }
+    }
+
+    void MainWindow::SaveUserSettings(int32_t const sourcePaneIndex)
+    {
+        if (!m_windowConfigured)
+        {
+            return;
+        }
+
+        if (!m_windowClosing)
+        {
+            CaptureLiveWindowBounds();
+        }
+
+        int32_t const paneIndex = (sourcePaneIndex >= 0 && sourcePaneIndex < static_cast<int32_t>(m_panes.size()))
+            ? sourcePaneIndex
+            : m_activePaneIndex;
+        auto const& pane = m_panes[static_cast<std::size_t>(paneIndex)];
+        ::FileScoutNative::Domain::UserSettings settings{};
+        settings.window = m_lastNormalWindowBounds;
+        settings.window.maximized = m_windowMaximized;
+        settings.list_column_widths = pane.list_column_widths;
+        settings.view_mode = pane.view_mode == ViewMode::Cards
+            ? ::FileScoutNative::Domain::SavedViewMode::Cards
+            : ::FileScoutNative::Domain::SavedViewMode::List;
+        settings.show_hidden_files = pane.show_hidden_files;
+        settings.show_file_extensions = pane.show_file_extensions;
+        settings.group_by_sort_column = pane.group_by_sort_column;
+        settings.dual_pane_visible = m_dualPaneVisible;
+        settings.has_dual_pane_setting = true;
+        settings.sort_column = [&]()
+        {
+            switch (pane.sort_column)
+            {
+            case SortColumn::Type: return ::FileScoutNative::Domain::SavedSortColumn::Type;
+            case SortColumn::Size: return ::FileScoutNative::Domain::SavedSortColumn::Size;
+            case SortColumn::DateModified: return ::FileScoutNative::Domain::SavedSortColumn::DateModified;
+            case SortColumn::Name:
+            default:
+                return ::FileScoutNative::Domain::SavedSortColumn::Name;
+            }
+        }();
+        settings.sort_direction = pane.sort_direction == SortDirection::Descending
+            ? ::FileScoutNative::Domain::SavedSortDirection::Descending
+            : ::FileScoutNative::Domain::SavedSortDirection::Ascending;
+
+        m_userSettings = settings;
+        (void)::FileScoutNative::Domain::UserSettingsService::Save(settings);
+    }
+
+    void MainWindow::StopPaneDirectoryWatcher(int32_t const paneIndex)
+    {
+        if (paneIndex < 0 || paneIndex >= static_cast<int32_t>(m_panes.size()))
+        {
+            return;
+        }
+        auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
+        ++pane.watch_token;
+        pane.watched_path_key.clear();
+        if (pane.directory_watcher)
+        {
+            pane.directory_watcher->Stop();
+        }
+    }
+
+    void MainWindow::UpdatePaneDirectoryWatcher(int32_t const paneIndex)
+    {
+        if (m_windowClosing || paneIndex < 0 || paneIndex >= static_cast<int32_t>(m_panes.size()))
+        {
+            return;
+        }
+
+        if (paneIndex == 1 && !m_dualPaneVisible)
+        {
+            StopPaneDirectoryWatcher(paneIndex);
+            return;
+        }
+
+        auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
+        if (!::FileScoutNative::Domain::ShouldWatchLocation(
+                pane.current_path,
+                pane.is_drives_view,
+                pane.is_archive_view,
+                pane.is_recycle_bin_view))
+        {
+            StopPaneDirectoryWatcher(paneIndex);
+            return;
+        }
+
+        auto const targetKey = ::FileScoutNative::Domain::SidebarPathKey(pane.current_path);
+        if (pane.directory_watcher &&
+            pane.directory_watcher->IsWatching() &&
+            pane.watched_path_key == targetKey)
+        {
+            return;
+        }
+
+        if (!pane.directory_watcher)
+        {
+            pane.directory_watcher = std::make_unique<::FileScoutNative::Shell::DirectoryWatcher>();
+        }
+
+        uint64_t const token = ++pane.watch_token;
+        pane.watched_path_key = targetKey;
+        std::filesystem::path const watchedPath = pane.current_path;
+        auto weakThis = get_weak();
+        auto queue = m_dispatcherQueue;
+
+        bool const started = pane.directory_watcher->Start(
+            watchedPath,
+            [weakThis, queue, paneIndex, token, watchedPath]()
+            {
+                if (!queue)
+                {
+                    return;
+                }
+                queue.TryEnqueue([weakThis, paneIndex, token, watchedPath]()
+                {
+                    if (auto strong = weakThis.get())
+                    {
+                        strong->HandleDirectoryWatchChanged(paneIndex, token, watchedPath);
+                    }
+                });
+            },
+            static_cast<uint32_t>(::FileScoutNative::Domain::kDefaultWatchDebounceMs),
+            static_cast<uint32_t>(::FileScoutNative::Domain::kDefaultWatchMaxWaitMs));
+
+        if (!started)
+        {
+            pane.watched_path_key.clear();
+        }
+    }
+
+    void MainWindow::HandleDirectoryWatchChanged(
+        int32_t const paneIndex,
+        uint64_t const watchToken,
+        std::filesystem::path const& watchedPath)
+    {
+        if (m_windowClosing || m_modalDialogOpen ||
+            paneIndex < 0 || paneIndex >= static_cast<int32_t>(m_panes.size()))
+        {
+            return;
+        }
+
+        auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
+        if (pane.watch_token != watchToken)
+        {
+            return;
+        }
+
+        if (!::FileScoutNative::Domain::ShouldWatchLocation(
+                pane.current_path,
+                pane.is_drives_view,
+                pane.is_archive_view,
+                pane.is_recycle_bin_view))
+        {
+            return;
+        }
+
+        if (::FileScoutNative::Domain::SidebarPathKey(pane.current_path) !=
+            ::FileScoutNative::Domain::SidebarPathKey(watchedPath))
+        {
+            return;
+        }
+
+        // Skip redundant reloads immediately after FileScout's own mutations or while a load/search is active.
+        if (::GetTickCount64() < pane.watch_suppress_until_tick ||
+            pane.awaiting_final_batch ||
+            pane.search_mode != SearchMode::None)
+        {
+            return;
+        }
+
+        std::error_code existsError;
+        if (!std::filesystem::is_directory(pane.current_path, existsError))
+        {
+            StopPaneDirectoryWatcher(paneIndex);
+            return;
+        }
+
+        std::optional<std::filesystem::path> selectAfter;
+        if (auto const focusedId = pane.selection.FocusedId(); focusedId.has_value())
+        {
+            for (auto const& item : pane.items)
+            {
+                if (item.id == *focusedId)
+                {
+                    selectAfter = item.path;
+                    break;
+                }
+            }
+        }
+
+        LoadDirectoryAsync(pane.current_path, paneIndex, std::move(selectAfter));
     }
 
     LRESULT CALLBACK MainWindow::NavigationWindowSubclassProc(
@@ -3335,9 +3676,33 @@ namespace winrt::FileScoutNative::implementation
         UINT const message,
         WPARAM const wParam,
         LPARAM const lParam,
-        UINT_PTR const,
+        UINT_PTR const subclassId,
         DWORD_PTR const refData)
     {
+        if (message == WM_NCDESTROY)
+        {
+            ::RemoveWindowSubclass(hwnd, &MainWindow::NavigationWindowSubclassProc, subclassId);
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
+        if (message == WM_SIZE || message == WM_MOVE)
+        {
+            if (auto* const self = reinterpret_cast<MainWindow*>(refData))
+            {
+                self->CaptureLiveWindowBounds();
+            }
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
+        if (message == WM_EXITSIZEMOVE)
+        {
+            if (auto* const self = reinterpret_cast<MainWindow*>(refData))
+            {
+                self->CaptureLiveWindowBounds();
+                self->SaveUserSettings();
+            }
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
         if (message == WM_THEMECHANGED ||
             (message == WM_SETTINGCHANGE && (wParam == SPI_SETHIGHCONTRAST || wParam == 0)))
         {
@@ -3544,7 +3909,10 @@ namespace winrt::FileScoutNative::implementation
             }
         }
         // The Recycle Bin is a view chosen by the target, so Back/Forward/sidebar clicks leave it.
+        pane.is_drives_view = false;
+        pane.is_archive_view = m_shellInterop.IsArchivePath(absolutePath);
         pane.is_recycle_bin_view = ::FileScoutNative::Domain::IsRecycleBinLocation(absolutePath);
+        UpdatePaneDirectoryWatcher(paneIndex);
         if (chrome.toolbar)
         {
             UpdateNavButtons();
@@ -3581,6 +3949,10 @@ namespace winrt::FileScoutNative::implementation
             {
                 continue;
             }
+
+            // Suppress the directory watcher echo caused by FileScout's own mutation.
+            pane.watch_suppress_until_tick =
+                ::GetTickCount64() + ::FileScoutNative::Domain::kDefaultWatchSelfSuppressMs;
 
             // The reload publishes the full listing, so a filter or search on this pane ends first
             // (as LoadDirectory does); otherwise DisplayedItems would still be the old filtered list.
@@ -3785,6 +4157,7 @@ namespace winrt::FileScoutNative::implementation
                         pane.is_drives_view = false;
                         pane.is_archive_view = true;
                         pane.is_recycle_bin_view = false;
+                        StopPaneDirectoryWatcher(paneIndex);
                         pane.items = items;
                         pane.selection.Clear();
 
@@ -7983,6 +8356,7 @@ namespace winrt::FileScoutNative::implementation
             tab.is_recycle_bin_view || ::FileScoutNative::Domain::IsRecycleBinLocation(tab.path);
         pane.items = tab.items;
         pane.selection = tab.selection;
+        UpdatePaneDirectoryWatcher(m_activePaneIndex);
 
         if (tab.is_drives_view)
         {
@@ -8768,7 +9142,7 @@ namespace winrt::FileScoutNative::implementation
                         ApplyListColumnWidthsToPane(paneIndex);
                         args.Handled(true);
                     });
-                grip.PointerReleased([weakHairline, dragState](
+                grip.PointerReleased([this, paneIndex, weakHairline, dragState](
                     auto const& sender,
                     winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const& args)
                     {
@@ -8786,15 +9160,21 @@ namespace winrt::FileScoutNative::implementation
                             line.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
                             line.Opacity(0.75);
                         }
+                        SaveUserSettings(paneIndex);
                         args.Handled(true);
                     });
-                grip.PointerCaptureLost([weakHairline, dragState](auto const&, auto const&)
+                grip.PointerCaptureLost([this, paneIndex, weakHairline, dragState](auto const&, auto const&)
                     {
+                        bool const wasDragging = dragState->dragging;
                         dragState->dragging = false;
                         if (auto const line = weakHairline.get())
                         {
                             line.Background(LookupBrush(L"DividerStrokeColorDefaultBrush"));
                             line.Opacity(0.75);
+                        }
+                        if (wasDragging)
+                        {
+                            SaveUserSettings(paneIndex);
                         }
                     });
                 grip.DoubleTapped([this, paneIndex, listColIdx](auto const&, auto const& args)
@@ -8803,6 +9183,7 @@ namespace winrt::FileScoutNative::implementation
                         m_panes[paneIndex].list_column_widths =
                             ::FileScoutNative::Domain::ResetListColumn(m_panes[paneIndex].list_column_widths, listColIdx);
                         ApplyListColumnWidthsToPane(paneIndex);
+                        SaveUserSettings(paneIndex);
                         args.Handled(true);
                     });
 
@@ -9003,6 +9384,7 @@ namespace winrt::FileScoutNative::implementation
             + SortColumnLabel(column)
             + (pane.sort_direction == SortDirection::Ascending ? L"  \u2191" : L"  \u2193")
             + (pane.group_by_sort_column ? L"  |  grouped" : L"")));
+        SaveUserSettings(paneIndex);
     }
 
     void MainWindow::SetGroupingEnabled(int32_t const paneIndex, bool const enabled)
@@ -9034,6 +9416,7 @@ namespace winrt::FileScoutNative::implementation
             (enabled
                 ? L"group view  |  grouped by " + SortColumnLabel(pane.sort_column)
                 : RowPresentationStatusLabel(pane))));
+        SaveUserSettings(paneIndex);
     }
 
     void MainWindow::ToggleHiddenFiles(int32_t const paneIndex)
@@ -9047,6 +9430,7 @@ namespace winrt::FileScoutNative::implementation
         RefreshViewOptionsDropDown();
         StatusTextBlock().Text(ToHString(
             pane.show_hidden_files ? L"Hidden files shown." : L"Hidden files hidden."));
+        SaveUserSettings(paneIndex);
     }
 
     void MainWindow::ToggleExtensions(int32_t const paneIndex)
@@ -9057,6 +9441,7 @@ namespace winrt::FileScoutNative::implementation
         RefreshViewOptionsDropDown();
         StatusTextBlock().Text(ToHString(
             pane.show_file_extensions ? L"File extensions shown." : L"File extensions hidden."));
+        SaveUserSettings(paneIndex);
     }
 
     winrt::fire_and_forget MainWindow::LoadImagePreviewAsync(
@@ -9123,6 +9508,7 @@ namespace winrt::FileScoutNative::implementation
         StatusTextBlock().Text(ToHString(
             std::to_wstring(pane.items.size()) + L" items  |  " +
             RowPresentationStatusLabel(pane)));
+        SaveUserSettings(paneIndex);
     }
 
     void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
@@ -9913,6 +10299,7 @@ namespace winrt::FileScoutNative::implementation
             pane.is_drives_view = true;
             pane.is_archive_view = false;
             pane.is_recycle_bin_view = false;
+            StopPaneDirectoryWatcher(m_activePaneIndex);
             if (recentsChanged)
             {
                 BuildSidebarFavorites();
@@ -10021,6 +10408,11 @@ namespace winrt::FileScoutNative::implementation
             // Pane 1 loads by index; the shared toolbar keeps showing the active pane (UB-07).
             LoadDirectoryInPane(1, path);
         }
+        else
+        {
+            UpdatePaneDirectoryWatcher(1);
+        }
+        SaveUserSettings();
         StatusTextBlock().Text(m_dualPaneVisible
             ? L"Dual pane enabled."
             : L"Single-pane beta layout restored.");

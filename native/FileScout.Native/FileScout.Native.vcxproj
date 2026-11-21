@@ -160,8 +160,11 @@
     <ClInclude Include="Domain\ShellItemRef.h" />
     <ClInclude Include="Domain\ThemeDefinition.h" />
     <ClInclude Include="Domain\ThemeService.h" />
+    <ClInclude Include="Domain\UserSettings.h" />
+    <ClInclude Include="Domain\WatchDebounce.h" />
     <ClInclude Include="Shell\CommandRegistry.h" />
     <ClInclude Include="Shell\ContextMenuService.h" />
+    <ClInclude Include="Shell\DirectoryWatcher.h" />
     <ClInclude Include="Shell\FavoritesService.h" />
     <ClInclude Include="Shell\ShellStaWorker.h" />
     <ClInclude Include="Shell\DefaultFileManagerService.h" />
@@ -196,8 +199,10 @@
     <ClCompile Include="Domain\RowFormatting.cpp" />
     <ClCompile Include="Domain\SidebarRecents.cpp" />
     <ClCompile Include="Domain\ThemeService.cpp" />
+    <ClCompile Include="Domain\UserSettings.cpp" />
     <ClCompile Include="Shell\CommandRegistry.cpp" />
     <ClCompile Include="Shell\ContextMenuService.cpp" />
+    <ClCompile Include="Shell\DirectoryWatcher.cpp" />
     <ClCompile Include="Shell\FavoritesService.cpp" />
     <ClCompile Include="Shell\ShellStaWorker.cpp" />
     <ClCompile Include="Shell\DefaultFileManagerService.cpp" />

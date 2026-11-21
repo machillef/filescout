@@ -15,7 +15,10 @@
 #include "Domain\SidebarCache.h"
 #include "Domain\TabState.h"
 #include "Domain\TypeAhead.h"
+#include "Domain\UserSettings.h"
+#include "Domain\WatchDebounce.h"
 #include "Shell\ContextMenuService.h"
+#include "Shell\DirectoryWatcher.h"
 #include "Shell\FavoritesService.h"
 #include "Shell\ShellClipboardService.h"
 #include "Shell\ShellFileOperationService.h"
@@ -122,6 +125,12 @@ namespace winrt::FileScoutNative::implementation
         std::shared_ptr<std::atomic<bool>> search_icon_backfill_cancel{
             std::make_shared<std::atomic<bool>>(false) };
         ::FileScoutNative::Search::SearchService search_service;
+
+        // Live directory change watcher for this pane's active folder.
+        std::unique_ptr<::FileScoutNative::Shell::DirectoryWatcher> directory_watcher;
+        std::wstring watched_path_key;
+        uint64_t watch_token{ 0 };
+        uint64_t watch_suppress_until_tick{ 0 };
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -230,6 +239,11 @@ namespace winrt::FileScoutNative::implementation
         bool m_previewPanelVisible{ true };
         bool m_dualPaneVisible{ true };
         std::optional<std::filesystem::path> m_deferredRightPanePath;
+        ::FileScoutNative::Domain::UserSettings m_userSettings{};
+        ::FileScoutNative::Domain::WindowBounds m_lastNormalWindowBounds{};
+        bool m_windowMaximized{ false };
+        bool m_windowConfigured{ false };
+        bool m_windowClosing{ false };
         // S4: letter-jump border flash timer (single-shot, 300 ms).
         winrt::Microsoft::UI::Xaml::DispatcherTimer m_letterJumpTimer{ nullptr };
         std::wstring m_currentThemeId{ L"default-dark" };
@@ -305,6 +319,15 @@ namespace winrt::FileScoutNative::implementation
 
         HWND GetWindowHandle();
         void ConfigureWindow();
+        void ApplyLoadedUserSettingsToPanes();
+        void CaptureLiveWindowBounds();
+        void SaveUserSettings(int32_t sourcePaneIndex = -1);
+        void UpdatePaneDirectoryWatcher(int32_t paneIndex);
+        void StopPaneDirectoryWatcher(int32_t paneIndex);
+        void HandleDirectoryWatchChanged(
+            int32_t paneIndex,
+            uint64_t watchToken,
+            std::filesystem::path const& watchedPath);
         static LRESULT CALLBACK NavigationWindowSubclassProc(
             HWND hwnd,
             UINT message,
