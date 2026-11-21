@@ -15,7 +15,8 @@ gh pr comment <n> --body "@coderabbitai review"
 ```
 
 The walkthrough is a summary comment from `coderabbitai[bot]` (edited in place); findings are inline comments.
-Read them with `gh api repos/machillef/filescout/issues/<n>/comments` and `.../pulls/<n>/comments`.
+Read them with `gh api --paginate repos/machillef/filescout/issues/<n>/comments` and
+`gh api --paginate repos/machillef/filescout/pulls/<n>/comments` (one page holds only 30 comments).
 
 Before a PR, the CLI reviews a local diff (`coderabbit`, alias `cr`, logged in to `machillef`; 10 free reviews
 per repository per rolling hour, never pass `--use-credits`; 5-15 minutes, run it in the background):
