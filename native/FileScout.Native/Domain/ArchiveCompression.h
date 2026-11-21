@@ -120,26 +120,20 @@ namespace FileScoutNative::Domain
         return std::nullopt;
     }
 
-    // Builds the `tar.exe -a -c -f <zip> -s ,^\.[/\\],, -- ./<entries...>` command line.
-    // Prefixing every relative operand with `./` prevents bsdtar from interpreting names starting
-    // with `@` as archive inclusions or `-C...` as directory-change operands, while `-s` strips
-    // the `./` prefix so ZIP entry names match the original filenames.
+    // Builds the `tar.exe -a -c -f <zip> --null -T <listFile>` command line.
+    // Reading NUL-separated literal names via `--null -T` prevents bsdtar from interpreting
+    // filenames starting with `-`, `-C`, or `@` as options, directory changes, or archive
+    // inclusions, preserves exact ZIP entry names, and avoids command-line length limits.
     [[nodiscard]] inline std::wstring BuildTarZipCommandLine(
         std::filesystem::path const& tarExePath,
         std::filesystem::path const& outputZipPath,
-        std::span<std::wstring const> relativeNames)
+        std::filesystem::path const& fileListPath)
     {
         std::wstring cmd = QuoteWindowsCommandArg(tarExePath.wstring());
         cmd += L" -a -c -f ";
         cmd += QuoteWindowsCommandArg(outputZipPath.wstring());
-        cmd += L" -s ";
-        cmd += QuoteWindowsCommandArg(LR"(,^\.[/\\],,)");
-        cmd += L" --";
-        for (auto const& name : relativeNames)
-        {
-            cmd.push_back(L' ');
-            cmd += QuoteWindowsCommandArg(L"./" + name);
-        }
+        cmd += L" --null -T ";
+        cmd += QuoteWindowsCommandArg(fileListPath.wstring());
         return cmd;
     }
 

@@ -7,7 +7,6 @@
 #include "Shell/ShellFileOperationService.h"
 
 #include <fstream>
-#include <thread>
 #include <unordered_set>
 
 using namespace FileScoutNative::Domain;
@@ -152,14 +151,13 @@ TEST(ArchiveCompressionTests, SuggestsCollisionSafeZipNamesForFilesFoldersAndMul
 
 TEST(ArchiveCompressionTests, BuildsTarCommandWithOptionSeparatorAndQuoting)
 {
-    std::vector<std::wstring> names{ L"-dash.txt", L"@notes.txt", L"-Cdir.txt", L"my notes.txt" };
     auto const cmd = BuildTarZipCommandLine(
         L"C:\\Windows\\System32\\tar.exe",
         L"C:\\My Docs\\Archive.zip",
-        names);
+        L"C:\\My Docs\\.filescout-list.tmp");
     EXPECT_EQ(
         cmd,
-        L"C:\\Windows\\System32\\tar.exe -a -c -f \"C:\\My Docs\\Archive.zip\" -s ,^\\.[/\\\\],, -- ./-dash.txt ./@notes.txt ./-Cdir.txt \"./my notes.txt\"");
+        L"C:\\Windows\\System32\\tar.exe -a -c -f \"C:\\My Docs\\Archive.zip\" --null -T \"C:\\My Docs\\.filescout-list.tmp\"");
 }
 
 TEST(ArchiveCompressionTests, SelectsNewestRecycleBinMatchPerOriginalPathOnce)
@@ -241,49 +239,26 @@ TEST(ShellFileOperationIdentityTests, DetectsReplacementAtSamePath)
 
 TEST(ShellFileOperationTransferTests, CopyAndMoveRecordTransferredPairsForUndo)
 {
-    // Run on a dedicated STA thread matching ShellStaWorker so IFileOperation::MoveItem
-    // executes in an STA without cross-apartment progress-sink marshaling.
-    std::exception_ptr threadError;
-    std::thread staThread([&]()
-        {
-            HRESULT const hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-            bool const uninit = SUCCEEDED(hr);
-            try
-            {
-                ScopedTempDir srcDir{ L"transfer-src" };
-                ScopedTempDir dstDir{ L"transfer-dst" };
-                auto const fileA = srcDir.path / L"alpha.txt";
-                {
-                    std::ofstream out(fileA);
-                    out << "undo payload";
-                }
-
-                ShellFileOperationService service;
-                std::vector<std::filesystem::path> sources{ fileA };
-                std::vector<TransferredItemPair> copiedPairs;
-                service.CopyItemsFromPaths(nullptr, sources, dstDir.path, /*move=*/false, &copiedPairs);
-                ASSERT_EQ(copiedPairs.size(), 1u);
-                EXPECT_EQ(copiedPairs[0].source, fileA);
-                EXPECT_EQ(copiedPairs[0].destination, dstDir.path / L"alpha.txt");
-                EXPECT_TRUE(std::filesystem::exists(copiedPairs[0].destination));
-
-                // Move copied item back under a new name via MoveItemFromPath.
-                service.MoveItemFromPath(nullptr, copiedPairs[0].destination, srcDir.path, L"alpha_moved.txt");
-                EXPECT_FALSE(std::filesystem::exists(copiedPairs[0].destination));
-                EXPECT_TRUE(std::filesystem::exists(srcDir.path / L"alpha_moved.txt"));
-            }
-            catch (...)
-            {
-                threadError = std::current_exception();
-            }
-            if (uninit)
-            {
-                ::CoUninitialize();
-            }
-        });
-    staThread.join();
-    if (threadError)
+    ComApartment apartment;
+    ScopedTempDir srcDir{ L"transfer-src" };
+    ScopedTempDir dstDir{ L"transfer-dst" };
+    auto const fileA = srcDir.path / L"alpha.txt";
     {
-        std::rethrow_exception(threadError);
+        std::ofstream out(fileA);
+        out << "undo payload";
     }
+
+    ShellFileOperationService service;
+    std::vector<std::filesystem::path> sources{ fileA };
+    std::vector<TransferredItemPair> copiedPairs;
+    service.CopyItemsFromPaths(nullptr, sources, dstDir.path, /*move=*/false, &copiedPairs);
+    ASSERT_EQ(copiedPairs.size(), 1u);
+    EXPECT_TRUE(std::filesystem::equivalent(copiedPairs[0].source, fileA));
+    EXPECT_TRUE(std::filesystem::equivalent(copiedPairs[0].destination, dstDir.path / L"alpha.txt"));
+    EXPECT_TRUE(std::filesystem::exists(copiedPairs[0].destination));
+
+    // Move copied item back under a new name via MoveItemFromPath.
+    service.MoveItemFromPath(nullptr, copiedPairs[0].destination, srcDir.path, L"alpha_moved.txt");
+    EXPECT_FALSE(std::filesystem::exists(copiedPairs[0].destination));
+    EXPECT_TRUE(std::filesystem::exists(srcDir.path / L"alpha_moved.txt"));
 }

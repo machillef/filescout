@@ -1335,6 +1335,8 @@ namespace FileScoutNative::Shell
 
         // Exclusively allocate a temporary `.zip` file in the output directory so tar never
         // truncates another writer's file and failures only clean up the file we own.
+        // Note: use FILE_ATTRIBUTE_NORMAL (not FILE_ATTRIBUTE_HIDDEN) because Windows
+        // CreateFileW(CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL) fails with ACCESS_DENIED on a hidden file.
         std::filesystem::path tempZipPath;
         DWORD const pid = ::GetCurrentProcessId();
         uint64_t const tick = ::GetTickCount64();
@@ -1349,7 +1351,7 @@ namespace FileScoutNative::Shell
                 0,
                 nullptr,
                 CREATE_NEW,
-                FILE_ATTRIBUTE_TEMPORARY | FILE_ATTRIBUTE_HIDDEN,
+                FILE_ATTRIBUTE_NORMAL,
                 nullptr);
             if (h != INVALID_HANDLE_VALUE)
             {
@@ -1391,8 +1393,90 @@ namespace FileScoutNative::Shell
         };
         TempFileCleanup tempCleanup{ tempZipPath };
 
+        // Write a NUL-delimited file list so bsdtar `--null -T` treats every filename literally
+        // (no `@archive` inclusion, no `-C` directory change, no `-` option parsing) while keeping
+        // exact ZIP entry names.
+        std::filesystem::path tempListPath;
+        for (uint32_t attempt = 0; attempt < 256; ++attempt)
+        {
+            auto candidateList = parentDirectory /
+                (L".filescout-zip-list-" + std::to_wstring(pid) + L"-" +
+                 std::to_wstring(tick) + L"-" + std::to_wstring(attempt) + L".tmp");
+            HANDLE const h = ::CreateFileW(
+                candidateList.c_str(),
+                GENERIC_WRITE,
+                0,
+                nullptr,
+                CREATE_NEW,
+                FILE_ATTRIBUTE_TEMPORARY,
+                nullptr);
+            if (h != INVALID_HANDLE_VALUE)
+            {
+                std::string listPayload;
+                for (auto const& name : relativeNames)
+                {
+                    int const needed = ::WideCharToMultiByte(
+                        CP_ACP, 0, name.data(), static_cast<int>(name.size()),
+                        nullptr, 0, nullptr, nullptr);
+                    if (needed <= 0)
+                    {
+                        ::CloseHandle(h);
+                        std::error_code ec;
+                        std::filesystem::remove(candidateList, ec);
+                        ThrowFileOperationFailure(FileOperationError{
+                            .action = L"Compress to ZIP",
+                            .path = (parentDirectory / name).wstring(),
+                            .detail = L"Could not encode filename for archive creation.",
+                        });
+                    }
+                    std::size_t const offset = listPayload.size();
+                    listPayload.resize(offset + static_cast<std::size_t>(needed) + 1);
+                    ::WideCharToMultiByte(
+                        CP_ACP, 0, name.data(), static_cast<int>(name.size()),
+                        listPayload.data() + offset, needed, nullptr, nullptr);
+                    listPayload.back() = '\0';
+                }
+                DWORD written = 0;
+                BOOL const wroteOk = listPayload.empty() ||
+                    (::WriteFile(h, listPayload.data(), static_cast<DWORD>(listPayload.size()), &written, nullptr) &&
+                     written == listPayload.size());
+                ::CloseHandle(h);
+                if (!wroteOk)
+                {
+                    DWORD const err = ::GetLastError();
+                    std::error_code ec;
+                    std::filesystem::remove(candidateList, ec);
+                    ThrowFileOperationFailure(FileOperationError{
+                        .action = L"Compress to ZIP",
+                        .path = initialCandidate->wstring(),
+                        .detail = BuildHResultDetail(winrt::hresult_error{ HRESULT_FROM_WIN32(err) }),
+                    });
+                }
+                tempListPath = std::move(candidateList);
+                break;
+            }
+            if (::GetLastError() != ERROR_FILE_EXISTS)
+            {
+                DWORD const err = ::GetLastError();
+                ThrowFileOperationFailure(FileOperationError{
+                    .action = L"Compress to ZIP",
+                    .path = initialCandidate->wstring(),
+                    .detail = BuildHResultDetail(winrt::hresult_error{ HRESULT_FROM_WIN32(err) }),
+                });
+            }
+        }
+        if (tempListPath.empty())
+        {
+            ThrowFileOperationFailure(FileOperationError{
+                .action = L"Compress to ZIP",
+                .path = initialCandidate->wstring(),
+                .detail = L"Could not create a temporary file list for compression.",
+            });
+        }
+        TempFileCleanup listCleanup{ tempListPath };
+
         auto cmdLine = FileScoutNative::Domain::BuildTarZipCommandLine(
-            tarExePath, tempZipPath, relativeNames);
+            tarExePath, tempZipPath, tempListPath);
         if (cmdLine.size() >= 32700)
         {
             ThrowFileOperationFailure(FileOperationError{
