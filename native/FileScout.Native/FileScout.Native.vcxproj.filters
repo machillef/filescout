@@ -29,10 +29,12 @@
     <ClCompile Include="Domain\RowFormatting.cpp" />
     <ClCompile Include="Domain\SidebarRecents.cpp" />
     <ClCompile Include="Domain\ThemeService.cpp" />
+    <ClCompile Include="Domain\UserSettings.cpp" />
     <ClCompile Include="Shell\CommandRegistry.cpp" />
     <ClCompile Include="Shell\ContextMenuService.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Shell\DirectoryWatcher.cpp" />
     <ClCompile Include="Shell\FavoritesService.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -110,10 +112,13 @@
     </ClInclude>
     <ClInclude Include="Domain\ThemeDefinition.h" />
     <ClInclude Include="Domain\ThemeService.h" />
+    <ClInclude Include="Domain\UserSettings.h" />
+    <ClInclude Include="Domain\WatchDebounce.h" />
     <ClInclude Include="Shell\CommandRegistry.h" />
     <ClInclude Include="Shell\ContextMenuService.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Shell\DirectoryWatcher.h" />
     <ClInclude Include="Shell\FavoritesService.h">
       <Filter>Header Files</Filter>
     </ClInclude>

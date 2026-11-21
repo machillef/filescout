@@ -124,6 +124,7 @@
   <!-- Production sources compiled into the test binary (shared source approach) -->
   <ItemGroup>
     <ClCompile Include="..\FileScout.Native\Shell\ContextMenuService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Shell\DirectoryWatcher.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\FavoritesService.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\ShellStaWorker.cpp" />
     <ClCompile Include="..\FileScout.Native\Shell\DefaultFileManagerService.cpp" />
@@ -140,6 +141,7 @@
     <ClCompile Include="..\FileScout.Native\Domain\RowFormatting.cpp" />
     <ClCompile Include="..\FileScout.Native\Domain\SidebarRecents.cpp" />
     <ClCompile Include="..\FileScout.Native\Domain\ThemeService.cpp" />
+    <ClCompile Include="..\FileScout.Native\Domain\UserSettings.cpp" />
     <ClCompile Include="..\FileScout.Native\main.cpp">
       <PreprocessorDefinitions>FILESCOUT_TESTING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -179,6 +181,8 @@
     <ClCompile Include="tests\NavDiagTests.cpp" />
     <ClCompile Include="tests\ListColumnLayoutTests.cpp" />
     <ClCompile Include="tests\SelectionSummaryTests.cpp" />
+    <ClCompile Include="tests\DirectoryWatcherTests.cpp" />
+    <ClCompile Include="tests\UserSettingsTests.cpp" />
     <ClCompile Include="tests\ParallelForTests.cpp" />
     <ClCompile Include="tests\BatchRenameInputTests.cpp" />
     <ClCompile Include="tests\RenamePolicyTests.cpp" />

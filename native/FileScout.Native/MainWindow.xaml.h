@@ -15,7 +15,10 @@
 #include "Domain\SidebarCache.h"
 #include "Domain\TabState.h"
 #include "Domain\TypeAhead.h"
+#include "Domain\UserSettings.h"
+#include "Domain\WatchDebounce.h"
 #include "Shell\ContextMenuService.h"
+#include "Shell\DirectoryWatcher.h"
 #include "Shell\FavoritesService.h"
 #include "Shell\ShellClipboardService.h"
 #include "Shell\ShellFileOperationService.h"
@@ -122,6 +125,19 @@ namespace winrt::FileScoutNative::implementation
         std::shared_ptr<std::atomic<bool>> search_icon_backfill_cancel{
             std::make_shared<std::atomic<bool>>(false) };
         ::FileScoutNative::Search::SearchService search_service;
+
+        // Live directory change watcher for this pane's active folder.
+        std::unique_ptr<::FileScoutNative::Shell::DirectoryWatcher> directory_watcher;
+        std::wstring watched_path_key;
+        uint64_t watch_token{ 0 };
+        uint64_t watch_suppress_until_tick{ 0 };
+        uint64_t last_enumeration_start_tick{ 0 };
+        bool watch_armed{ false };
+        bool watch_reconcile_on_arm{ false };
+        bool watch_refresh_pending{ false };
+        bool watch_suppress_timer_scheduled{ false };
+        winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer watch_suppress_timer{ nullptr };
+        winrt::event_token watch_suppress_timer_token{};
     };
 
     struct MainWindow : MainWindowT<MainWindow>
@@ -230,6 +246,11 @@ namespace winrt::FileScoutNative::implementation
         bool m_previewPanelVisible{ true };
         bool m_dualPaneVisible{ true };
         std::optional<std::filesystem::path> m_deferredRightPanePath;
+        ::FileScoutNative::Domain::UserSettings m_userSettings{};
+        ::FileScoutNative::Domain::WindowBounds m_lastNormalWindowBounds{};
+        bool m_windowMaximized{ false };
+        bool m_windowConfigured{ false };
+        bool m_windowClosing{ false };
         // S4: letter-jump border flash timer (single-shot, 300 ms).
         winrt::Microsoft::UI::Xaml::DispatcherTimer m_letterJumpTimer{ nullptr };
         std::wstring m_currentThemeId{ L"default-dark" };
@@ -305,6 +326,36 @@ namespace winrt::FileScoutNative::implementation
 
         HWND GetWindowHandle();
         void ConfigureWindow();
+        void ApplyLoadedUserSettingsToPanes();
+        void CaptureLiveWindowBounds();
+        void PersistUserSettingsCandidate(::FileScoutNative::Domain::UserSettings const& candidate);
+        void SaveWindowBoundsSettings();
+        void SaveDualPaneSetting();
+        void SavePaneColumnWidths(int32_t paneIndex);
+        void SavePaneSortPreference(int32_t paneIndex);
+        void SavePaneGroupingPreference(int32_t paneIndex);
+        void SavePaneHiddenFilesPreference(int32_t paneIndex);
+        void SavePaneExtensionsPreference(int32_t paneIndex);
+        void SavePaneViewModePreference(int32_t paneIndex);
+        void UpdatePaneDirectoryWatcher(int32_t paneIndex);
+        void StopPaneDirectoryWatcher(int32_t paneIndex);
+        void CancelWatchSuppressionTimer(PaneContext& pane);
+        void HandleDirectoryWatchReady(
+            int32_t paneIndex,
+            uint64_t watchToken,
+            std::filesystem::path const& watchedPath,
+            bool armed);
+        void HandleDirectoryWatchChanged(
+            int32_t paneIndex,
+            uint64_t watchToken,
+            std::filesystem::path const& watchedPath,
+            uint64_t eventTickMs);
+        [[nodiscard]] bool CanApplyWatchRefreshNow(int32_t paneIndex);
+        void ScheduleWatchSuppressionRetry(int32_t paneIndex, uint64_t watchToken);
+        void RefreshPaneInPlacePreservingSelection(int32_t paneIndex);
+        void FlushPendingWatchRefresh(int32_t paneIndex);
+        void FlushPendingWatchRefreshAllPanes();
+        void SelectItemByPathInPane(int32_t paneIndex, std::filesystem::path const& path);
         static LRESULT CALLBACK NavigationWindowSubclassProc(
             HWND hwnd,
             UINT message,
@@ -339,7 +390,8 @@ namespace winrt::FileScoutNative::implementation
             bool skipHistoryRecord = false);
         [[nodiscard]] bool TryNavigateToAddressInput(std::wstring_view rawInput);
         winrt::fire_and_forget LoadDirectoryAsync(std::filesystem::path path, int32_t paneIndex,
-            std::optional<std::filesystem::path> selectAfter);
+            std::optional<std::filesystem::path> selectAfter,
+            bool preserveAddressEntry = false);
         // Reloads every pane whose current folder is `folder` (a file operation changed it).
         void RefreshPanesShowing(std::filesystem::path const& folder,
             std::optional<std::filesystem::path> selectAfter = std::nullopt);
