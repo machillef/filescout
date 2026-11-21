@@ -351,9 +351,6 @@ TEST(SearchService, StartCancelStartNoCrash)
     svc.Cancel();
 }
 
-// S-11: Start used to detach the previous worker and the destructor joined only the last one, so a
-// detached worker could still be inside post_fn (which in production points at a pane) after the
-// service was destroyed.
 TEST(SearchService, NoPostAfterDestructionWhenStartedTwice)
 {
     struct Probe
@@ -368,7 +365,6 @@ TEST(SearchService, NoPostAfterDestructionWhenStartedTwice)
     auto slowPost = [probe](std::function<void()> fn)
     {
         probe->firstWorkerInPost = true;
-        // A slow dispatcher: the worker is still inside post_fn when Start/destroy run.
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
         fn();
         std::lock_guard lock{ probe->mutex };
@@ -389,8 +385,6 @@ TEST(SearchService, NoPostAfterDestructionWhenStartedTwice)
         }
         ASSERT_TRUE(probe->firstWorkerInPost.load());
 
-        // The second walk posts synchronously, so destroying the service is quick and only a
-        // join of the first worker can make the destructor wait for its slow post.
         svc.Start(L"C:\\Windows", L"dll", [](std::vector<SearchResult>) {}, [](bool, bool) {},
             [](std::function<void()> fn) { fn(); });
     }

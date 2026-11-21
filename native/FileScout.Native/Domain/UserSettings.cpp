@@ -607,7 +607,6 @@ namespace FileScoutNative::Domain
             };
         }
 
-        // Pick the monitor work area with the largest overlap with the saved rectangle.
         int64_t bestOverlap = 0;
         if (monitors.empty())
         {

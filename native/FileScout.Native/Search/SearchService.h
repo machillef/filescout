@@ -24,9 +24,6 @@ namespace FileScoutNative::Search
         using ResultCallback   = std::function<void(std::vector<SearchResult>)>;
         using CompleteCallback = std::function<void(bool cap_reached, bool failed)>;
 
-        // PostFn: schedules a void() callback on the UI thread.
-        // Production: caller wraps DispatcherQueue::TryEnqueue.
-        // Tests: direct synchronous call lambda (no dispatcher required).
         using PostFn = std::function<void(std::function<void()>)>;
 
         SearchService()  = default;
@@ -35,9 +32,6 @@ namespace FileScoutNative::Search
         SearchService(SearchService const&)            = delete;
         SearchService& operator=(SearchService const&) = delete;
 
-        // Signals any running walk to stop (non-blocking), then starts a new walk. The old worker is
-        // joined later (next Start or the destructor), never detached.
-        // Safe to call from the UI thread.
         void Start(std::wstring root, std::wstring query,
                    ResultCallback on_results, CompleteCallback on_complete,
                    PostFn post_fn);
@@ -57,7 +51,6 @@ namespace FileScoutNative::Search
                 std::move(post_fn));
         }
 
-        // Signals the walk to stop. Non-blocking. Safe to call from the UI thread.
         void Cancel();
 
     private:
@@ -68,9 +61,6 @@ namespace FileScoutNative::Search
         std::shared_ptr<std::atomic<bool>> m_cancelled_flag;
         std::shared_ptr<std::atomic<uint64_t>> m_generation;
 
-        // Every worker is joined: a restarted walk keeps its old worker here until it has finished
-        // (reaped on the next Start) or the destructor joins it. A detached worker could still be
-        // calling post_fn, which points into the pane, after the service is gone.
         struct Worker
         {
             std::thread thread;
@@ -95,4 +85,4 @@ namespace FileScoutNative::Search
             std::chrono::steady_clock::time_point& last_flush);
     };
 
-} // namespace FileScoutNative::Search
+}

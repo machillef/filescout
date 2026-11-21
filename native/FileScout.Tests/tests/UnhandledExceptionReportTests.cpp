@@ -4,7 +4,6 @@
 
 using namespace FileScoutNative::Domain;
 
-// UA-09: App marked unhandled exceptions handled and kept running in an unknown state.
 TEST(UnhandledExceptionReport, MessageNamesTheErrorAndSaysTheAppCloses)
 {
     auto const report = BuildUnhandledExceptionReport(L"Catastrophic failure", static_cast<int32_t>(0x8000FFFF));

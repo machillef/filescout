@@ -20,7 +20,6 @@ namespace FileScoutNative::Shell
         [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateShellDirectory(
             std::filesystem::path const& path) const;
 
-        // Returns one ShellItemRef per attached drive root (e.g. C:\, D:\).
         [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateDrives();
         [[nodiscard]] std::vector<FileScoutNative::Domain::ShellItemRef> EnumerateRecycleBin() const;
         [[nodiscard]] FileScoutNative::Domain::IconBitmap GetItemIcon(
@@ -34,9 +33,6 @@ namespace FileScoutNative::Shell
             std::filesystem::path const& path) const;
 
     private:
-        // S6: fast path — builds a ShellItemRef from WIN32_FIND_DATAW without any shell calls.
-        // Icon is set to a two-bucket fallback (folder or generic file).
-        // S7 will backfill real per-extension icons asynchronously.
         [[nodiscard]] FileScoutNative::Domain::ShellItemRef BuildFastShellItemRef(
             WIN32_FIND_DATAW const& findData,
             std::filesystem::path const& dirPath,

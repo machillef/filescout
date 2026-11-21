@@ -214,7 +214,6 @@ namespace FileScoutNative::Shell
             return failure;
         }
 
-        // A cut is pasted once, so its clipboard entry goes; a newer copy or cut stays.
         if (isMove)
         {
             (void)ClearClipboardIfUnchanged(snapshot.sequence_number);

@@ -32,7 +32,7 @@ TEST(StartupArgumentParsing, VirtualShellFoldersAreHandedBackToExplorer)
 }
 
 // The Drive verb passes "%1" quoted. For a drive root that is "C:\", and CommandLineToArgvW reads
-// the backslash before the closing quote as an escaped quote, so argv holds C:" (verified on win1).
+// the backslash before the closing quote as an escaped quote, so argv holds C:".
 TEST(StartupArgumentParsing, DriveRootMangledByArgvQuotingIsRepaired)
 {
     constexpr wchar_t const* args[]{ L"C:\"" };

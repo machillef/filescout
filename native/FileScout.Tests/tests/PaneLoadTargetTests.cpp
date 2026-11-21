@@ -10,32 +10,27 @@
 
 using namespace FileScoutNative::Domain;
 
-// UB-07: InitPane and ToggleDualPane switched m_activePaneIndex to load the other pane, so the shared
-// toolbar and async continuations (selectAfter) acted on the wrong pane.
 TEST(PaneLoadTarget, LoadingTheActivePane_UpdatesTheSharedToolbar)
 {
-    auto const updates = ChromeUpdatesForLoad(/*loadPaneIndex=*/0, /*activePaneIndex=*/0);
+    auto const updates = ChromeUpdatesForLoad(0, 0);
     EXPECT_TRUE(updates.toolbar);
     EXPECT_TRUE(updates.select_after);
 }
 
 TEST(PaneLoadTarget, LoadingTheOtherPane_LeavesTheSharedToolbarAlone)
 {
-    auto const updates = ChromeUpdatesForLoad(/*loadPaneIndex=*/1, /*activePaneIndex=*/0);
+    auto const updates = ChromeUpdatesForLoad(1, 0);
     EXPECT_FALSE(updates.toolbar);
     EXPECT_FALSE(updates.select_after);
 }
 
 TEST(PaneLoadTarget, PaneSwitchedDuringTheLoad_DropsSelectAfter)
 {
-    // Started in pane 0, the user switched to pane 1 before the rows arrived.
-    EXPECT_FALSE(ChromeUpdatesForLoad(/*loadPaneIndex=*/0, /*activePaneIndex=*/1).select_after);
+    EXPECT_FALSE(ChromeUpdatesForLoad(0, 1).select_after);
 }
 
 namespace
 {
-    // Text of one MainWindow member function, from its signature to its closing brace at member
-    // indentation ("\n    }\n").
     std::string FunctionBody(std::string const& source, std::string const& signature)
     {
         auto const begin = source.find(signature);
@@ -48,9 +43,6 @@ namespace
     }
 }
 
-// Source scan (no XAML runtime in gtest): the two functions that loaded the other pane by swapping
-// the active index now name the pane they load and never assign the active index, whatever the
-// saved variable would be called.
 TEST(PaneLoadTarget, MainWindowNoLongerSwapsTheActivePaneToLoad)
 {
     auto const path = std::filesystem::path{ __FILE__ }.parent_path().parent_path().parent_path() /

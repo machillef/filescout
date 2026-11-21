@@ -14,7 +14,6 @@ namespace FileScoutNative::Shell
             return !ec && now - written > maxAge;
         }
 
-        // Deletes the stale subdirectories of parent; returns how many were deleted.
         std::size_t DeleteStaleChildren(
             fs::path const& parent,
             fs::file_time_type const now,

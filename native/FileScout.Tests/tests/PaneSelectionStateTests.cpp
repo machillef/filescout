@@ -5,7 +5,6 @@
 
 using namespace FileScoutNative::Domain;
 
-// D-02: replacing the selection with an empty id clears it (no unselected focus/anchor left).
 TEST(PaneSelectionState, ReplaceWithEmptyIdClears)
 {
     PaneSelectionState state;
@@ -27,8 +26,6 @@ TEST(PaneSelectionState, ReplaceWithSingleIdSelectsAndFocusesIt)
     EXPECT_EQ(std::optional<std::wstring>{ L"C:\\a.txt" }, state.FocusedId());
 }
 
-// D-02: without a usable focus hint, focus falls back to the first id given, not to whatever an
-// unordered_set iterates first; ids come back in the order they were given.
 TEST(PaneSelectionState, FocusFallbackIsTheFirstIdGiven)
 {
     std::vector<std::wstring> ids;

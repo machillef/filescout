@@ -36,7 +36,6 @@ namespace FileScoutNative::Domain
         results.reserve(max);
         std::unordered_set<std::wstring> seen{ excluded_keys };
 
-        // Iterate newest-first (end of back_stack = most recent).
         for (auto it = candidates.rbegin(); it != candidates.rend() && results.size() < max; ++it)
         {
             if (it->empty())

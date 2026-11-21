@@ -29,7 +29,6 @@ namespace
 
     std::string Narrow(std::wstring_view const value)
     {
-        // Brush keys are ASCII, so each wchar_t fits in a char.
         std::string narrow;
         narrow.reserve(value.size());
         for (auto const ch : value)
@@ -39,7 +38,6 @@ namespace
         return narrow;
     }
 
-    // The WinUI generic.xaml of the package version the app builds against (packages.config).
     std::string ReadWinUiGenericXaml()
     {
         auto const config = ReadFile(NativeDir() / "FileScout.Native" / "packages.config");
@@ -54,7 +52,7 @@ namespace
             "lib" / "native" / "Microsoft.UI" / "Themes" / "generic.xaml");
     }
 
-    // Text of the top-level theme dictionary `name` (Default = dark, Light, HighContrast).
+    // In generic.xaml the Default theme dictionary is the dark theme.
     std::string ThemeDictionary(std::string const& xaml, std::string const& name)
     {
         auto const begin = xaml.find("<ResourceDictionary x:Key=\"" + name + "\">");
@@ -67,7 +65,6 @@ namespace
     }
 }
 
-// UA-07: a key missing from the theme dictionaries silently became light grey (wrong in dark theme).
 TEST(ThemeBrushKeys, EveryBrushKeyInMainWindowIsAKnownThemeResource)
 {
     auto const source = ReadFile(NativeDir() / "FileScout.Native" / "MainWindow.xaml.cpp");

@@ -1,11 +1,9 @@
 #include "pch.h"
-// IRandomAccessStreamWithContentType return type for co_await file.OpenReadAsync().
-// Included here rather than pch.h to avoid PCH bloat across all TUs.
 #include <cmath>
 #include <winrt/Microsoft.UI.Input.h>
 #include <winrt/Windows.Graphics.h>
 #include <winrt/Windows.Storage.Streams.h>
-#include <robuffer.h>   // IBufferByteAccess for WriteableBitmap pixel access
+#include <robuffer.h>
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
 #include "Domain/WorkerCount.h"
@@ -78,9 +76,6 @@ namespace
         }
         catch (...)
         {
-            // No silent light-grey fallback (wrong in the dark theme, UA-07): ThemeBrushKeysTests keeps
-            // every key known, so a miss is a bug. Debug stops here; Release logs it and leaves the
-            // property unset.
             TraceLog(L"LookupBrush: missing theme resource " + std::wstring{ key });
             assert(!"LookupBrush: missing theme resource (see TraceLog)");
             return nullptr;
@@ -398,8 +393,6 @@ namespace
         };
     }
 
-    // Synchronous: converts RGBA8-Straight icon pixels into a WriteableBitmap (BGRA8-Premultiplied).
-    // Must be called from the UI thread. No async operations needed — avoids STA blocking issues.
     winrt::Microsoft::UI::Xaml::Media::ImageSource BuildIconSource(
         ::FileScoutNative::Domain::IconBitmap const& icon)
     {
@@ -428,9 +421,9 @@ namespace
                 uint8_t const g = src[i + 1];
                 uint8_t const b = src[i + 2];
                 uint8_t const a = src[i + 3];
-                dest[i]     = static_cast<uint8_t>(b * a / 255u);  // B premultiplied
-                dest[i + 1] = static_cast<uint8_t>(g * a / 255u);  // G premultiplied
-                dest[i + 2] = static_cast<uint8_t>(r * a / 255u);  // R premultiplied
+                dest[i]     = static_cast<uint8_t>(b * a / 255u);
+                dest[i + 1] = static_cast<uint8_t>(g * a / 255u);
+                dest[i + 2] = static_cast<uint8_t>(r * a / 255u);
                 dest[i + 3] = a;
             }
 
@@ -932,7 +925,6 @@ namespace
         return status;
     }
 
-    // Maps domain icon_key strings to Segoe Fluent Icons Unicode glyphs.
     std::wstring_view GlyphForMenuIconKey(std::wstring_view const iconKey)
     {
         using namespace std::literals;
@@ -1375,7 +1367,7 @@ namespace
             return { {0xff,0x14,0x53,0x2d}, {0xff,0x16,0xa3,0x4a}, {0xff,0x86,0xef,0xac} };
         case DRIVE_REMOTE:
             return { {0xff,0x31,0x2e,0x81}, {0xff,0x7c,0x3a,0xed}, {0xff,0xc4,0xb5,0xfd} };
-        default: // DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_CDROM, DRIVE_UNKNOWN
+        default:
             return { {0xff,0x1e,0x3a,0x5f}, {0xff,0x25,0x63,0xeb}, {0xff,0x93,0xc5,0xfd} };
         }
     }
@@ -1409,22 +1401,18 @@ namespace
         canvas.Width(18);
         canvas.Height(18);
 
-        // Body — darker lower portion
         canvas.Children().Append(MakeDriveBorder(
             15, 10, { 2.5f, 2.5f, 2.5f, 2.5f }, colors.body,
             VA::VerticalAlignment::Bottom, VA::HorizontalAlignment::Center, { 0, 0, 0, 1 }));
 
-        // Cap — brighter upper portion
         canvas.Children().Append(MakeDriveBorder(
             15, 6, { 2.5f, 2.5f, 0, 0 }, colors.cap,
             VA::VerticalAlignment::Top, VA::HorizontalAlignment::Center, { 0, 2, 0, 0 }));
 
-        // LED dot — top-right accent circle
         canvas.Children().Append(MakeDriveBorder(
             3, 3, { 1.5f, 1.5f, 1.5f, 1.5f }, colors.led,
             VA::VerticalAlignment::Top, VA::HorizontalAlignment::Right, { 0, 3, 2, 0 }));
 
-        // USB plug nub — removable only: small block above the cap
         if (driveType == DRIVE_REMOVABLE)
         {
             canvas.Children().Append(MakeDriveBorder(
@@ -1795,8 +1783,7 @@ namespace
             }
             state->done = true;
             winrt::Microsoft::UI::Xaml::Media::CompositionTarget::Rendering(state->token);
-            // Break the state -> timer -> Tick handler -> state cycle and release the action's
-            // captures (a 100k-row load captures ~70 MB) as soon as it has run.
+            // Clearing the timer breaks the state -> timer -> Tick handler -> state cycle.
             if (state->timer)
             {
                 state->timer.Stop();
@@ -1827,9 +1814,6 @@ namespace
         state->timer.Start();
     }
 
-    // ---- Navigation diagnostics (FILESCOUT_NAVDIAG build + FILESCOUT_NAVDIAG_OUT); see NavDiag.h ----
-
-    // Scope of one sidebar Click handler: the folder load it starts is attributed to the click.
     struct NavDiagSidebarClick
     {
         NavDiagSidebarClick() noexcept { ::FileScoutNative::NavDiag::Recorder::Instance().BeginSidebarClick(); }
@@ -1848,11 +1832,6 @@ namespace
         catch (...) {}
     }
 
-    // UI thread, right after the last publish: stamps the second CompositionTarget::Rendering
-    // callback (a pre-render signal, not a verified present), then writes the record. A window that
-    // renders no frames (minimised) is written after 1 s with frame_observed=false.
-    // `stillCurrent` is checked on every Rendering callback so a superseded listing never records
-    // a frame observation belonging to a later folder.
     void NavDiagEmitAfterFrames(
         ::FileScoutNative::NavDiag::Trace trace,
         std::function<bool()> stillCurrent)
@@ -1919,10 +1898,6 @@ namespace
         NavDiagEmit(trace);
     }
 
-    // ---- Bench mode (FILESCOUT_BENCH_OUT); measurement only, see Bench.h ----
-
-    // Marks `name` once `frames` more frames have been rendered. Two frames after a publish means the
-    // frame that laid out the new rows has been presented.
     void BenchMarkAfterFrames(std::wstring name, int frames, std::function<void()> then = {})
     {
         auto& recorder = ::FileScoutNative::Bench::Recorder::Instance();
@@ -1948,9 +1923,6 @@ namespace
             });
     }
 
-    // Scrolls the list from top to bottom-ish in fixed steps, one step per frame, and records every
-    // frame interval; then writes the report. Programmatic ChangeView realises and recycles rows the
-    // same way wheel scrolling does.
     void BenchRunScroll(winrt::Microsoft::UI::Xaml::Controls::ScrollViewer const& viewer)
     {
         auto& recorder = ::FileScoutNative::Bench::Recorder::Instance();
@@ -1991,8 +1963,6 @@ namespace
             });
     }
 
-    // Only pane 0 is measured: pane 1 also loads the start folder at startup but is hidden in the
-    // default single-pane layout, so it has no realised list to scroll.
     bool BenchTargets(std::filesystem::path const& path)
     {
         auto const& target = ::FileScoutNative::Bench::Recorder::Instance().TargetPath();
@@ -2054,14 +2024,10 @@ namespace winrt::FileScoutNative::implementation
                 PaneSurface_ContextRequested(sender, args);
             });
 
-        // Start in the user's home folder rather than the process working directory,
-        // unless a launch path was provided (e.g. from "Open in FileScout" context menu).
         auto const launchPath = winrt::FileScoutNative::implementation::App::LaunchPath();
         auto const startPath = launchPath.value_or(m_favoritesService.GetUserHomePath());
         TraceLog(L"MainWindow ctor: startPath=" + startPath.wstring());
 
-        // Initialize both panes. Right pane starts at the same path but is loaded
-        // lazily — it gets LoadDirectory called when InitPane runs for index 1.
         {
             ScopedTimer timer{ L"InitPane(0)" };
             InitPane(0, startPath);
@@ -2071,27 +2037,19 @@ namespace winrt::FileScoutNative::implementation
             InitPane(1, startPath);
         }
 
-        // Build the sidebar navigation buttons after panes are initialized.
-        // BuildSidebarFavorites has its own internal ScopedTimer (SP2).
         BuildSidebarFavorites();
 
-        // Build sort column headers for both panes.
         {
             ScopedTimer timer{ L"BuildSortHeaders" };
             BuildSortHeader(0);
             BuildSortHeader(1);
         }
 
-        // Pane 0 (left) starts as active with its indicator already lit.
-        // m_initComplete stays false until TitleBarDragHost_Loaded fires (after first render),
-        // which prevents deferred WinUI TabView SelectionChanged events from switching to pane 1.
         m_activePaneIndex = 0;
         UpdateActivePaneIndicator();
         ApplyPaneLayoutVisibility();
         RefreshDualPaneButton();
 
-        // S4: letter-jump border flash timer — fires once after 300 ms to restore the normal
-        // pane indicator. Stop + Start on each keypress resets the 300 ms window.
         m_letterJumpTimer = winrt::Microsoft::UI::Xaml::DispatcherTimer{};
         m_letterJumpTimer.Interval(std::chrono::milliseconds{ 300 });
         m_letterJumpTimer.Tick([this, lifetime = get_strong()](auto const&, auto const&)
@@ -2199,18 +2157,12 @@ namespace winrt::FileScoutNative::implementation
             flyout.Items().Append(item);
         }
 
-        // System integration lives in the same menu until the new chrome gets a settings surface.
         flyout.Items().Append(winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator{});
         {
-            // Label and action are refreshed each time the menu opens: another process (or the
-            // --restore-explorer switch) may have changed the registration since it was built.
             auto item = winrt::Microsoft::UI::Xaml::Controls::MenuFlyoutItem{};
             winrt::Microsoft::UI::Xaml::Controls::FontIcon icon;
             item.Icon(icon);
             winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAutomationId(item, L"DefaultFileManagerMenuItem");
-            // Weak references: the flyout owns both the item and this handler.
-            // The click performs the action the label showed when the menu opened, even if another
-            // process changed the registration in between.
             auto const shownMakeDefault = std::make_shared<bool>(true);
             auto const refresh = [this, shownMakeDefault, weakItem = winrt::make_weak(item), weakIcon = winrt::make_weak(icon)]()
             {
@@ -2343,7 +2295,6 @@ namespace winrt::FileScoutNative::implementation
         winrt::Microsoft::UI::Xaml::Input::KeyboardAcceleratorInvokedEventArgs const& args)
     {
         args.Handled(true);
-        // Just focus the dedicated search box — typing will enter Filter mode automatically.
         SearchTextBox().Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
     }
 
@@ -2459,8 +2410,6 @@ namespace winrt::FileScoutNative::implementation
         {
             if (pane.search_mode == SearchMode::None && pane.pending_filter.HasPending())
             {
-                // Escape cancels a filter still waiting for the load (UA-05); there is no
-                // snapshot to restore yet.
                 args.Handled(true);
                 pane.pending_filter.Clear();
                 SearchTextBox().Text(L"");
@@ -2493,11 +2442,9 @@ namespace winrt::FileScoutNative::implementation
             pane.filtered_items.clear();
             SearchTextBox().IsReadOnly(true);
 
-            // Show per-pane progress bar.
             pane.recursive_search_running = true;
             UpdatePaneProgressBar(m_activePaneIndex);
 
-            // Update status bar.
             StatusTextBlock().Text(ToHString(
                 ::FileScoutNative::Search::BuildSearchProgressStatus(0)));
 
@@ -2601,7 +2548,6 @@ namespace winrt::FileScoutNative::implementation
     {
         auto& pane = ActivePane();
 
-        // Recursive mode is driven by SearchService — don't interfere with it.
         if (pane.search_mode == SearchMode::Recursive) return;
 
         std::wstring query{ SearchTextBox().Text() };
@@ -2609,7 +2555,6 @@ namespace winrt::FileScoutNative::implementation
         if (query.empty())
         {
             pane.pending_filter.Clear();
-            // Leaving search — restore the list if we were filtering.
             if (pane.search_mode == SearchMode::Filter)
             {
                 ResetSearchState(m_activePaneIndex, true);
@@ -2620,11 +2565,8 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Transition into Filter mode on first character.
         if (pane.search_mode == SearchMode::None)
         {
-            // The snapshot would be incomplete during a load: keep the query for the final publish
-            // and say so, instead of dropping the keystrokes (UA-05).
             if (!pane.pending_filter.OnQueryChanged(query, pane.awaiting_final_batch))
             {
                 StatusTextBlock().Text(ToHString(::FileScoutNative::Domain::BuildPendingFilterStatus(query)));
@@ -2657,8 +2599,6 @@ namespace winrt::FileScoutNative::implementation
 
     void MainWindow::EndSearchOnNavigation(int32_t const paneIndex, bool const restoreSnapshot)
     {
-        // Navigation, a tab change or a pane switch ends the search, including a filter that is
-        // still waiting for a load to finish (UA-05): it must not filter the next folder.
         auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
         if (pane.search_mode != SearchMode::None)
         {
@@ -2682,8 +2622,6 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // The search box shows the active pane's query; rerun the normal filter path on what it
-        // holds now, with the load finished.
         SearchTextBox_TextChanged(nullptr, nullptr);
     }
 
@@ -2696,7 +2634,6 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Record live user interaction so the final-batch publish does not clobber selection state.
         ActivePane().user_interacted_after_first_batch = true;
         SyncSelectionFromListView();
         auto const selectedIndices = GetSelectedItemIndices();
@@ -3116,7 +3053,6 @@ namespace winrt::FileScoutNative::implementation
             co_return;
         }
 
-        // Capture state before the co_await suspension point.
         auto const destinationPath = ActivePane().current_path;
         bool const isMove =
             (args.Modifiers() &
@@ -3311,7 +3247,6 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Persist current UI state to the outgoing tab.
         if (pane.active_list_view && pane.active_tab_index >= 0 &&
             pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
         {
@@ -3327,8 +3262,6 @@ namespace winrt::FileScoutNative::implementation
 
         pane.active_tab_index = newIndex;
 
-        // Switching to this pane (if not already active) and restore its tab.
-        // Guard against deferred WinUI events firing before init is complete.
         if (m_initComplete)
             SetActivePaneIndex(paneIndex);
         RestoreActiveTab();
@@ -3443,9 +3376,6 @@ namespace winrt::FileScoutNative::implementation
         TitleBarRightInsetColumn().Width(
             winrt::Microsoft::UI::Xaml::GridLength{ (std::max)(rightInset, 138.0) });
 
-        // TitleBarDragHost only contains the 32 px drag strip; all navigation, address, search,
-        // and theme controls live in the client-area toolbar below it, so no passthrough rects
-        // are needed.
         m_titleBarPointerSource.ClearRegionRects(
             winrt::Microsoft::UI::Input::NonClientRegionKind::Passthrough);
     }
@@ -3931,8 +3861,7 @@ namespace winrt::FileScoutNative::implementation
             pane.watched_path_key.clear();
         }
 
-        // Reconcile once if a cached tab/pane was restored or an initial listing completed
-        // before ReadDirectoryChangesW began buffering changes.
+        // Changes made before ReadDirectoryChangesW began buffering are not reported: reconcile once.
         if (pane.watch_reconcile_on_arm)
         {
             pane.watch_reconcile_on_arm = false;
@@ -4049,7 +3978,7 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
-        LoadDirectoryAsync(pane.current_path, paneIndex, std::move(selectAfter), /*preserveAddressEntry=*/true);
+        LoadDirectoryAsync(pane.current_path, paneIndex, std::move(selectAfter), true);
     }
 
     void MainWindow::FlushPendingWatchRefresh(int32_t const paneIndex)
@@ -4131,15 +4060,12 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Skip self-mutation echoes already included in our latest enumeration snapshot.
         if (::FileScoutNative::Domain::IsWatchEventCoveredBySnapshot(
                 eventTickMs, pane.last_enumeration_start_tick))
         {
             return;
         }
 
-        // Record the pending change so it is never lost during self-mutation suppression,
-        // an in-flight load, a modal dialog, active search/filter, or address-bar entry.
         pane.watch_refresh_pending = true;
         FlushPendingWatchRefresh(paneIndex);
     }
@@ -4303,7 +4229,6 @@ namespace winrt::FileScoutNative::implementation
         auto const list = m_panes[paneIndex].active_list_view;
         BenchMarkAfterFrames(L"full_list", 2, [list]()
             {
-                // Let the list settle (icon backfill etc.) before the scroll run starts.
                 auto timer = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread().CreateTimer();
                 timer.Interval(std::chrono::milliseconds(1500));
                 timer.IsRepeating(false);
@@ -4389,17 +4314,13 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Exit search mode before navigating.
         auto& pane = m_panes[static_cast<std::size_t>(paneIndex)];
 
-        // Record current path in back-stack unless this is a history navigation.
         {
             if (pane.is_drives_view && pane.current_path.empty())
             {
                 pane.current_path = std::filesystem::path{ ::FileScoutNative::Domain::kDrivesViewLocation };
             }
-            // Recents list the folder being LEFT (BeginNavigation makes the target current at once),
-            // for every navigation that leaves a folder, Back/Forward included.
             auto& navDiagRec = ::FileScoutNative::NavDiag::Recorder::Instance();
             auto const recentsBegin = navDiagRec.Enabled() ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
             bool const recentsChanged = ::FileScoutNative::Domain::NavigateAndRecordRecent(
@@ -4409,9 +4330,6 @@ namespace winrt::FileScoutNative::implementation
             {
                 navDiagRec.NoteRecentsUpdate(::FileScoutNative::NavDiag::SpanUs(recentsBegin, ::FileScoutNative::NavDiag::Now()));
             }
-            // Update active highlight in place without tearing down the sidebar XAML tree.
-            // If recents changed, mark dirty and flush after first-row publication so an uncached
-            // sidebar icon never occupies the UI thread while background enumeration is running.
             if (chrome.toolbar)
             {
                 UpdateSidebarSelectionHighlights();
@@ -4421,7 +4339,6 @@ namespace winrt::FileScoutNative::implementation
                 m_sidebarRecentsDirty = true;
             }
         }
-        // The Recycle Bin is a view chosen by the target, so Back/Forward/sidebar clicks leave it.
         pane.is_drives_view = false;
         pane.is_archive_view = m_shellInterop.IsArchivePath(absolutePath);
         pane.is_recycle_bin_view = ::FileScoutNative::Domain::IsRecycleBinLocation(absolutePath);
@@ -4432,8 +4349,6 @@ namespace winrt::FileScoutNative::implementation
         }
         EndSearchOnNavigation(paneIndex);
 
-        // The pane index is fixed here so async work targets the right pane
-        // even if the user switches panes before the enumeration finishes.
         LoadDirectoryAsync(absolutePath, paneIndex, std::move(selectAfter));
     }
 
@@ -4441,8 +4356,6 @@ namespace winrt::FileScoutNative::implementation
         std::filesystem::path const& folder,
         std::optional<std::filesystem::path> selectAfter)
     {
-        // A file operation finishes after the user may have switched pane, tab or folder: reload
-        // the views that still show the changed folder, and never navigate any other view.
         auto const folderKey = ::FileScoutNative::Domain::SidebarPathKey(folder);
         for (int32_t index = 0; index < static_cast<int32_t>(m_panes.size()); ++index)
         {
@@ -4452,8 +4365,6 @@ namespace winrt::FileScoutNative::implementation
                 continue;
             }
 
-            // A recursive search lists results from subfolders of its root, so a change anywhere
-            // under that root makes its results stale too.
             auto const paneKey = ::FileScoutNative::Domain::SidebarPathKey(pane.current_path);
             auto const isShown = paneKey == folderKey ||
                 (pane.search_mode != SearchMode::None &&
@@ -4463,12 +4374,9 @@ namespace winrt::FileScoutNative::implementation
                 continue;
             }
 
-            // Suppress the directory watcher echo caused by FileScout's own mutation.
             pane.watch_suppress_until_tick =
                 ::GetTickCount64() + ::FileScoutNative::Domain::kDefaultWatchSelfSuppressMs;
 
-            // The reload publishes the full listing, so a filter or search on this pane ends first
-            // (as LoadDirectory does); otherwise DisplayedItems would still be the old filtered list.
             if (pane.search_mode != SearchMode::None)
             {
                 ResetSearchState(index, false);
@@ -4494,22 +4402,16 @@ namespace winrt::FileScoutNative::implementation
             pane.is_recycle_bin_view ? ::FileScoutNative::NavDiag::Kind::RecycleBin
                                      : ::FileScoutNative::NavDiag::Kind::Folder);
 
-        // Immediately clear stale content on the UI thread so the list goes blank
-        // rather than showing outdated rows during enumeration.
         pane.items.clear();
         pane.selection.Clear();
         if (navDiag.active) { navDiag.pre_reset_begin = ::FileScoutNative::NavDiag::Now(); }
         pane.tab_rows[tabIndex].Clear();
         if (navDiag.active) { navDiag.pre_reset_end = ::FileScoutNative::NavDiag::Now(); }
         ::FileScoutNative::Domain::ResetTypeAhead(pane.type_ahead);
-        // The tab's cached listing belongs to the folder being left; drop it now that current_path
-        // already names the pending target, so a sort or tab switch before the listing arrives
-        // cannot pair the new path with the old folder's items (RestoreActiveTab reloads an empty cache).
         if (tabIndex >= 0 && tabIndex < static_cast<int32_t>(pane.tabs.size()))
         {
             pane.tabs[tabIndex].items.clear();
             pane.tabs[tabIndex].path = path;
-            // The pending target is a folder, not This PC: a restore must reload it, not the drives.
             pane.tabs[tabIndex].is_drives_view = false;
             auto tabView = TabViewForPane(paneIndex);
             if (tabIndex < static_cast<int32_t>(tabView.TabItems().Size()))
@@ -4530,8 +4432,6 @@ namespace winrt::FileScoutNative::implementation
             pane.active_list_view.SelectedIndex(-1);
             pane.tab_switching = false;
         }
-        // Normalize path to absolute on the UI thread so the initial breadcrumb shows the full
-        // path immediately (before co_await returns the background thread).
         std::filesystem::path absolute;
         try { absolute = std::filesystem::absolute(path).lexically_normal(); }
         catch (...) { absolute = path; }
@@ -4547,10 +4447,8 @@ namespace winrt::FileScoutNative::implementation
             ResetSelectionDetails();
         }
 
-        // Prevent search Filter snapshot from capturing a partial item set during streaming.
         pane.awaiting_final_batch = true;
 
-        // Capture sort parameters and watch-arming state while still on the UI thread.
         SortColumn const sort_column = pane.sort_column;
         SortDirection const sort_direction = pane.sort_direction;
         bool const show_hidden_files = pane.show_hidden_files;
@@ -4560,7 +4458,6 @@ namespace winrt::FileScoutNative::implementation
         bool const startedWhileWatchArmed = pane.watch_armed;
 
         if (navDiag.active) { navDiag.ui_pre_done = ::FileScoutNative::NavDiag::Now(); }
-        // Switch to a thread-pool thread for I/O and shell COM calls.
         co_await winrt::resume_background();
 
         try
@@ -4615,7 +4512,6 @@ namespace winrt::FileScoutNative::implementation
                         rows.Clear();
                         pane.tab_switching = false;
                         if (navDiag.active) { navDiag.reset_end = ::FileScoutNative::NavDiag::Now(); }
-                        // Rows are built and appended in one loop here; the span is "first_append".
                         for (auto const& item : pane.items)
                             rows.Append(MakeFileRowViewModel(item));
                         if (navDiag.active) { navDiag.first_append_end = ::FileScoutNative::NavDiag::Now(); }
@@ -4662,7 +4558,6 @@ namespace winrt::FileScoutNative::implementation
             }
             else if (m_shellInterop.IsArchivePath(absolute))
             {
-                // Archive: enumerate all at once, then publish on the UI thread.
                 navDiag.kind = ::FileScoutNative::NavDiag::Kind::Archive;
                 if (navDiag.active) { navDiag.enumerate_begin = ::FileScoutNative::NavDiag::Now(); }
                 auto archiveItems = m_shellInterop.EnumerateArchiveDirectory(absolute);
@@ -4719,7 +4614,6 @@ namespace winrt::FileScoutNative::implementation
                         rows.Clear();
                         pane.tab_switching = false;
                         if (navDiag.active) { navDiag.reset_end = ::FileScoutNative::NavDiag::Now(); }
-                        // Rows are built and appended in one loop here; the span is "first_append".
                         for (auto const& item : pane.items)
                             rows.Append(MakeFileRowViewModel(item));
                         if (navDiag.active) { navDiag.first_append_end = ::FileScoutNative::NavDiag::Now(); }
@@ -4767,10 +4661,6 @@ namespace winrt::FileScoutNative::implementation
             }
             else
             {
-                // Regular directory: two-batch approach.
-                // Enumerate all items on the background thread, then post to the UI thread in
-                // two dispatches so the first visible rows appear quickly without a rows.Clear()
-                // (CollectionChange::Reset) on the finalize path.
                 bool const benchLoad = paneIndex == 0 && BenchTargets(absolute);
                 if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_enumerate_start"); }
                 if (navDiag.active) { navDiag.enumerate_begin = ::FileScoutNative::NavDiag::Now(); }
@@ -4780,16 +4670,11 @@ namespace winrt::FileScoutNative::implementation
                 if (navDiag.active) { navDiag.enumerate_end = ::FileScoutNative::NavDiag::Now(); }
                 if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_enumerated"); }
 
-                // L1: Sort and pre-build all ViewModels on the background thread.
-                // MakeFileRowViewModel sets only hstring fields + bool — no WinUI/STA constraints.
-                // The prebuilt objects are handed to the UI thread via lambda capture; after
-                // handoff they are never accessed from the background thread again.
                 if (navDiag.active) { navDiag.sort_begin = ::FileScoutNative::NavDiag::Now(); }
                 SortItems(items, sort_column, sort_direction);
                 if (navDiag.active) { navDiag.sort_end = navDiag.rows_begin = ::FileScoutNative::NavDiag::Now(); }
                 if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_sorted"); }
-                // View models are agile C++/WinRT objects, so they can be built on several threads
-                // (~330 ms on one thread for 100k rows on win1).
+                // C++/WinRT view models are agile, so they can be built on several threads.
                 std::vector<winrt::FileScoutNative::FileRowViewModel> prebuilt(items.size(), nullptr);
                 ::FileScoutNative::Domain::ParallelForRanges(items.size(), [&](std::size_t begin, std::size_t end)
                     {
@@ -4813,8 +4698,6 @@ namespace winrt::FileScoutNative::implementation
                 if (benchLoad) { ::FileScoutNative::Bench::Recorder::Instance().Mark(L"load_rows_built"); }
 
                 if (navDiag.active) { navDiag.enqueue = ::FileScoutNative::NavDiag::Now(); }
-                // The trace is copied into the lambda before TryEnqueue returns, so its result is
-                // recorded on the copy only when it fails (the callback never runs then).
                 auto navDiagOnFailure = navDiag;
                 bool const enqueued = m_dispatcherQueue.TryEnqueue(
                     [this, lifetime, paneIndex, tabIndex, generation,
@@ -4879,7 +4762,6 @@ namespace winrt::FileScoutNative::implementation
                         else
                         {
                             if (navDiag.active) { navDiag.reset_end = ::FileScoutNative::NavDiag::Now(); }
-                            // Single VectorChanged::Reset instead of N ItemInserted events.
                             rows.as<winrt::Windows::Foundation::Collections::IVector<
                                 winrt::FileScoutNative::FileRowViewModel>>()
                                 .ReplaceAll(winrt::array_view<winrt::FileScoutNative::FileRowViewModel const>{
@@ -4949,7 +4831,6 @@ namespace winrt::FileScoutNative::implementation
                             {
                                 SelectItemByPathInPane(paneIndex, *selectAfter);
                             }
-                            // P4: backfill real per-extension icons after rows appear.
                             {
                                 auto backfillItems = pane.items;
                                 for (auto& bi : backfillItems) bi.icon = {};
@@ -4979,9 +4860,6 @@ namespace winrt::FileScoutNative::implementation
                             return;
                         }
 
-                        // Large folder (> kStagedLoadThreshold) — stage the remaining rows after the
-                        // first batch has been presented. A plain second TryEnqueue ran before the
-                        // next frame, so the first rows only appeared together with all 100k.
                         pane.last_load_timing = timing;
                         navDiag.staged = true;
                         RunAfterFramePresented(
@@ -5004,10 +4882,8 @@ namespace winrt::FileScoutNative::implementation
 
                                 auto& rows = pane.tab_rows[tabIndex];
                                 std::size_t const totalItems = prebuilt.size();
-                                // L2: single VectorChanged::Reset instead of N ItemInserted events.
-                                // Guard with tab_switching so ListView's Reset does not clear the
-                                // user's first-batch selection via SelectionChanged, then restore
-                                // every selected row from pane.selection (including Ctrl/Shift multi-select).
+                                // ListView's Reset clears the selection through SelectionChanged;
+                                // tab_switching keeps that from reaching pane.selection, which is restored below.
                                 pane.tab_switching = true;
                                 rows.as<winrt::Windows::Foundation::Collections::IVector<
                                     winrt::FileScoutNative::FileRowViewModel>>()
@@ -5081,7 +4957,6 @@ namespace winrt::FileScoutNative::implementation
                                 {
                                     SelectItemByPathInPane(paneIndex, *selectAfter);
                                 }
-                                // P4: backfill real per-extension icons after all rows appear.
                                 {
                                     auto backfillItems = items;
                                     for (auto& bi : backfillItems) bi.icon = {};
@@ -5134,12 +5009,6 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    // S7 / L3: Backfill real per-extension icons for fast-enumerated rows.
-    // GetItemIcon runs on the background thread (all items).
-    // UI dispatch is chunked at k_iconChunkSize items to avoid one large UI-thread lambda
-    // that would block for thousands of WriteableBitmap assignments.
-    // m_iconSourceCache (UI-thread-only) ensures one WriteableBitmap per unique extension
-    // per session — cache hits skip the BGRA conversion and allocation entirely.
     winrt::fire_and_forget MainWindow::BackfillIconsAsync(
         int32_t const paneIndex,
         int32_t const tabIndex,
@@ -5150,7 +5019,6 @@ namespace winrt::FileScoutNative::implementation
 
         co_await winrt::resume_background();
 
-        // Parallel icon extraction: split items across worker threads.
         auto const itemCount = items.size();
         if (itemCount > 0)
         {
@@ -5180,11 +5048,10 @@ namespace winrt::FileScoutNative::implementation
             for (auto& f : futures)
             {
                 try { f.get(); }
-                catch (...) { /* Worker failed — icons remain empty, continue */ }
+                catch (...) {}
             }
         }
 
-        // L3: Chunk UI dispatches at 500 items so the UI thread drains incrementally.
         constexpr uint32_t k_iconChunkSize = 500;
         auto const total = static_cast<uint32_t>(items.size());
         auto shared_items =
@@ -5242,7 +5109,6 @@ namespace winrt::FileScoutNative::implementation
 
         co_await winrt::resume_background();
 
-        // Parallel icon extraction with cancellation support.
         auto const itemCount = items.size();
         std::atomic<bool> anyWorkerCancelled{ false };
 
@@ -5281,7 +5147,7 @@ namespace winrt::FileScoutNative::implementation
             for (auto& f : futures)
             {
                 try { f.get(); }
-                catch (...) { /* Worker failed — continue */ }
+                catch (...) {}
             }
         }
 
@@ -5290,7 +5156,6 @@ namespace winrt::FileScoutNative::implementation
             co_return;
         }
 
-        // Keep the UI thread responsive during recursive-search row hydration too.
         constexpr uint32_t k_iconChunkSize = 500;
         auto const total = static_cast<uint32_t>(items.size());
         auto shared_items =
@@ -5485,7 +5350,6 @@ namespace winrt::FileScoutNative::implementation
             rows.GetAt(index).IsSelected(false);
         }
 
-        // Apply cut-state opacity to all rows.
         for (uint32_t index = 0; index < rowCount; ++index)
         {
             auto row = rows.GetAt(index).as<winrt::FileScoutNative::implementation::FileRowViewModel>();
@@ -5600,10 +5464,8 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::ResetSelectionDetails()
     {
         TraceLog(L"ResetSelectionDetails: start");
-        // Cancel any in-flight image preview load.
         ++m_previewGeneration;
 
-        // Hide image preview and restore the icon tile.
         TraceLog(L"ResetSelectionDetails: PreviewBorder...");
         PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         TraceLog(L"ResetSelectionDetails: PreviewImage...");
@@ -5630,12 +5492,8 @@ namespace winrt::FileScoutNative::implementation
     {
         SelectionTitleTextBlock().Text(ToHString(item.display_name));
 
-        // R10: image preview — show thumbnail for recognised image files via async StorageFile
-        // load. This avoids URI percent-encoding issues for paths with spaces or Unicode.
         if (item.is_image)
         {
-            // Show the icon tile immediately while the async load is in-flight.
-            // Cancel any previous load by incrementing the generation counter.
             auto const gen = ++m_previewGeneration;
             PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
@@ -5644,13 +5502,12 @@ namespace winrt::FileScoutNative::implementation
         }
         else
         {
-            ++m_previewGeneration;  // Cancel any in-flight load from a previous image selection.
+            ++m_previewGeneration;
             PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
             SelectionIconBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible);
             SelectionIconImage().Source(BuildIconSource(item.icon));
         }
 
-        // Primary metadata line: type + size (or folder hint).
         auto metadata = item.kind_label;
         if (item.size_available)
         {
@@ -5663,7 +5520,6 @@ namespace winrt::FileScoutNative::implementation
         metadata = AppendArchiveBrowseHint(std::move(metadata), item);
         SelectionMetaTextBlock().Text(ToHString(metadata));
 
-        // R10: Created date.
         if (item.date_created_available && !item.date_created_str.empty())
         {
             SelectionCreatedTextBlock().Text(ToHString(L"Created: " + item.date_created_str));
@@ -5674,7 +5530,6 @@ namespace winrt::FileScoutNative::implementation
             SelectionCreatedTextBlock().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
         }
 
-        // R10: File attributes (read-only, hidden, system, archive).
         if (item.file_attributes_available)
         {
             std::wstring attrStr;
@@ -5792,7 +5647,6 @@ namespace winrt::FileScoutNative::implementation
             return std::nullopt;
         }
 
-        // TryGetElementRect gives physical pixels relative to the XAML root, which fills the client area.
         auto const rect = TryGetElementRect(container, Content().XamlRoot().RasterizationScale());
         POINT origin{ 0, 0 };
         if (!rect.has_value() || !::ClientToScreen(GetWindowHandle(), &origin))
@@ -5832,8 +5686,6 @@ namespace winrt::FileScoutNative::implementation
             m_contextMenu = nullptr;
         }
 
-        // The click point belongs to this menu only; commands run later from the keyboard or the
-        // palette get none and anchor at the focused row (UB-15).
         auto const clickPoint = m_hasLastContextMenuPoint
             ? std::optional<POINT>{ m_lastContextMenuPoint }
             : std::nullopt;
@@ -6593,8 +6445,7 @@ namespace winrt::FileScoutNative::implementation
         try
         {
             auto const owner = GetWindowHandle();
-            // Read the clipboard now, on the UI thread: the paste may wait behind earlier shell
-            // work, and must not pick up whatever the user copies or cuts in the meantime.
+            // Read now: the paste may queue behind other shell work and must not see a later copy or cut.
             auto snapshot = m_shellClipboardService.CaptureClipboard();
             struct PasteWithIdentities
             {
@@ -7429,8 +7280,6 @@ namespace winrt::FileScoutNative::implementation
         auto lifetime = get_strong();
         m_modalDialogOpen = true;
 
-        // Capture the initiating pane's context before awaiting the modal dialog so a background
-        // change cannot attribute the delete to another pane or folder.
         int32_t const activePaneIndex = m_activePaneIndex;
         auto const currentPath = ActivePane().current_path;
         bool const isRecycleBin = ::FileScoutNative::Domain::IsRecycleBinLocation(currentPath);
@@ -7479,7 +7328,6 @@ namespace winrt::FileScoutNative::implementation
             co_return;
         }
 
-        // Capture everything else we need before leaving the UI thread.
         HWND const ownerHwnd = GetWindowHandle();
         std::wstring const displayName = items.size() == 1 ? items.front().display_name : L"";
         std::size_t const itemCount = items.size();
@@ -7489,7 +7337,6 @@ namespace winrt::FileScoutNative::implementation
         for (auto const& item : items)
             paths.push_back(item.path);
 
-        // Show progress before blocking operation.
         StatusTextBlock().Text(ToHString(
             permanent
                 ? (itemCount == 1
@@ -7498,15 +7345,12 @@ namespace winrt::FileScoutNative::implementation
                 : (itemCount == 1
                     ? L"Deleting " + displayName + L"..."
                     : L"Deleting " + std::to_wstring(itemCount) + L" items...")));
-        // S5: show per-pane ProgressBar (reuses search bar, indeterminate) so long deletes
-        // are not silent. Decremented unconditionally at the top of the TryEnqueue callback.
         ++m_panes[static_cast<std::size_t>(activePaneIndex)].background_op_progress_count;
         UpdatePaneProgressBar(activePaneIndex);
         ++m_pendingMutationCount;
 
-        // Continue on the shell STA (S-03): IFileOperation is created CLSCTX_INPROC_SERVER, so it
-        // needs a real single-threaded apartment, which thread-pool threads do not have. The UI
-        // stays responsive; results are posted back with TryEnqueue below.
+        // IFileOperation is created CLSCTX_INPROC_SERVER, so it needs a real single-threaded
+        // apartment, which thread-pool threads do not have.
         co_await ::FileScoutNative::Shell::RunOnShellThread(
             m_shellWorker, [](std::function<void()> continuation) { continuation(); }, [] {});
 
@@ -7711,7 +7555,7 @@ namespace winrt::FileScoutNative::implementation
 
         auto textBox = winrt::Microsoft::UI::Xaml::Controls::TextBox{};
         textBox.Text(ToHString(suggestedName));
-        textBox.Select(0, ::FileScoutNative::Domain::ComputeRenameSelectionLength(suggestedName, /*isFolder=*/false));
+        textBox.Select(0, ::FileScoutNative::Domain::ComputeRenameSelectionLength(suggestedName, false));
 
         auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
         dialog.XamlRoot(Content().XamlRoot());
@@ -8963,7 +8807,18 @@ namespace winrt::FileScoutNative::implementation
             accelerators.Append(accel);
         };
 
-        // The single binding of every file shortcut (UB-05); Ctrl+Tab cycles through panes.
+        {
+            namespace D = ::FileScoutNative::Domain;
+            static_assert(static_cast<std::uint32_t>(VKM::Control) == static_cast<std::uint32_t>(D::ShortcutModifiers::Control));
+            static_assert(static_cast<std::uint32_t>(VKM::Menu) == static_cast<std::uint32_t>(D::ShortcutModifiers::Menu));
+            static_assert(static_cast<std::uint32_t>(VKM::Shift) == static_cast<std::uint32_t>(D::ShortcutModifiers::Shift));
+            static_assert(static_cast<std::uint32_t>(VK::Back) == D::Key::Back && static_cast<std::uint32_t>(VK::Tab) == D::Key::Tab &&
+                static_cast<std::uint32_t>(VK::Enter) == D::Key::Enter && static_cast<std::uint32_t>(VK::PageUp) == D::Key::PageUp &&
+                static_cast<std::uint32_t>(VK::PageDown) == D::Key::PageDown && static_cast<std::uint32_t>(VK::Left) == D::Key::Left &&
+                static_cast<std::uint32_t>(VK::Up) == D::Key::Up && static_cast<std::uint32_t>(VK::Right) == D::Key::Right &&
+                static_cast<std::uint32_t>(VK::Delete) == D::Key::Delete && static_cast<std::uint32_t>(VK::F2) == D::Key::F2 &&
+                static_cast<std::uint32_t>(VK::F5) == D::Key::F5);
+        }
         for (auto const& shortcut : ::FileScoutNative::Domain::kFileShortcuts)
         {
             AddAccelerator(
@@ -8972,7 +8827,6 @@ namespace winrt::FileScoutNative::implementation
                 std::wstring{ shortcut.command_id });
         }
 
-        // Ctrl+F — focus the dedicated search box.
         {
             auto accel = KA{};
             accel.Key(VK::F);
@@ -8984,7 +8838,6 @@ namespace winrt::FileScoutNative::implementation
             accelerators.Append(accel);
         }
 
-        // F4 / Ctrl+L — reveal address TextBox for direct path entry.
         for (auto const& [key, mod] : std::initializer_list<std::pair<VK, VKM>>{
                 { VK::F4, VKM::None }, { VK::L, VKM::Control }})
         {
@@ -9028,7 +8881,7 @@ namespace winrt::FileScoutNative::implementation
                 {
                     HandleRootPointerPressed(args);
                 })),
-            /*handledEventsToo=*/true);
+            true);
         rootElement.AddHandler(
             winrt::Microsoft::UI::Xaml::UIElement::PointerReleasedEvent(),
             winrt::box_value(winrt::Microsoft::UI::Xaml::Input::PointerEventHandler(
@@ -9037,7 +8890,7 @@ namespace winrt::FileScoutNative::implementation
                 {
                     HandleRootPointerReleased(args);
                 })),
-            /*handledEventsToo=*/true);
+            true);
     }
 
     void MainWindow::HandleRootPointerPressed(
@@ -9101,7 +8954,6 @@ namespace winrt::FileScoutNative::implementation
 
     bool MainWindow::ShouldTextInputOwnFileShortcut(std::wstring_view const commandId)
     {
-        // Skip the focus walk for window commands; the rule itself is Domain::ShouldTextInputOwnShortcut.
         if (!::FileScoutNative::Domain::IsFileItemCommand(commandId))
         {
             return false;
@@ -9137,7 +8989,6 @@ namespace winrt::FileScoutNative::implementation
              textBoxHasFocus(CommandPaletteTextBox()));
     }
 
-    // Toolbar back/forward button click handlers.
     void MainWindow::BackButton_Click(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
@@ -9158,8 +9009,6 @@ namespace winrt::FileScoutNative::implementation
     {
         NavigateUp();
     }
-
-    // R13b: Navigation history ────────────────────────────────────────────
 
     void MainWindow::NavigateUp()
     {
@@ -9204,11 +9053,11 @@ namespace winrt::FileScoutNative::implementation
         UpdateNavButtons();
         if (::FileScoutNative::Domain::IsDrivesViewLocation(prev))
         {
-            LoadDrivesView(/*skipHistoryRecord=*/true);
+            LoadDrivesView(true);
         }
         else
         {
-            LoadDirectory(prev, std::nullopt, /*skipHistoryRecord=*/true);
+            LoadDirectory(prev, std::nullopt, true);
         }
     }
 
@@ -9233,11 +9082,11 @@ namespace winrt::FileScoutNative::implementation
         UpdateNavButtons();
         if (::FileScoutNative::Domain::IsDrivesViewLocation(next))
         {
-            LoadDrivesView(/*skipHistoryRecord=*/true);
+            LoadDrivesView(true);
         }
         else
         {
-            LoadDirectory(next, std::nullopt, /*skipHistoryRecord=*/true);
+            LoadDirectory(next, std::nullopt, true);
         }
     }
 
@@ -9253,10 +9102,6 @@ namespace winrt::FileScoutNative::implementation
         UpButton().IsEnabled(parentTarget.kind != ::FileScoutNative::Domain::ParentNavigationKind::None);
         UpdateTitleBarInteractiveRegions();
     }
-
-    // ────────────────────────────────────────────────────────────────────────
-
-    // R13a: Command palette ────────────────────────────────────────────────
 
     void MainWindow::ShowCommandPalette()
     {
@@ -9412,8 +9257,6 @@ namespace winrt::FileScoutNative::implementation
         ToggleDualPane();
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-
     winrt::fire_and_forget MainWindow::OpenArchiveItemAsync(::FileScoutNative::Domain::ShellItemRef item)
     {
         auto lifetime = get_strong();
@@ -9474,7 +9317,7 @@ namespace winrt::FileScoutNative::implementation
             errorText = L"Archive extraction failed.";
         }
 
-        apartment.reset(); // leave the MTA on this pool thread before handing back to the UI
+        apartment.reset();
 
         m_dispatcherQueue.TryEnqueue([this, lifetime, item = std::move(item),
                                       extractedPath = std::move(extractedPath),
@@ -9559,7 +9402,7 @@ namespace winrt::FileScoutNative::implementation
             errorText = L"Archive extraction failed.";
         }
 
-        apartment.reset(); // leave the MTA on this pool thread before handing back to the UI
+        apartment.reset();
 
         m_dispatcherQueue.TryEnqueue([this, lifetime, item = std::move(item),
                                       extractedPath = std::move(extractedPath),
@@ -9609,7 +9452,6 @@ namespace winrt::FileScoutNative::implementation
         listView.SelectionMode(winrt::Microsoft::UI::Xaml::Controls::ListViewSelectionMode::Extended);
         listView.ItemsSource(source);
 
-        // Apply item container style and DataTemplate from Grid resources.
         try
         {
             auto const rootGrid = Content().as<winrt::Microsoft::UI::Xaml::Controls::Grid>();
@@ -9617,7 +9459,6 @@ namespace winrt::FileScoutNative::implementation
         }
         catch (...) {}
 
-        // Apply the pane's current List-view column widths to every realized or recycled row.
         listView.ContainerContentChanging([this, paneIndex](
             auto const& sender,
             winrt::Microsoft::UI::Xaml::Controls::ContainerContentChangingEventArgs const& args)
@@ -9644,12 +9485,9 @@ namespace winrt::FileScoutNative::implementation
                 }
             });
 
-        // Wire events with pane-index capture so that interacting with a ListView
-        // in the inactive pane activates that pane first.
         listView.SelectionChanged([this, paneIndex](auto const& s, auto const& a)
             {
                 if (m_panes[paneIndex].tab_switching) return;
-                // Guard against deferred WinUI events firing before init is complete.
                 if (m_initComplete)
                     SetActivePaneIndex(paneIndex);
                 FileRowsListView_SelectionChanged(s, a);
@@ -9674,7 +9512,7 @@ namespace winrt::FileScoutNative::implementation
                 {
                     TryHandleListViewMiddleClick(paneIndex, a);
                 })),
-            /*handledEventsToo=*/true);
+            true);
 
         listView.ContextRequested([this, paneIndex](auto const& s, auto const& a)
             {
@@ -9799,7 +9637,6 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::FileRowsListView_KeyDown(
         winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& args)
     {
-        // Ctrl+A and the other chords belong to the window accelerators (UB-05).
         auto const action = ::FileScoutNative::Domain::ResolveListKeyAction(
             static_cast<std::uint32_t>(args.Key()), HasSystemModifierChord());
         if (action == ::FileScoutNative::Domain::ListKeyAction::None)
@@ -9817,7 +9654,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         // Type-ahead runs from CharacterReceived, which gets the typed character for any keyboard
-        // layout instead of a virtual key (UB-18). Text committed by an IME does not raise
+        // layout instead of a virtual key. Text committed by an IME does not raise
         // CharacterReceived, so IME type-ahead is not supported.
     }
 
@@ -9859,8 +9696,6 @@ namespace winrt::FileScoutNative::implementation
         auto const focused = start >= 0
             ? std::optional<std::size_t>{ static_cast<std::size_t>(start) }
             : std::nullopt;
-        // During a staged load DisplayedItems() already holds every row while the ListView only has
-        // the first batch; never select a row that has not been published yet.
         std::size_t const published = pane.active_tab_index >= 0 &&
                 pane.active_tab_index < static_cast<int32_t>(pane.tab_rows.size())
             ? (std::min)(displayed.size(), static_cast<std::size_t>(pane.tab_rows[pane.active_tab_index].Size()))
@@ -9882,8 +9717,6 @@ namespace winrt::FileScoutNative::implementation
         SelectItemByIndex(idx);
         if (pane.active_list_view)
         {
-            // Set ListView SelectedIndex so the next keypress starts from this row (SelectItemByIndex
-            // only updates the domain model).
             pane.active_list_view.SelectedIndex(idx);
             pane.active_list_view.ScrollIntoView(
                 pane.active_list_view.Items().GetAt(static_cast<uint32_t>(idx)));
@@ -10022,7 +9855,6 @@ namespace winrt::FileScoutNative::implementation
         auto& pane = ActivePane();
         auto tabView = ActiveTabView();
 
-        // Persist current state before adding the new tab.
         if (pane.active_list_view && pane.active_tab_index >= 0 &&
             pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
         {
@@ -10121,7 +9953,7 @@ namespace winrt::FileScoutNative::implementation
         pane.tab_switching = false;
 
         UpdateTabCloseability();
-        LoadDrivesView(/*skipHistoryRecord=*/true);
+        LoadDrivesView(true);
     }
 
     void MainWindow::CloseTab(int32_t const index)
@@ -10134,7 +9966,6 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Persist the currently active tab's state before closing another tab.
         if (pane.active_list_view && pane.active_tab_index >= 0 &&
             pane.active_tab_index < static_cast<int32_t>(pane.tabs.size()))
         {
@@ -10168,14 +9999,12 @@ namespace winrt::FileScoutNative::implementation
         tabView.TabItems().RemoveAt(static_cast<uint32_t>(index));
         pane.tab_switching = false;
 
-        // Clamp active index after removal.
         if (pane.active_tab_index >= static_cast<int32_t>(pane.tabs.size()))
         {
             pane.active_tab_index = static_cast<int32_t>(pane.tabs.size()) - 1;
         }
 
         tabView.SelectedIndex(pane.active_tab_index);
-        // SelectionChanged fires here with tab_switching = false → RestoreActiveTab.
 
         UpdateTabCloseability();
     }
@@ -10223,7 +10052,6 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Standard browser/Explorer convention: Ctrl+9 jumps to the last tab when >9 tabs exist.
         int32_t const targetIndex = (oneBasedIndex == 9)
             ? (count - 1)
             : (oneBasedIndex - 1);
@@ -10265,7 +10093,6 @@ namespace winrt::FileScoutNative::implementation
     {
         auto& pane = ActivePane();
         auto tabView = ActiveTabView();
-        // Another tab shows other rows: a prefix typed in the previous tab must not carry over.
         ::FileScoutNative::Domain::ResetTypeAhead(pane.type_ahead);
 
         if (pane.active_tab_index < 0 ||
@@ -10274,7 +10101,6 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Get the ListView for the newly active tab.
         auto const tabItemObj = tabView.TabItems().GetAt(static_cast<uint32_t>(pane.active_tab_index));
         auto const tabItem = tabItemObj.as<winrt::Microsoft::UI::Xaml::Controls::TabViewItem>();
         pane.active_list_view = ResolveTabContentListView(tabItem.Content());
@@ -10290,8 +10116,6 @@ namespace winrt::FileScoutNative::implementation
         ApplyListColumnWidthsToPane(m_activePaneIndex);
         SyncListHeaderHorizontalOffset(m_activePaneIndex);
 
-        // Invalidate any outgoing tab's in-flight load so it cannot block the restored tab's
-        // watch reconciliation or publish stale rows into this tab.
         ++pane.load_generation;
         pane.awaiting_final_batch = false;
 
@@ -10318,13 +10142,10 @@ namespace winrt::FileScoutNative::implementation
 
         if (pane.items.empty() && !tab.path.empty() && !tab.is_drives_view)
         {
-            // Tab hasn't loaded yet — navigate to its path now.
             LoadDirectory(tab.path);
             return;
         }
 
-        // Re-sort and rebuild the active tab's rows with the pane's current presentation
-        // so they match what the user last configured (not what the tab was loaded with).
         SortItems(pane.items, pane.sort_column, pane.sort_direction);
         auto& rows = pane.tab_rows[pane.active_tab_index];
         rows.Clear();
@@ -10351,7 +10172,6 @@ namespace winrt::FileScoutNative::implementation
             rows.Append(vm);
         }
 
-        // Restore the cached rows and selection without re-scanning the disk.
         RestoreSelectionFromState(pane, tab.selection, tab.selected_item_index);
 
         auto const selectedIndices = GetSelectedItemIndices();
@@ -10375,8 +10195,6 @@ namespace winrt::FileScoutNative::implementation
                 : L" shell-backed entries loaded from " + pane.current_path.wstring());
         StatusTextBlock().Text(ToHString(std::to_wstring(pane.items.size()) + statusSuffix));
 
-        // Reconcile a cached filesystem folder tab against disk after its watch resumes
-        // so changes made while the tab was inactive are reflected.
         if (::FileScoutNative::Domain::ShouldWatchLocation(
                 pane.current_path, pane.is_drives_view, pane.is_archive_view, pane.is_recycle_bin_view))
         {
@@ -10523,7 +10341,6 @@ namespace winrt::FileScoutNative::implementation
         auto& pane = m_panes[paneIndex];
         auto tabView = TabViewForPane(paneIndex);
 
-        // Guard against SelectionChanged firing during initial tab setup.
         pane.tab_switching = true;
 
         auto rows0 = winrt::single_threaded_observable_vector<winrt::FileScoutNative::FileRowViewModel>();
@@ -10553,9 +10370,6 @@ namespace winrt::FileScoutNative::implementation
 
         pane.tab_switching = false;
 
-        // The right pane is hidden in the default single-pane layout. Loading its start folder at
-        // startup doubled the work for nothing (a 100k-entry folder was enumerated, sorted and
-        // turned into rows twice); it now loads the first time dual pane is shown.
         if (paneIndex == 1 && !m_dualPaneVisible)
         {
             m_deferredRightPanePath = startPath;
@@ -10588,7 +10402,6 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Exit search mode on the outgoing pane before switching.
         EndSearchOnNavigation(m_activePaneIndex);
 
         m_activePaneIndex = paneIndex;
@@ -10602,7 +10415,6 @@ namespace winrt::FileScoutNative::implementation
         {
             BreadcrumbPanel().Children().Clear();
         }
-        // Sync search box with incoming pane's search state.
         SearchTextBox().IsReadOnly(ActivePane().search_mode == SearchMode::Recursive);
         SearchTextBox().Text(winrt::hstring(ActivePane().search_query));
         UpdateNavButtons();
@@ -10614,7 +10426,6 @@ namespace winrt::FileScoutNative::implementation
         auto const activeBrush = LookupBrush(L"AccentFillColorDefaultBrush");
         auto const inactiveBrush = LookupBrush(L"CardStrokeColorDefaultBrush");
 
-        // With one pane there is nothing to tell apart: a neutral hairline, no accent frame.
         if (!m_dualPaneVisible)
         {
             LeftPaneBorder().BorderBrush(inactiveBrush);
@@ -10680,7 +10491,6 @@ namespace winrt::FileScoutNative::implementation
 
         if (path.empty()) return;
 
-        // Collect ancestors from root down to current path.
         std::vector<std::filesystem::path> segments;
         for (auto p = path; !p.empty() && p != p.parent_path(); p = p.parent_path())
             segments.insert(segments.begin(), p);
@@ -10704,11 +10514,10 @@ namespace winrt::FileScoutNative::implementation
         {
             auto const& seg = segments[i];
             std::wstring label = (i == 0)
-                ? seg.root_name().wstring()    // "C:"
-                : seg.filename().wstring();    // "Documents"
+                ? seg.root_name().wstring()
+                : seg.filename().wstring();
             if (label.empty()) label = seg.wstring();
 
-            // Separator "›" (U+203A) between segments.
             if (i > 0)
             {
                 MUI::TextBlock sep;
@@ -10805,7 +10614,6 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        // Update live sort-header ColumnDefinitions in place (no header rebuild during drag).
         static constexpr std::array<::FileScoutNative::Domain::ListColumnIndex, 4> kCols{{
             ::FileScoutNative::Domain::ListColumnIndex::Name,
             ::FileScoutNative::Domain::ListColumnIndex::Type,
@@ -10823,8 +10631,6 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
-        // Update only the currently realized/cached ListViewItem containers (O(visible rows),
-        // keeping 60 fps drag performance even in 100k-item folders).
         if (!pane.active_list_view)
         {
             return;
@@ -10921,8 +10727,6 @@ namespace winrt::FileScoutNative::implementation
         outerGrid.ColumnDefinitions().Append(toggleHostDef);
 
         auto columnsGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
-        // Match ListRowTemplate Border.Padding.Left (8 px) so header columns and row columns share
-        // the exact same X origin inside the pane's 12 px left margin.
         columnsGrid.Margin({ 8, 0, 0, 0 });
         int32_t colOffset = 0;
         if (isListMode)
@@ -10954,15 +10758,11 @@ namespace winrt::FileScoutNative::implementation
 
         if (isListMode)
         {
-            // Trailing pixel spacer past Date Modified (covers rightmost resize grip overhang,
-            // row right padding/margin, and any non-overlay vertical scrollbar on the ListView)
-            // so the header ScrollViewer never clamps before the ListView's horizontal offset.
             auto trailingCol = winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition{};
             trailingCol.Width({ 42.0, winrt::Microsoft::UI::Xaml::GridUnitType::Pixel });
             columnsGrid.ColumnDefinitions().Append(trailingCol);
         }
 
-        // Sort column buttons (+ interactive resize dividers in List mode).
         for (int32_t colIdx = 0; colIdx < static_cast<int32_t>(columns.size()); ++colIdx)
         {
             auto const& colDef = columns[static_cast<std::size_t>(colIdx)];
@@ -11017,8 +10817,6 @@ namespace winrt::FileScoutNative::implementation
                 auto cellGrid = winrt::Microsoft::UI::Xaml::Controls::Grid{};
                 cellGrid.Children().Append(btn);
 
-                // 8 px interactive resize grip centered over the 8 px column gap,
-                // styled with a crisp 1 px vertical divider hairline like Windows File Explorer.
                 auto grip = winrt::Microsoft::UI::Xaml::Controls::Grid{};
                 grip.Width(8.0);
                 grip.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
@@ -11186,7 +10984,6 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
-        // View-mode toggle buttons: "Group", "Cards", and "List".
         auto toggleStack = winrt::Microsoft::UI::Xaml::Controls::StackPanel{};
         toggleStack.Orientation(winrt::Microsoft::UI::Xaml::Controls::Orientation::Horizontal);
         toggleStack.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
@@ -11282,8 +11079,6 @@ namespace winrt::FileScoutNative::implementation
                     {
                         return;
                     }
-                    // Allow independent header scrolling while the list has no rows (when
-                    // listSv.ScrollableWidth() is 0 because no row containers are realized).
                     if (curPane.active_list_view.Items().Size() == 0)
                     {
                         m_panes[paneIndex].list_header_offset_unreconciled = true;
@@ -11336,7 +11131,6 @@ namespace winrt::FileScoutNative::implementation
 
         if (pane.sort_column == column)
         {
-            // Same column — flip direction.
             pane.sort_direction = (pane.sort_direction == SortDirection::Ascending)
                 ? SortDirection::Descending
                 : SortDirection::Ascending;
@@ -11344,7 +11138,6 @@ namespace winrt::FileScoutNative::implementation
         else
         {
             pane.sort_column = column;
-            // Date and Size default to Descending when first selected (most-recent / largest first).
             pane.sort_direction = (column == SortColumn::DateModified || column == SortColumn::Size)
                 ? SortDirection::Descending
                 : SortDirection::Ascending;
@@ -11356,8 +11149,6 @@ namespace winrt::FileScoutNative::implementation
         {
             SortItems(tab.items, pane.sort_column, pane.sort_direction);
         }
-        // During a search the rows come from these lists (DisplayedItems, and the snapshot that
-        // clearing the filter restores): sort them too, or row indices and items disagree.
         SortItems(pane.search_snapshot, pane.sort_column, pane.sort_direction);
         SortItems(pane.filtered_items, pane.sort_column, pane.sort_direction);
 
@@ -11444,7 +11235,6 @@ namespace winrt::FileScoutNative::implementation
             auto file = co_await winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(
                 winrt::hstring{ path.wstring() });
 
-            // Abort if a newer selection has arrived while we were opening the file.
             if (m_previewGeneration != generation) { co_return; }
 
             auto stream = co_await file.OpenReadAsync();
@@ -11460,7 +11250,6 @@ namespace winrt::FileScoutNative::implementation
         }
         catch (...)
         {
-            // If the load fails (access denied, corrupt image, etc.) leave the icon tile visible.
             if (m_previewGeneration == generation)
             {
                 PreviewBorder().Visibility(winrt::Microsoft::UI::Xaml::Visibility::Collapsed);
@@ -11481,7 +11270,6 @@ namespace winrt::FileScoutNative::implementation
         BuildSortHeader(paneIndex);
         RebuildAllTabRowsForPane(paneIndex);
 
-        // Update ItemTemplate on the active ListView to match the new view mode.
         if (pane.active_list_view)
         {
             try
@@ -11503,10 +11291,6 @@ namespace winrt::FileScoutNative::implementation
     void MainWindow::RebuildAllTabRowsForPane(int32_t const paneIndex)
     {
         auto& pane = m_panes[paneIndex];
-        // Once the listing is complete (items published), this rebuild replaces the staged final
-        // publish: cancel it, and apply a filter typed meanwhile (UA-05) after the rebuild. While
-        // enumeration has published nothing, the load is still in progress: keep the flag so its
-        // final publish still runs and applies the filter.
         bool const replacesFinalPublish = pane.awaiting_final_batch && !pane.items.empty();
         if (replacesFinalPublish)
         {
@@ -11517,8 +11301,6 @@ namespace winrt::FileScoutNative::implementation
         auto const tabCount = (std::min)(pane.tabs.size(), pane.tab_rows.size());
         for (std::size_t i = 0; i < tabCount; ++i)
         {
-            // The active tab shows DisplayedItems (the filtered list during a search): build its
-            // rows from the same list, or row indices and DisplayedItems disagree.
             auto const& source = (static_cast<int32_t>(i) == pane.active_tab_index)
                 ? DisplayedItems(pane)
                 : pane.tabs[i].items;
@@ -11614,11 +11396,10 @@ namespace winrt::FileScoutNative::implementation
 
         for (auto const& entry : favorites)
         {
-            if (entry.is_drives_view) continue;  // This PC has its own Expander section (S1/S3)
+            if (entry.is_drives_view) continue;
 
             if (entry.is_pinned)
             {
-                // Pinned entries render in BookmarksPanel — exclude from recents dedup.
                 if (!entry.path.empty())
                     m_sidebarShownPathKeys.insert(::FileScoutNative::Domain::SidebarPathKey(entry.path));
                 continue;
@@ -11678,14 +11459,12 @@ namespace winrt::FileScoutNative::implementation
             surface.Child(rowGrid);
             btn.Content(surface);
 
-            // Note: entry.is_drives_view is skipped above because This PC has its own Expander section.
             if (entry.is_recycle_bin)
             {
                 auto const recycleTarget = std::filesystem::path{ ::FileScoutNative::Domain::kRecycleBinLocation };
                 btn.Click([this, recycleTarget](auto const&, auto const&)
                 {
                     NavDiagSidebarClick const navDiagClick;
-                    // LoadDirectory records the folder being left and switches to the Recycle Bin view.
                     LoadDirectory(recycleTarget);
                 });
                 btn.AddHandler(
@@ -11700,7 +11479,7 @@ namespace winrt::FileScoutNative::implementation
                                 AddTab(recycleTarget);
                             }
                         })),
-                    /*handledEventsToo=*/true);
+                    true);
             }
             else if (!entry.path.empty())
             {
@@ -11722,7 +11501,7 @@ namespace winrt::FileScoutNative::implementation
                                 AddTab(targetPath);
                             }
                         })),
-                    /*handledEventsToo=*/true);
+                    true);
             }
 
             if (!entry.path.empty())
@@ -11739,15 +11518,12 @@ namespace winrt::FileScoutNative::implementation
 
         m_sidebarPlacesStaticCount = panel.Children().Size();
         m_sidebarRecentsDirty = false;
-        RefreshSidebarRecentsSection(/*forceRebuild=*/true, /*updateHighlights=*/false);
+        RefreshSidebarRecentsSection(true, false);
 
         auto const placesEnd = navDiagOn ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
-        // Refresh the Bookmarks expander with user-pinned folders.
         UpdateBookmarksSection();
         auto const bookmarksEnd = navDiagOn ? ::FileScoutNative::NavDiag::Now() : ::FileScoutNative::NavDiag::Tick{};
-        // Refresh the This PC expander to reflect the current active pane's drive.
         UpdateThisPCSection();
-        // Run the highlight pass once all sections (Places, Recents, Bookmarks, This PC) are current.
         UpdateSidebarSelectionHighlights();
         if (navDiagOn)
         {
@@ -11947,7 +11723,7 @@ namespace winrt::FileScoutNative::implementation
                             AddTab(targetPath);
                         }
                     })),
-                /*handledEventsToo=*/true);
+                true);
             m_sidebarRecentRows.push_back(SidebarRowSurfaceEntry{
                 .path = recentPath,
                 .emphasized = false,
@@ -11983,7 +11759,7 @@ namespace winrt::FileScoutNative::implementation
                 if (auto self = weakThis.get())
                 {
                     self->m_sidebarRecentsRefreshPending = false;
-                    self->RefreshSidebarRecentsSection(/*forceRebuild=*/false);
+                    self->RefreshSidebarRecentsSection(false);
                 }
             });
     }
@@ -12048,7 +11824,6 @@ namespace winrt::FileScoutNative::implementation
             label.TextTrimming(winrt::Microsoft::UI::Xaml::TextTrimming::CharacterEllipsis);
             label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
 
-            // Unpin × button — transparent, minimal, right-aligned.
             auto unpinBtn = winrt::Microsoft::UI::Xaml::Controls::Button{};
             unpinBtn.Padding({ 4, 2, 4, 2 });
             unpinBtn.Background(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush{
@@ -12118,7 +11893,7 @@ namespace winrt::FileScoutNative::implementation
                             AddTab(pinnedPath);
                         }
                     })),
-                /*handledEventsToo=*/true);
+                true);
             m_sidebarBookmarkRows.push_back(SidebarRowSurfaceEntry{
                 .path = entry.path,
                 .emphasized = isSelected,
@@ -12240,7 +12015,7 @@ namespace winrt::FileScoutNative::implementation
                             AddTab(drivePath);
                         }
                     })),
-                /*handledEventsToo=*/true);
+                true);
             button.Content(card);
             m_sidebarDriveRows.push_back(SidebarRowSurfaceEntry{
                 .path = drive.path,
@@ -12256,15 +12031,9 @@ namespace winrt::FileScoutNative::implementation
         try
         {
             auto items = m_shellInterop.EnumerateDrives();
-            // Drives lack size/date, so sort degenerates to name order for those columns —
-            // but apply the active sort to stay consistent with the current pane preference.
             SortItems(items, ActivePane().sort_column, ActivePane().sort_direction);
 
             auto& pane = ActivePane();
-            // Entering This PC is a navigation: end the search (and any filter waiting for a load),
-            // and invalidate a folder load still in flight so its callbacks cannot replace the
-            // drive list or apply that filter.
-            // No snapshot restore: the drive rows replace the list right below.
             EndSearchOnNavigation(m_activePaneIndex, false);
             ++pane.load_generation;
             pane.awaiting_final_batch = false;
@@ -12276,8 +12045,6 @@ namespace winrt::FileScoutNative::implementation
                     pane.current_path,
                     std::filesystem::path{ ::FileScoutNative::Domain::kDrivesViewLocation });
             }
-            // This PC has no path; the folder being left still belongs in the recents. The sidebar is
-            // rebuilt only after the pane state below says "This PC", so it highlights the right row.
             bool recentsChanged = false;
             if (auto const left = ::FileScoutNative::Domain::FolderToRecordOnLeave(pane.current_path, std::filesystem::path{}))
             {
@@ -12365,7 +12132,6 @@ namespace winrt::FileScoutNative::implementation
         RefreshDualPaneButton();
     }
 
-    // R13e: toggle the sidebar / preview panel on or off.
     void MainWindow::TogglePreviewPanel()
     {
         using winrt::Microsoft::UI::Xaml::GridLength;
@@ -12385,7 +12151,6 @@ namespace winrt::FileScoutNative::implementation
         }
     }
 
-    // R13e: toggle the right pane on or off; switches to left pane if right was active.
     void MainWindow::ToggleDualPane()
     {
         m_dualPaneVisible = !m_dualPaneVisible;
@@ -12394,7 +12159,6 @@ namespace winrt::FileScoutNative::implementation
         if (m_dualPaneVisible && m_deferredRightPanePath.has_value())
         {
             auto const path = *std::exchange(m_deferredRightPanePath, std::nullopt);
-            // Pane 1 loads by index; the shared toolbar keeps showing the active pane (UB-07).
             LoadDirectoryInPane(1, path);
         }
         else

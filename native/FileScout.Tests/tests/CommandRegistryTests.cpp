@@ -32,7 +32,6 @@ TEST(CommandRegistry, EmptyQueryReturnsAll)
 TEST(CommandRegistry, FilterMatchesByDisplayName)
 {
     CommandRegistry reg;
-    // "new" should match "New Tab" — verify at least one result with id "newTab"
     auto results = reg.Filter(L"ne");
     ASSERT_FALSE(results.empty());
     bool found = false;
@@ -81,7 +80,6 @@ TEST(CommandRegistry, EachCommandHasNonEmptyIdAndDisplayName)
     }
 }
 
-// R13b: all navigation commands wired in this slice must exist in the registry.
 TEST(CommandRegistry, AllNavigationCommandsPresent)
 {
     CommandRegistry reg;
@@ -98,7 +96,6 @@ TEST(CommandRegistry, AllNavigationCommandsPresent)
     }
 }
 
-// R13d: all view and sort commands must exist in the registry.
 TEST(CommandRegistry, AllViewAndSortCommandsPresent)
 {
     CommandRegistry reg;
@@ -115,7 +112,6 @@ TEST(CommandRegistry, AllViewAndSortCommandsPresent)
     }
 }
 
-// R13c: all file operation commands must exist in the registry.
 TEST(CommandRegistry, AllFileOperationCommandsPresent)
 {
     CommandRegistry reg;
@@ -165,7 +161,6 @@ TEST(CommandRegistry, ClosedBetaDoesNotAdvertiseGatedFeatures)
     EXPECT_FALSE(HasCommandId(reg.Filter(L"archive"), L"browseArchive"));
 }
 
-// R13e: panel toggle commands must exist in the registry.
 TEST(CommandRegistry, AllPanelToggleCommandsPresent)
 {
     CommandRegistry reg;
@@ -181,7 +176,6 @@ TEST(CommandRegistry, AllPanelToggleCommandsPresent)
     }
 }
 
-// D-08: commands with the same fuzzy score keep their registration order.
 TEST(CommandRegistry, RankByScore_KeepsRegistrationOrderForTies)
 {
     std::vector<std::pair<int, CommandEntry>> scored;

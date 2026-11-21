@@ -5,10 +5,6 @@
 
 using namespace FileScoutNative::Domain;
 
-// ---------------------------------------------------------------------------
-// FormatFileSize — boundary tests
-// ---------------------------------------------------------------------------
-
 TEST(RowFormatting, FormatFileSize_Zero)
 {
     EXPECT_EQ(L"0 B", FormatFileSize(0));
@@ -21,13 +17,11 @@ TEST(RowFormatting, FormatFileSize_FewBytes)
 
 TEST(RowFormatting, FormatFileSize_OneKilobyte)
 {
-    // 1024 bytes → 1.0 KB (value < 10, so 1 decimal place)
     EXPECT_EQ(L"1.0 KB", FormatFileSize(1024));
 }
 
 TEST(RowFormatting, FormatFileSize_LargeKilobytes)
 {
-    // 11 KB — value >= 10 so 0 decimal places
     EXPECT_EQ(L"11 KB", FormatFileSize(11 * 1024));
 }
 
@@ -41,19 +35,30 @@ TEST(RowFormatting, FormatFileSize_Gigabytes)
     EXPECT_EQ(L"3.0 GB", FormatFileSize(3ULL * 1024 * 1024 * 1024));
 }
 
-// ---------------------------------------------------------------------------
-// BuildDetailText — card-mode detail chip
-// ---------------------------------------------------------------------------
+TEST(RowFormatting, FormatFileSizePreservesRoundingAndUnitBoundaries)
+{
+    constexpr auto kb = 1024ULL;
+    constexpr auto mb = kb * kb;
+    constexpr auto tb = mb * mb;
+    EXPECT_EQ(L"1023 B", FormatFileSize(kb - 1));
+    EXPECT_EQ(L"1.2 KB", FormatFileSize(5 * kb / 4));
+    EXPECT_EQ(L"1.8 KB", FormatFileSize(7 * kb / 4));
+    EXPECT_EQ(L"10.0 KB", FormatFileSize(10 * kb - 1));
+    EXPECT_EQ(L"10 KB", FormatFileSize(10 * kb));
+    EXPECT_EQ(L"10 KB", FormatFileSize(21 * kb / 2));
+    EXPECT_EQ(L"12 KB", FormatFileSize(23 * kb / 2));
+    EXPECT_EQ(L"1024 KB", FormatFileSize(mb - 1));
+    EXPECT_EQ(L"1.0 MB", FormatFileSize(mb));
+    EXPECT_EQ(L"1024 TB", FormatFileSize(1024 * tb));
+}
 
 TEST(RowFormatting, BuildDetailText_NoSize_TypeLabelOnly)
 {
-    // Folders have no size — show only the type label
     EXPECT_EQ(L"Folder", BuildDetailText(L"Folder", 0, false));
 }
 
 TEST(RowFormatting, BuildDetailText_WithSize_TypeAndSize)
 {
-    // File with size: "TypeLabel  |  FormattedSize"
     EXPECT_EQ(L"PDF Document  |  1.0 KB", BuildDetailText(L"PDF Document", 1024, true));
 }
 

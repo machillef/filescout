@@ -270,9 +270,7 @@ namespace FileScoutNative::Domain
         return CaptionButtonPalette{
             .foreground = theme.text_primary,
             .inactive_foreground = theme.text_secondary,
-            // ~16% foreground lift over base for crisp Windows Terminal-style hover feedback.
             .hover_background = BlendOpaque(theme.base, theme.text_primary, 41u),
-            // ~10% foreground lift for subtle recessed pressed feedback.
             .pressed_background = BlendOpaque(theme.base, theme.text_primary, 26u),
         };
     }

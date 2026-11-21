@@ -16,7 +16,6 @@ namespace
         return std::filesystem::temp_directory_path() / "FileScout.Native.startup.log";
     }
 
-    // Best effort, as UTF-8: an error path must still reach its message box (UA-09).
     void AppendStartupLog(std::wstring const& line) noexcept
     {
         try
@@ -79,13 +78,12 @@ namespace
                  L" | PID:" + std::to_wstring(::GetCurrentProcessId()) +
                  L" | " + WindowsVersionString() + L" ===");
     }
-} // anonymous namespace
+}
 
 namespace FileScoutNative::detail
 {
     enum class StartupAction { OpenWindow, SetDefaultFileManager, RestoreExplorer };
 
-    // Headless switches for installers and scripts: change the default file manager and exit.
     StartupAction ResolveStartupAction(std::span<wchar_t const* const> args)
     {
         for (auto const* arg : args)
@@ -150,7 +148,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR cmdLine, int)
     std::filesystem::remove(StartupLogPath());
     LogSessionStart();
 
-    // Parse command-line for a path argument (from "Open in FileScout" context menu).
     std::optional<std::filesystem::path> launchPath;
     int argc = 0;
     if (auto const* const* const argv = CommandLineToArgvW(GetCommandLineW(), &argc); argv != nullptr)

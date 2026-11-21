@@ -6,13 +6,9 @@
 
 namespace FileScoutNative::Domain
 {
-    // UA-05: a filter typed while the folder is still loading is kept, shown as waiting, and applied
-    // when the load publishes its final rows, instead of being dropped.
     class PendingFilter
     {
     public:
-        // Returns true when the filter can run now; during a load the query is kept for the final
-        // publish (an empty query clears it).
         bool OnQueryChanged(std::wstring query, bool const loadInProgress)
         {
             if (!loadInProgress)
@@ -32,7 +28,6 @@ namespace FileScoutNative::Domain
             return false;
         }
 
-        // The query to apply once the final rows are published, if one is waiting.
         [[nodiscard]] std::optional<std::wstring> TakeOnFinalPublish()
         {
             auto query = std::move(m_query);

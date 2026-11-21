@@ -46,9 +46,6 @@ namespace
     }
 }
 
-// ---------------------------------------------------------------------------
-// Normal (non-archive) view — no selection, no paste
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, EmptyScenario_ReturnsWorkspaceGroupOnly)
 {
     ContextMenuService svc;
@@ -63,9 +60,6 @@ TEST(ContextMenuServiceTest, EmptyScenario_ReturnsWorkspaceGroupOnly)
     EXPECT_TRUE(HasGroupCommand(model, L"refresh"));
 }
 
-// ---------------------------------------------------------------------------
-// Normal view — file selected
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, FileSelected_HasOpenRenameDelete)
 {
     ContextMenuService svc;
@@ -74,16 +68,13 @@ TEST(ContextMenuServiceTest, FileSelected_HasOpenRenameDelete)
     auto model = svc.BuildMenu(scenario);
 
     EXPECT_TRUE(HasPrimaryCommand(model, L"open"));
-    EXPECT_TRUE(HasPrimaryCommand(model, L"openWith"));  // only for files
+    EXPECT_TRUE(HasPrimaryCommand(model, L"openWith"));
     EXPECT_TRUE(HasPrimaryCommand(model, L"rename"));
     EXPECT_TRUE(HasPrimaryCommand(model, L"delete"));
     EXPECT_FALSE(HasGroupCommand(model, L"pinToPlaces"));
     EXPECT_TRUE(model.has_overflow_menu);
 }
 
-// ---------------------------------------------------------------------------
-// Normal view — folder selected (no "Open with…")
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, FolderSelected_NoOpenWith)
 {
     ContextMenuService svc;
@@ -103,9 +94,6 @@ TEST(ContextMenuServiceTest, FolderSelected_NoOpenWith)
     EXPECT_TRUE(HasGroupCommand(model, L"pinToPlaces"));
 }
 
-// ---------------------------------------------------------------------------
-// Normal view — can paste, no selection
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, CanPasteNoSelection_ClipboardGroupHasPasteOnly)
 {
     ContextMenuService svc;
@@ -132,9 +120,6 @@ TEST(ContextMenuServiceTest, NoSelectionCanPinCurrentFolder_ShowsWorkspacePinCom
     EXPECT_TRUE(HasGroupCommand(model, L"refresh"));
 }
 
-// ---------------------------------------------------------------------------
-// Normal view — selection + can paste → copy, cut, paste all present
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, SelectionAndCanPaste_ClipboardHasCopyCutPaste)
 {
     ContextMenuService svc;
@@ -148,9 +133,6 @@ TEST(ContextMenuServiceTest, SelectionAndCanPaste_ClipboardHasCopyCutPaste)
     EXPECT_TRUE(HasGroupCommand(model, L"paste"));
 }
 
-// ---------------------------------------------------------------------------
-// Normal view — selection without paste → copy/cut but no paste
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, SelectionNoPaste_NoPasteCommand)
 {
     ContextMenuService svc;
@@ -214,9 +196,6 @@ TEST(ContextMenuServiceTest, RecycleBinView_Selected_HasRestorePermanentDeletePr
     EXPECT_TRUE(HasGroupCommand(model, L"refresh"));
 }
 
-// ---------------------------------------------------------------------------
-// Read-only archive view — no selection
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, ArchiveView_NoSelection_RefreshOnly)
 {
     ContextMenuService svc;
@@ -231,9 +210,6 @@ TEST(ContextMenuServiceTest, ArchiveView_NoSelection_RefreshOnly)
     EXPECT_TRUE(HasGroupCommand(model, L"refresh"));
 }
 
-// ---------------------------------------------------------------------------
-// Read-only archive view — file selected → open + extract group
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, ArchiveView_FileSelected_HasOpenAndExtract)
 {
     ContextMenuService svc;
@@ -271,9 +247,6 @@ TEST(ContextMenuServiceTest, IneligibleSelection_HidesCompressToZip)
     EXPECT_FALSE(HasGroupCommand(model, L"compressToZip"));
 }
 
-// ---------------------------------------------------------------------------
-// MakeCommand factory produces correct field values
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, MakeCommand_SetsAllFields)
 {
     auto cmd = ContextMenuService::MakeCommand(
@@ -298,9 +271,6 @@ TEST(ContextMenuServiceTest, MakeCommand_DefaultsToAppSource)
     EXPECT_TRUE(cmd.shortcut_text.empty());
 }
 
-// ---------------------------------------------------------------------------
-// Destructive command marking (U3 polish)
-// ---------------------------------------------------------------------------
 TEST(ContextMenuServiceTest, DeleteCommand_IsMarkedDestructive)
 {
     ContextMenuService svc;

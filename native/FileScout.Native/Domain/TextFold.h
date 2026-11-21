@@ -25,7 +25,6 @@ namespace FileScoutNative::Domain
                 (*table)[index] = static_cast<wchar_t>(index);
             }
 
-            // One call over the whole BMP; surrogate halves map to themselves.
             CaseTable mapped{};
             auto const written = LCMapStringEx(
                 LOCALE_NAME_INVARIANT,
@@ -96,7 +95,6 @@ namespace FileScoutNative::Domain
         }
     }
 
-    // For comparisons and keys only (final sigma becomes sigma); use LowerChar for display text.
     [[nodiscard]] inline wchar_t FoldChar(wchar_t const ch) noexcept
     {
         return detail::FoldTable()[static_cast<std::size_t>(ch)];
@@ -112,7 +110,6 @@ namespace FileScoutNative::Domain
         return detail::UpperTable()[static_cast<std::size_t>(ch)];
     }
 
-    // Folded copy, for case-insensitive keys (paths, names, ids).
     [[nodiscard]] inline std::wstring FoldCase(std::wstring_view const value)
     {
         std::wstring folded{ value };
@@ -123,7 +120,6 @@ namespace FileScoutNative::Domain
         return folded;
     }
 
-    // Lowercase copy for text the user sees (the lowercase rename).
     [[nodiscard]] inline std::wstring LowerCase(std::wstring_view const value)
     {
         std::wstring lower{ value };
@@ -144,7 +140,6 @@ namespace FileScoutNative::Domain
         return upper;
     }
 
-    // Letter or digit in any script (GetStringTypeW, locale independent).
     [[nodiscard]] inline bool IsLetterOrDigit(wchar_t const ch) noexcept
     {
         WORD type = 0;
@@ -152,11 +147,8 @@ namespace FileScoutNative::Domain
             (type & (C1_ALPHA | C1_DIGIT)) != 0;
     }
 
-    // -1, 0 or 1 comparing folded code units (ordinal, no linguistic reordering; same order as
-    // _wcsicmp for ASCII).
     [[nodiscard]] inline int CompareIgnoreCase(std::wstring_view const left, std::wstring_view const right) noexcept
     {
-        // One table lookup per comparison, not per character (a sort makes millions of these).
         auto const& fold = detail::FoldTable();
         auto const common = (std::min)(left.size(), right.size());
         for (std::size_t index = 0; index < common; ++index)
@@ -177,9 +169,6 @@ namespace FileScoutNative::Domain
         return left.size() == right.size() && CompareIgnoreCase(left, right) == 0;
     }
 
-    // The letter a name is grouped under: folded (so final sigma groups with sigma) then upper-cased
-    // with the same invariant tables the name sort uses; '#' for names not starting with a letter
-    // or digit.
     [[nodiscard]] inline wchar_t NameGroupInitial(std::wstring_view const name) noexcept
     {
         if (name.empty())

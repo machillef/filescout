@@ -7,12 +7,8 @@ namespace FileScoutNative::Shell
 {
     CommandRegistry::CommandRegistry()
     {
-        // Closed beta command table: keep gated-off features out of the registry so
-        // the searchable command surface only advertises live functionality.
-        // shortcut_text is display-only — matches accelerators in SetupKeyboardAccelerators.
         m_commands =
         {
-            // Navigation
             { L"newTab",          L"New Tab",              L"Ctrl+T",       L"Navigation" },
             { L"reopenClosedTab", L"Reopen Closed Tab",    L"Ctrl+Shift+T", L"Navigation" },
             { L"closeTab",        L"Close Tab",            L"Ctrl+W",       L"Navigation" },
@@ -24,7 +20,6 @@ namespace FileScoutNative::Shell
             { L"forward",         L"Go Forward",           L"Alt+Right",    L"Navigation" },
             { L"navigateUp",      L"Go Up",                L"Alt+Up",       L"Navigation" },
             { L"goToPath",        L"Go to Path",           L"F4",           L"Navigation" },
-            // File operations
             { L"open",            L"Open",                 L"Enter",        L"File"       },
             { L"openInNewTab",    L"Open in New Tab",      L"",             L"File"       },
             { L"openWith",        L"Open With",            L"",             L"File"       },
@@ -45,7 +40,6 @@ namespace FileScoutNative::Shell
             { L"newFile",         L"New File",             L"",             L"File"       },
             { L"openInTerminal",  L"Open in Terminal",     L"",             L"File"       },
             { L"properties",      L"Properties",           L"Alt+Enter",    L"File"       },
-            // View / Sort
             { L"toggleView",         L"Toggle View Mode",         L"",        L"View" },
             { L"toggleGroup",        L"Toggle Grouping",          L"",        L"View" },
             { L"togglePreview",      L"Toggle Preview Panel",     L"",        L"View" },
@@ -53,10 +47,8 @@ namespace FileScoutNative::Shell
             { L"sortByName",         L"Sort by Name",             L"",        L"View" },
             { L"sortBySize",         L"Sort by Size",             L"",        L"View" },
             { L"sortByDateModified", L"Sort by Date Modified",    L"",        L"View" },
-            // View toggles
             { L"toggleHiddenFiles",  L"Toggle Hidden Files",      L"Ctrl+H",  L"View" },
             { L"toggleExtensions",   L"Toggle File Extensions",   L"",        L"View" },
-            // System integration
             { L"setDefaultFileManager", L"Make FileScout the Default File Manager", L"", L"System" },
             { L"restoreExplorer",       L"Restore Explorer as Default File Manager", L"", L"System" },
         };

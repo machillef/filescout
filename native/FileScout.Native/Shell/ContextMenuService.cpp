@@ -143,7 +143,7 @@ namespace FileScoutNative::Shell
                     L"F2");
             }
             AppendCommand(model.primary_commands, L"delete", L"Delete", L"delete", L"Del",
-                true, FileScoutNative::Domain::ExplorerCommandSource::App, /*isDestructive=*/true);
+                true, FileScoutNative::Domain::ExplorerCommandSource::App, true);
         }
 
         if (hasSelection || scenario.can_paste)

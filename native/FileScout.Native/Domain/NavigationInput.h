@@ -87,8 +87,6 @@ namespace FileScoutNative::Domain
             }
         }
 
-        // A new WM_NCXBUTTONDOWN begins an independent non-client click (e.g. on the titlebar),
-        // so clear any stale client-area suppression state for that button only.
         void OnNonClientButtonDown(NavigationInputCommand const command) noexcept
         {
             if (command == NavigationInputCommand::Back)
@@ -119,7 +117,6 @@ namespace FileScoutNative::Domain
                 return false;
             }
 
-            // Hardware keyboard/OEM media Back/Forward keys never originate from mouse pointer events.
             if (message == WM_APPCOMMAND && GET_DEVICE_LPARAM(lParam) != FAPPCOMMAND_MOUSE)
             {
                 return false;

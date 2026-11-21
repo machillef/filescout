@@ -9,8 +9,6 @@ namespace winrt::FileScoutNative::implementation
 {
     void FileRowViewModel::RaisePropertyChanged(std::wstring_view propertyName)
     {
-        // No subscriber, no event: skip building the XAML event args, which also keeps the
-        // view model usable without the XAML runtime (tests).
         if (!m_propertyChanged)
         {
             return;

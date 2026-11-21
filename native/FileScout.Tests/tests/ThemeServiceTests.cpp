@@ -257,8 +257,6 @@ TEST_F(ThemeServiceFixture, SaveThemeId_WithoutLocalAppDataFallsBackToCurrentDir
     EXPECT_EQ(ThemeService::LoadSavedThemeId(), L"tokyo-night");
 }
 
-// D-10: LOCALAPPDATA of 260+ characters must still be honoured (GetEnvironmentVariableW with a
-// MAX_PATH buffer returns the needed size and writes nothing), never a cwd-relative theme.txt.
 TEST_F(ThemeServiceFixture, SaveThemeId_LongLocalAppDataIsNotReplacedByARelativePath)
 {
     auto longRoot = tempRoot;
@@ -270,8 +268,6 @@ TEST_F(ThemeServiceFixture, SaveThemeId_LongLocalAppDataIsNotReplacedByARelative
 
     EXPECT_NO_THROW(ThemeService::SaveThemeId(L"tokyo-night"));
 
-    // The fixture's current directory is tempRoot: a relative or current-directory fallback would
-    // land here, so neither location may exist, and the file must be under the long LOCALAPPDATA.
     EXPECT_FALSE(std::filesystem::exists(tempRoot / L"FileScoutNative" / L"theme.txt"));
     EXPECT_FALSE(std::filesystem::exists(tempRoot / L"theme.txt"));
     EXPECT_TRUE(std::filesystem::exists(
@@ -283,7 +279,6 @@ TEST_F(ThemeServiceFixture, SaveThemeId_LongLocalAppDataIsNotReplacedByARelative
         std::filesystem::path{ L"\\\\?\\" + (tempRoot / std::wstring(40, L'x')).wstring() }, ec);
 }
 
-// D-10: a folder that cannot be created must not throw out of SaveThemeId.
 TEST_F(ThemeServiceFixture, SaveThemeId_DoesNotThrowWhenTheFolderCannotBeCreated)
 {
     auto const blocker = tempRoot / L"blocker";

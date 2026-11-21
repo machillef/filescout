@@ -35,7 +35,7 @@ TEST(SelectionSummaryTests, SummarizesFilesFoldersAndKnownBytes)
     std::vector<ShellItemRef> items{
         MakeSizedFile(LR"(C:\Data\a.bin)", 1024),
         MakeSizedFile(LR"(C:\Data\b.bin)", 2048),
-        MakeSizedFile(LR"(C:\Data\unknown.bin)", 9999, /*sizeAvailable=*/false),
+        MakeSizedFile(LR"(C:\Data\unknown.bin)", 9999, false),
         MakeFolderItem(LR"(C:\Data\Sub)"),
     };
 
@@ -114,8 +114,7 @@ TEST(NavigationHistoryTests, DrivesViewSentinelPreservesBackForwardHistoryAndSki
     std::vector<std::filesystem::path> forward;
     std::filesystem::path current = LR"(C:\Data)";
 
-    // Up from C:\Data -> C:\ -> This PC
-    BeginNavigation(back, forward, current, LR"(C:\)", /*isHistoryStep=*/false);
+    BeginNavigation(back, forward, current, LR"(C:\)", false);
     RecordNavigation(back, forward, current, std::filesystem::path{ kDrivesViewLocation });
     ASSERT_EQ(back.size(), 2u);
     EXPECT_EQ(back[0], std::filesystem::path{ LR"(C:\Data)" });

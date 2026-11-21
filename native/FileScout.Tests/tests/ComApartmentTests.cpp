@@ -12,7 +12,6 @@ namespace
         APTTYPE type = APTTYPE_CURRENT;
         APTTYPEQUALIFIER qualifier = APTTYPEQUALIFIER_NONE;
 
-        // Explicitly joined MTA, not the implicit MTA a thread without CoInitializeEx falls into.
         [[nodiscard]] bool IsExplicitMta() const
         {
             return hr == S_OK && type == APTTYPE_MTA && qualifier != APTTYPEQUALIFIER_IMPLICIT_MTA;
@@ -34,7 +33,6 @@ namespace
     }
 }
 
-// S-01: background COM calls ran on threads that never called CoInitializeEx.
 TEST(ComApartmentTests, FreshThreadJoinsMtaInsideGuardAndLeavesAfter)
 {
     ApartmentState before, inside, after;

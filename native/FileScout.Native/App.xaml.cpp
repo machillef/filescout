@@ -64,7 +64,6 @@ namespace winrt::FileScoutNative::implementation
             }
         }
 
-        // Best effort, as UTF-8: an error path must still reach its message box (UA-09).
         void AppendStartupLog(std::wstring const& line) noexcept
         {
             try
@@ -114,8 +113,6 @@ namespace winrt::FileScoutNative::implementation
             winrt::Windows::Foundation::IInspectable const&,
             winrt::Microsoft::UI::Xaml::UnhandledExceptionEventArgs const& e)
         {
-            // UA-09: log, tell the user, then let WinUI terminate the process. Continuing in an
-            // unknown state on top of the user's files is worse than closing.
             auto const report = ::FileScoutNative::Domain::BuildUnhandledExceptionReport(
                 e.Message().c_str(), static_cast<int32_t>(e.Exception().value));
             TraceLog(report.log_line);
@@ -139,8 +136,6 @@ namespace winrt::FileScoutNative::implementation
             m_window.Activate();
             TraceLog(L"App::OnLaunched: Activate done");
 
-            // Drag staging and archive-open copies stay in %TEMP% while drop targets or opened apps
-            // may still use them; sweep the ones older than a day, off the UI thread.
             std::thread([]
             {
                 try

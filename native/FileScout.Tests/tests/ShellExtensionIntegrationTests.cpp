@@ -52,8 +52,6 @@ TEST(ShellExtensionIntegration, PrepareForInitializeClearsPreviousSelectionState
     EXPECT_GE(selectedPaths.capacity(), 2U);
 }
 
-// ─── S-12 ────────────────────────────────────────────────────────────────────
-
 TEST(ShellExtensionIntegration, ClsidIsARealGuidAndMatchesItsString)
 {
     wchar_t text[64]{};

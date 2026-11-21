@@ -6,9 +6,6 @@
 
 namespace FileScoutNative::Domain
 {
-    // Sidebar data that is slow to read (drive enumeration with free space per drive) and
-    // changes rarely. The sidebar is rebuilt on every navigation that records a recent folder,
-    // so it reads the value once and reuses it until something invalidates it (UB-10).
     template <typename T>
     class CachedValue
     {
@@ -29,8 +26,6 @@ namespace FileScoutNative::Domain
         std::optional<T> m_value;
     };
 
-    // WM_DEVICECHANGE with DBT_DEVICEARRIVAL or DBT_DEVICEREMOVECOMPLETE: a volume came or went,
-    // so the cached drive list is stale.
     [[nodiscard]] constexpr bool IsDriveListChange(
         std::uint32_t const message,
         std::uintptr_t const wParam) noexcept

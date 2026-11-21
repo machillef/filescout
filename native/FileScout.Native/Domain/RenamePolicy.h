@@ -14,9 +14,6 @@ namespace FileScoutNative::Domain
         return newName == currentName;
     }
 
-    // Explorer-style initial rename selection: select the stem before the last '.' for files
-    // (leaving the extension unselected), and select the full name for folders, dotfiles
-    // (".gitignore"), or extensionless files ("README").
     [[nodiscard]] inline int32_t ComputeRenameSelectionLength(
         std::wstring_view const displayName,
         bool const isFolder) noexcept

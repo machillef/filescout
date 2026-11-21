@@ -37,7 +37,6 @@ TEST(MainWindowXaml, PreservesListAndGroupRowTemplates)
     EXPECT_NE(xaml.find("Text=\"GROUP\""), std::string::npos);
 }
 
-// spec-ui UA-01: nothing ever wrote the "LOCATION" placeholder, so it showed as dead text in the chrome.
 TEST(MainWindowXaml, HasNoDeadLocationPlaceholder)
 {
     auto const xaml = ReadMainWindowXaml();
@@ -46,7 +45,6 @@ TEST(MainWindowXaml, HasNoDeadLocationPlaceholder)
     EXPECT_EQ(xaml.find("ActiveLocationTextBlock"), std::string::npos);
 }
 
-// spec-ui UA-02: StatusIconTextBlock never received a glyph and only reserved empty space.
 TEST(MainWindowXaml, HasNoEmptyStatusIconSlot)
 {
     auto const xaml = ReadMainWindowXaml();
@@ -54,15 +52,10 @@ TEST(MainWindowXaml, HasNoEmptyStatusIconSlot)
     EXPECT_EQ(xaml.find("StatusIconTextBlock"), std::string::npos);
 }
 
-// New look: chrome brushes come from theme resources; no literal colours (named or #hex) in the window
-// XAML (spec-ui UA-08 / UB-13 "no colour islands"). The command-palette scrim is the one exception.
 namespace
 {
     struct ColourLiteral { std::string element; std::string name; std::string attribute; std::string value; };
 
-    // Quote-aware scan of XAML start tags: comments are skipped, and a '>' inside a quoted attribute
-    // value does not end the tag. Returns every colour attribute whose value is a literal (not a
-    // {markup extension} and not Transparent).
     std::vector<ColourLiteral> FindColourLiterals(std::string const& xaml)
     {
         static std::regex const attribute{ R"re(([\w:.]+)\s*=\s*(["'])(.*?)\2)re" };

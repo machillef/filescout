@@ -7,8 +7,6 @@ using namespace FileScoutNative::Shell::detail;
 
 namespace
 {
-    // The real build output name (TargetName = RootNamespace). The old tests hard-coded
-    // "FileScout.Native.exe", which never matched the shipped binary (spec-shell S-13).
     constexpr wchar_t k_exe[] = L"C:\\Program Files\\FileScout\\FileScoutNative.exe";
 
     std::optional<std::wstring> Read(std::wstring const& path, wchar_t const* name = nullptr)
@@ -42,7 +40,6 @@ namespace
         return true;
     }
 
-    // Recursive text dump of a subtree, used to prove "no traces" after a restore.
     std::wstring Dump(std::wstring const& path)
     {
         std::wstring out;
@@ -118,8 +115,6 @@ namespace
     std::wstring const k_winE = L"\\CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell\\opennewwindow\\command";
 }
 
-// --- Command values ---
-
 TEST(DefaultFileManagerService, BuildFolderCommandValueQuotesPathAndAppendsPercentOne)
 {
     EXPECT_EQ(BuildFolderCommandValue(k_exe), L"\"C:\\Program Files\\FileScout\\FileScoutNative.exe\" \"%1\"");
@@ -134,8 +129,6 @@ TEST(DefaultFileManagerService, BuildWinECommandValueQuotesPathWithoutPercentOne
 {
     EXPECT_EQ(BuildWinECommandValue(k_exe), L"\"C:\\Program Files\\FileScout\\FileScoutNative.exe\"");
 }
-
-// --- ValuePointsToExecutable (S-13: compare with the running exe, not a hard-coded name) ---
 
 TEST(DefaultFileManagerService, ValuePointsToExecutableMatchesQuotedCommand)
 {
@@ -161,12 +154,8 @@ TEST(DefaultFileManagerService, ValuePointsToExecutableRejectsExplorerEmptyAndOt
 
 TEST(DefaultFileManagerService, ValuePointsToExecutableRejectsAnotherCopyOfFileScout)
 {
-    // A different build of FileScout is not "this" FileScout: status must say NotDefault so the
-    // user can re-point the verbs at the copy they are running.
     EXPECT_FALSE(ValuePointsToExecutable(L"\"D:\\old\\FileScoutNative.exe\" \"%1\"", k_exe));
 }
-
-// --- DeriveStatus ---
 
 TEST(DefaultFileManagerService, DeriveStatusReturnsFullyDefaultWhenAllTrue)
 {
@@ -184,8 +173,6 @@ TEST(DefaultFileManagerService, DeriveStatusReturnsPartiallyDefaultWhenMixed)
     EXPECT_EQ(DeriveStatus(true, true, false), DefaultFileManagerStatus::PartiallyDefault);
     EXPECT_EQ(DeriveStatus(false, true, true), DefaultFileManagerStatus::PartiallyDefault);
 }
-
-// --- Manifest encoding ---
 
 TEST(DefaultFileManagerService, ManifestEntryRoundTripsValueDataContainingSeparators)
 {
@@ -214,8 +201,6 @@ TEST(DefaultFileManagerService, ManifestDecodeRejectsGarbage)
     EXPECT_FALSE(DecodeManifestEntry(L"V|key|name").has_value());
     EXPECT_FALSE(DecodeManifestEntry(L"V|key|name|7|x").has_value());
 }
-
-// --- Registry round trips (isolated test hive under HKCU\Software\FileScoutTests) ---
 
 TEST_F(DefaultFileManagerRegistry, FreshProfileIsNotDefault)
 {
@@ -302,7 +287,6 @@ TEST_F(DefaultFileManagerRegistry, MissingWinEHandlerIsPartiallyDefault)
 
 TEST_F(DefaultFileManagerRegistry, MissingExploreVerbIsPartiallyDefault)
 {
-    // Edge's "Open downloads folder" uses the explore verb; without it that path opens Explorer.
     auto service = Service();
     ASSERT_TRUE(service.SetAsDefault());
     ::RegDeleteTreeW(HKEY_CURRENT_USER, (m_classes + L"\\Directory\\shell\\explore").c_str());
@@ -321,7 +305,6 @@ TEST_F(DefaultFileManagerRegistry, MissingFolderExploreVerbIsPartiallyDefault)
 
 TEST_F(DefaultFileManagerRegistry, NonEmptyDelegateExecuteIsNotDefault)
 {
-    // A COM delegate wins over the command string, so the explore verb would still open Explorer.
     auto service = Service();
     ASSERT_TRUE(service.SetAsDefault());
     Write(m_classes + L"\\Folder\\shell\\explore\\command", L"DelegateExecute", L"{11dbb47c-a525-400b-9e80-a54615a090c0}");
@@ -331,7 +314,6 @@ TEST_F(DefaultFileManagerRegistry, NonEmptyDelegateExecuteIsNotDefault)
 
 TEST_F(DefaultFileManagerRegistry, OlderManifestIsExtendedSoRestoreRemovesEverything)
 {
-    // A manifest written by an older build covers only the Directory default verb.
     auto const before = Dump(m_classes);
     HKEY key{};
     ASSERT_EQ(::RegCreateKeyExW(HKEY_CURRENT_USER, m_manifest.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr), ERROR_SUCCESS);

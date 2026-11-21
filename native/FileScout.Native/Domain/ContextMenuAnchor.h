@@ -22,13 +22,8 @@ namespace FileScoutNative::Domain
         [[nodiscard]] constexpr bool IsEmpty() const noexcept { return right <= left || bottom <= top; }
     };
 
-    // Horizontal offset from the row's left edge, so the menu does not cover the row's icon edge.
     inline constexpr int32_t kRowAnchorInset = 24;
 
-    // Where a shell menu opens, in screen pixels (UB-15). A mouse click wins; from the keyboard or
-    // the command palette the menu opens just below the focused row (clamped into the window if the
-    // row is scrolled out of view); with no row it opens at the window centre. It never falls back to
-    // a fixed screen position.
     [[nodiscard]] constexpr ScreenPoint ChooseContextMenuAnchor(
         std::optional<ScreenPoint> const clickPoint,
         std::optional<ScreenRect> const focusedRow,

@@ -16,7 +16,6 @@ TEST(ContextMenuAnchor, ClickPoint_WinsWhenPresent)
     EXPECT_EQ(anchor.y, 420);
 }
 
-// UB-15: from the keyboard or the palette there is no click point; the menu opened at screen (160,160).
 TEST(ContextMenuAnchor, NoClickPoint_AnchorsAtTheFocusedRow)
 {
     auto const anchor = ChooseContextMenuAnchor(std::nullopt, ScreenRect{ 120, 300, 900, 332 }, kWindow);

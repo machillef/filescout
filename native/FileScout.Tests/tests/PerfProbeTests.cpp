@@ -7,7 +7,6 @@
 #include <chrono>
 #include <cstdio>
 
-// Manual probe, not part of the suite: --gtest_also_run_disabled_tests --gtest_filter=*PerfProbe*
 TEST(PerfProbe, DISABLED_LoadStages100k)
 {
     using clock = std::chrono::steady_clock;
@@ -24,7 +23,6 @@ TEST(PerfProbe, DISABLED_LoadStages100k)
             FileScoutNative::Domain::ShellItemSortDirection::Ascending);
         auto t3 = clock::now();
 
-        // Date formatting alone, 200k calls (write + creation per item).
         WIN32_FIND_DATAW fd{};
         HANDLE h = FindFirstFileExW(L"C:\\fsperf\\100k\\*", FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
         ASSERT_NE(h, INVALID_HANDLE_VALUE) << "C:\\fsperf\\100k is not readable";
