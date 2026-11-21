@@ -3,6 +3,7 @@
 #include "PropertiesLaunchSpec.h"
 #include "Domain/ArchiveCompression.h"
 
+#include <map>
 #include <sherrors.h>
 #include <shlobj.h>
 
@@ -694,6 +695,64 @@ namespace FileScoutNative::Shell
         return encoded;
     }
 
+    std::optional<bool> CopyMatchesSource(
+        std::filesystem::path const& source,
+        std::filesystem::path const& copy) noexcept
+    {
+        struct Entry
+        {
+            bool is_directory{ false };
+            std::uintmax_t size{ 0 };
+            std::filesystem::file_time_type last_write{};
+            bool operator==(Entry const& other) const
+            {
+                // FAT volumes store write times in 2-second steps.
+                auto const drift = last_write > other.last_write
+                    ? last_write - other.last_write
+                    : other.last_write - last_write;
+                return is_directory == other.is_directory && size == other.size &&
+                    drift <= std::chrono::seconds{ 2 };
+            }
+        };
+        auto snapshot = [](std::filesystem::path const& root) -> std::optional<std::map<std::wstring, Entry>>
+        {
+            try
+            {
+                auto describe = [](std::filesystem::directory_entry const& item)
+                {
+                    bool const isDirectory = item.is_directory();
+                    return Entry{
+                        .is_directory = isDirectory,
+                        .size = isDirectory ? 0 : item.file_size(),
+                        .last_write = isDirectory ? std::filesystem::file_time_type{} : item.last_write_time(),
+                    };
+                };
+                std::map<std::wstring, Entry> entries;
+                std::filesystem::directory_entry const top{ root };
+                entries.emplace(L"", describe(top));
+                if (top.is_directory())
+                {
+                    for (auto const& item : std::filesystem::recursive_directory_iterator(root))
+                    {
+                        entries.emplace(item.path().lexically_relative(root).wstring(), describe(item));
+                    }
+                }
+                return entries;
+            }
+            catch (...)
+            {
+                return std::nullopt;
+            }
+        };
+        auto const copied = snapshot(copy);
+        if (!copied.has_value())
+        {
+            return std::nullopt;
+        }
+        auto const original = snapshot(source);
+        return original.has_value() && *original == *copied;
+    }
+
     RecordedIdentityCheck CheckRecordedIdentity(
         std::filesystem::path const& path,
         std::optional<FileScoutNative::Domain::FileIdentity> const& recorded) noexcept
@@ -1165,14 +1224,13 @@ namespace FileScoutNative::Shell
             });
         }
 
-        auto const normParent = FileScoutNative::Domain::NormalizeFolderForCompare(parentDirectory);
         std::vector<std::wstring> relativeNames;
         relativeNames.reserve(sourcePaths.size());
         for (auto const& src : sourcePaths)
         {
-            auto const normItemParent = FileScoutNative::Domain::NormalizeFolderForCompare(src.parent_path());
             auto const fileName = src.filename().wstring();
-            if (fileName.empty() || !FileScoutNative::Domain::PathsEqualIgnoringCase(normItemParent, normParent))
+            std::error_code parentEc;
+            if (fileName.empty() || !std::filesystem::equivalent(src.parent_path(), parentDirectory, parentEc) || parentEc)
             {
                 ThrowFileOperationFailure(FileOperationError{
                     .action = L"Compress to ZIP",

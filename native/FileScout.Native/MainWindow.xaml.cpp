@@ -7742,7 +7742,7 @@ namespace winrt::FileScoutNative::implementation
             std::vector<::FileScoutNative::Domain::UndoPathPair> remaining;
             bool failed{ false };
             bool canceled{ false };
-            std::optional<std::size_t> gone_pair;
+            std::optional<std::size_t> blocked_pair;
             std::wstring error_detail;
         };
 
@@ -7753,14 +7753,14 @@ namespace winrt::FileScoutNative::implementation
                 auto const& items = entry.items;
 
                 auto recordFailure = [&](std::size_t const failedReverseIdx, bool const isReverse, bool const isCanceled,
-                    std::wstring detail, bool const gone = false)
+                    std::wstring detail, bool const blocked = false)
                 {
                     out.failed = true;
                     out.canceled = isCanceled;
                     out.error_detail = std::move(detail);
-                    if (gone)
+                    if (blocked)
                     {
-                        out.gone_pair = isReverse ? failedReverseIdx : 0;
+                        out.blocked_pair = isReverse ? failedReverseIdx : 0;
                     }
                     if (isReverse)
                     {
@@ -7843,7 +7843,8 @@ namespace winrt::FileScoutNative::implementation
                             {
                                 recordFailure(i, /*isReverse=*/false, false,
                                     L"Folder '" + pair.target.filename().wstring() +
-                                    L"' is no longer empty; cannot undo creation.");
+                                    L"' is no longer empty; cannot undo creation.",
+                                    !ec);
                                 break;
                             }
                         }
@@ -7856,9 +7857,19 @@ namespace winrt::FileScoutNative::implementation
                             {
                                 recordFailure(i, /*isReverse=*/false, false,
                                     L"File '" + pair.target.filename().wstring() +
-                                    L"' is no longer empty; cannot undo creation.");
+                                    L"' is no longer empty; cannot undo creation.",
+                                    !ec);
                                 break;
                             }
+                        }
+                        else if (auto const unchanged = ::FileScoutNative::Shell::CopyMatchesSource(pair.source, pair.target);
+                                 unchanged != true)
+                        {
+                            recordFailure(i, /*isReverse=*/false, false,
+                                L"Copy '" + pair.target.filename().wstring() +
+                                L"' no longer matches its source; cannot safely undo.",
+                                unchanged.has_value());
+                            break;
                         }
 
                         try
@@ -8064,11 +8075,11 @@ namespace winrt::FileScoutNative::implementation
 
         auto remaining = outcome.remaining;
         bool discarded = false;
-        if (outcome.gone_pair.has_value() &&
+        if (outcome.blocked_pair.has_value() &&
             co_await ConfirmDiscardHistoryStepAsync(BuildFileOperationErrorStatus(
                 L"Couldn't undo " + entry.description, outcome.error_detail)))
         {
-            remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(*outcome.gone_pair));
+            remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(*outcome.blocked_pair));
             discarded = true;
         }
         if (!remaining.empty())
@@ -8102,13 +8113,17 @@ namespace winrt::FileScoutNative::implementation
     winrt::Windows::Foundation::IAsyncOperation<bool> MainWindow::ConfirmDiscardHistoryStepAsync(
         std::wstring const detail)
     {
+        if (m_modalDialogOpen)
+        {
+            co_return false;
+        }
         auto lifetime = get_strong();
         m_modalDialogOpen = true;
         auto dialog = winrt::Microsoft::UI::Xaml::Controls::ContentDialog{};
         dialog.XamlRoot(Content().XamlRoot());
-        dialog.Title(winrt::box_value(L"Item Not Found"));
+        dialog.Title(winrt::box_value(L"Step Can't Be Replayed"));
         dialog.Content(winrt::box_value(ToHString(
-            detail + L"\n\nRemove this step from history? Keep it if the item can come back.")));
+            detail + L"\n\nRemove this step from history? Keep it to try again later.")));
         dialog.PrimaryButtonText(L"Remove");
         dialog.CloseButtonText(L"Keep");
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
@@ -8165,7 +8180,7 @@ namespace winrt::FileScoutNative::implementation
             bool failed{ false };
             bool canceled{ false };
             std::vector<std::pair<::FileScoutNative::Domain::FileIdentity, ::FileScoutNative::Domain::FileIdentity>> identity_remaps;
-            std::optional<std::size_t> gone_pair;
+            std::optional<std::size_t> blocked_pair;
             std::wstring error_detail;
         };
 
@@ -8176,14 +8191,14 @@ namespace winrt::FileScoutNative::implementation
                 auto const& items = entry.items;
 
                 auto recordFailure = [&](std::size_t const failedIdx, bool const isCanceled, std::wstring detail,
-                    bool const gone = false)
+                    bool const blocked = false)
                 {
                     out.failed = true;
                     out.canceled = isCanceled;
                     out.error_detail = std::move(detail);
-                    if (gone)
+                    if (blocked)
                     {
-                        out.gone_pair = 0;
+                        out.blocked_pair = 0;
                     }
                     for (std::size_t idx = failedIdx; idx < items.size(); ++idx)
                     {
@@ -8444,11 +8459,11 @@ namespace winrt::FileScoutNative::implementation
         }
         auto remaining = outcome.remaining;
         bool discarded = false;
-        if (outcome.gone_pair.has_value() &&
+        if (outcome.blocked_pair.has_value() &&
             co_await ConfirmDiscardHistoryStepAsync(BuildFileOperationErrorStatus(
                 L"Couldn't redo " + entry.description, outcome.error_detail)))
         {
-            remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(*outcome.gone_pair));
+            remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(*outcome.blocked_pair));
             discarded = true;
         }
         if (!remaining.empty())

@@ -64,9 +64,19 @@ TEST(UndoStackTests, PushPopUndoRedoAndClearRedoOnNewAction)
     EXPECT_EQ(stack.RedoCount(), 1u);
 
     // Redo pops from redo stack and preserves any remaining redo items when pushed back to undo.
+    auto second = stack.PopUndo();
+    ASSERT_TRUE(second.has_value());
+    stack.PushRedo(std::move(*second));
+    ASSERT_EQ(stack.RedoCount(), 2u);
     auto redone = stack.PopRedo();
     ASSERT_TRUE(redone.has_value());
-    EXPECT_EQ(redone->description, L"Create dir");
+    EXPECT_EQ(redone->description, L"Rename 1");
+    stack.PushUndoPreservingRedo(std::move(*redone));
+    EXPECT_EQ(stack.UndoCount(), 1u);
+    ASSERT_EQ(stack.RedoCount(), 1u);
+    EXPECT_EQ(stack.PeekRedo()->description, L"Create dir");
+    redone = stack.PopRedo();
+    ASSERT_TRUE(redone.has_value());
     stack.PushUndoPreservingRedo(std::move(*redone));
     EXPECT_EQ(stack.UndoCount(), 2u);
     EXPECT_EQ(stack.RedoCount(), 0u);
@@ -317,7 +327,7 @@ TEST(ShellFileOperationIdentityTests, DetectsReplacementAtSamePath)
     EXPECT_NE(*id1, *id2);
 }
 
-TEST(ShellFileOperationIdentityTests, CheckRecordedIdentityReportsGoneOnlyWhenTheItemCannotReturn)
+TEST(ShellFileOperationIdentityTests, CheckRecordedIdentityReportsGoneWhileTheRecordedItemIsNotAtThePath)
 {
     ScopedTempDir temp{ L"identity-check" };
     auto const target = temp.path / L"draft.txt";
@@ -339,6 +349,33 @@ TEST(ShellFileOperationIdentityTests, CheckRecordedIdentityReportsGoneOnlyWhenTh
         out << "replacement";
     }
     EXPECT_EQ(CheckRecordedIdentity(target, recorded), RecordedIdentityCheck::Gone);
+
+    std::filesystem::remove(target);
+    std::filesystem::rename(temp.path / L"moved.txt", target);
+    EXPECT_EQ(CheckRecordedIdentity(target, recorded), RecordedIdentityCheck::Matches);
+}
+
+TEST(ShellFileOperationIdentityTests, CopyMatchesSourceDetectsContentAddedBelowTheCopiedFolder)
+{
+    ScopedTempDir temp{ L"copy-tree" };
+    auto const source = temp.path / L"Project";
+    std::filesystem::create_directories(source / L"nested");
+    {
+        std::ofstream out(source / L"nested" / L"notes.txt");
+        out << "notes";
+    }
+    auto const copy = temp.path / L"Project - Copy";
+    std::filesystem::copy(source, copy, std::filesystem::copy_options::recursive);
+
+    EXPECT_EQ(CopyMatchesSource(source, copy), std::optional<bool>{ true });
+
+    {
+        std::ofstream out(copy / L"nested" / L"new work.txt");
+        out << "work";
+    }
+    EXPECT_EQ(CopyMatchesSource(source, copy), std::optional<bool>{ false });
+
+    EXPECT_FALSE(CopyMatchesSource(source, temp.path / L"missing").has_value());
 }
 
 TEST(ShellFileOperationTransferTests, CopyAndMoveRecordTransferredPairsForUndo)

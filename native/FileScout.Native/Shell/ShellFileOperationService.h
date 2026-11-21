@@ -78,6 +78,12 @@ namespace FileScoutNative::Shell
         std::filesystem::path const& path,
         std::optional<FileScoutNative::Domain::FileIdentity> const& recorded) noexcept;
 
+    // True when the copy still has the source's tree (names, sizes, file write times);
+    // std::nullopt when the copy cannot be read.
+    [[nodiscard]] std::optional<bool> CopyMatchesSource(
+        std::filesystem::path const& source,
+        std::filesystem::path const& copy) noexcept;
+
     [[nodiscard]] std::optional<std::string> EncodeForCodePage(std::wstring_view text, UINT codePage);
 
     class ShellFileOperationService
