@@ -99,9 +99,11 @@ namespace FileScoutNative::Shell
             HWND ownerWindow,
             std::filesystem::path const& path,
             std::wstring const& newName) const;
+        // Fills renamedOut (when given) with the renames that completed, even when it throws.
         [[nodiscard]] std::vector<std::filesystem::path> RenameItems(
             HWND ownerWindow,
-            std::span<RenameRequest const> requests) const;
+            std::span<RenameRequest const> requests,
+            std::vector<TransferredItemPair>* renamedOut = nullptr) const;
         void DeleteItem(HWND ownerWindow, std::filesystem::path const& path, bool permanent = false) const;
         void DeleteItems(
             HWND ownerWindow,

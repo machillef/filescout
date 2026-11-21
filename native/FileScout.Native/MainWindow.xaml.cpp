@@ -5987,7 +5987,8 @@ namespace winrt::FileScoutNative::implementation
 
         if (commandId == L"open")
         {
-            if (selectedItems.size() > 1)
+            // Archive and Recycle Bin views cannot multi-open; they keep focused-item activation.
+            if (selectedItems.size() > 1 && !ActivePane().is_archive_view && !ActivePane().is_recycle_bin_view)
             {
                 OpenMultipleItemsAsync(selectedItems);
                 return;
@@ -7336,47 +7337,58 @@ namespace winrt::FileScoutNative::implementation
             ScopedPendingMutation mutationGuard{ m_pendingMutationCount };
 
             auto const owner = GetWindowHandle();
-            auto const renamedBatch = co_await OnShellThread([this, owner, requests]
+            struct BatchRenameOutcome
+            {
+                std::vector<::FileScoutNative::Domain::UndoPathPair> completed_items;
+                std::optional<::FileScoutNative::Shell::FileOperationError> error;
+            };
+            // Record every rename the Shell completed, even when a later one fails, so Ctrl+Z can
+            // undo the partial batch.
+            auto const renameOutcome = co_await OnShellThread([this, owner, requests]
                 {
-                    auto paths = m_shellFileOperationService.RenameItems(
-                        owner, std::span<::FileScoutNative::Shell::RenameRequest const>{ requests.data(), requests.size() });
-                    std::vector<std::optional<::FileScoutNative::Domain::FileIdentity>> identities;
-                    identities.reserve(paths.size());
-                    for (auto const& path : paths)
+                    BatchRenameOutcome out{};
+                    std::vector<::FileScoutNative::Shell::TransferredItemPair> pairs;
+                    try
                     {
-                        identities.push_back(::FileScoutNative::Shell::TryCaptureFileIdentity(path));
+                        (void)m_shellFileOperationService.RenameItems(
+                            owner,
+                            std::span<::FileScoutNative::Shell::RenameRequest const>{ requests.data(), requests.size() },
+                            &pairs);
                     }
-                    return std::pair{ std::move(paths), std::move(identities) };
+                    catch (::FileScoutNative::Shell::FileOperationException const& err)
+                    {
+                        out.error = err.Error();
+                    }
+                    out.completed_items.reserve(pairs.size());
+                    for (auto const& pair : pairs)
+                    {
+                        ::FileScoutNative::Domain::UndoPathPair undoPair{};
+                        undoPair.source = pair.source;
+                        undoPair.target = pair.destination;
+                        undoPair.target_identity = ::FileScoutNative::Shell::TryCaptureFileIdentity(pair.destination);
+                        out.completed_items.push_back(std::move(undoPair));
+                    }
+                    return out;
                 });
-            auto const& renamedPaths = renamedBatch.first;
-            auto const& renamedIdentities = renamedBatch.second;
-            if (renamedPaths.size() == requests.size() && !requests.empty())
+            auto const& completed = renameOutcome.completed_items;
+            if (!completed.empty())
             {
-                ::FileScoutNative::Domain::UndoEntry entry{};
-                entry.kind = ::FileScoutNative::Domain::UndoActionKind::BatchRename;
-                entry.description = L"Batch rename " + std::to_wstring(requests.size()) +
-                    (requests.size() == 1 ? L" item" : L" items");
-                entry.items.reserve(requests.size());
-                for (std::size_t i = 0; i < requests.size(); ++i)
-                {
-                    ::FileScoutNative::Domain::UndoPathPair pair{};
-                    pair.source = requests[i].path;
-                    pair.target = renamedPaths[i];
-                    if (i < renamedIdentities.size())
-                    {
-                        pair.target_identity = renamedIdentities[i];
-                    }
-                    entry.items.push_back(std::move(pair));
-                }
-                m_undoStack.Push(std::move(entry));
+                m_undoStack.Push(::FileScoutNative::Domain::UndoEntry{
+                    .kind = ::FileScoutNative::Domain::UndoActionKind::BatchRename,
+                    .description = L"Batch rename " + std::to_wstring(completed.size()) +
+                        (completed.size() == 1 ? L" item" : L" items"),
+                    .items = completed,
+                });
+                RefreshPanesShowing(requests.front().path.parent_path(), completed.front().target);
             }
-            std::optional<std::filesystem::path> selectAfter;
-            if (!renamedPaths.empty())
+            if (renameOutcome.error.has_value())
             {
-                selectAfter = renamedPaths.front();
+                throw ::FileScoutNative::Shell::FileOperationException(*renameOutcome.error);
             }
-
-            RefreshPanesShowing(requests.front().path.parent_path(), selectAfter);
+            if (completed.empty())
+            {
+                RefreshPanesShowing(requests.front().path.parent_path(), std::nullopt);
+            }
             StatusTextBlock().Text(ToHString(
                 L"Batch renamed " + std::to_wstring(requests.size()) +
                 (requests.size() == 1 ? L" item." : L" items.")));
@@ -9975,7 +9987,7 @@ namespace winrt::FileScoutNative::implementation
     bool MainWindow::ActivateCurrentSelection()
     {
         auto const selectedItems = GetSelectedItems();
-        if (selectedItems.size() > 1)
+        if (selectedItems.size() > 1 && !ActivePane().is_archive_view && !ActivePane().is_recycle_bin_view)
         {
             OpenMultipleItemsAsync(selectedItems);
             return true;

@@ -187,9 +187,10 @@ namespace FileScoutNative::Shell
             HRESULT __stdcall StartOperations() noexcept override { return S_OK; }
             HRESULT __stdcall FinishOperations(HRESULT) noexcept override { return S_OK; }
             HRESULT __stdcall PreRenameItem(DWORD, IShellItem*, LPCWSTR) noexcept override { return S_OK; }
-            HRESULT __stdcall PostRenameItem(DWORD, IShellItem* item, LPCWSTR, HRESULT result, IShellItem*) noexcept override
+            HRESULT __stdcall PostRenameItem(DWORD, IShellItem* item, LPCWSTR, HRESULT result, IShellItem* newlyCreated) noexcept override
             {
                 Record(result, item);
+                RecordTransfer(result, item, newlyCreated);
                 return S_OK;
             }
             HRESULT __stdcall PreMoveItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) noexcept override { return S_OK; }
@@ -540,7 +541,8 @@ namespace FileScoutNative::Shell
 
     std::vector<std::filesystem::path> ShellFileOperationService::RenameItems(
         HWND const ownerWindow,
-        std::span<RenameRequest const> const requests) const
+        std::span<RenameRequest const> const requests,
+        std::vector<TransferredItemPair>* const renamedOut) const
     {
         std::vector<std::filesystem::path> renamedPaths;
         if (requests.empty())
@@ -584,7 +586,7 @@ namespace FileScoutNative::Shell
 
         try
         {
-            PerformFileOperation(fileOperation.get(), L"Batch rename", requests.front().path.wstring());
+            PerformFileOperation(fileOperation.get(), L"Batch rename", requests.front().path.wstring(), renamedOut);
         }
         catch (FileOperationException const&)
         {
@@ -1415,10 +1417,13 @@ namespace FileScoutNative::Shell
                 std::string listPayload;
                 for (auto const& name : relativeNames)
                 {
+                    // bsdtar reads the list in the ANSI code page; reject names it cannot
+                    // represent instead of letting best-fit mapping name a different file.
+                    BOOL usedDefaultChar = FALSE;
                     int const needed = ::WideCharToMultiByte(
-                        CP_ACP, 0, name.data(), static_cast<int>(name.size()),
-                        nullptr, 0, nullptr, nullptr);
-                    if (needed <= 0)
+                        CP_ACP, WC_NO_BEST_FIT_CHARS, name.data(), static_cast<int>(name.size()),
+                        nullptr, 0, nullptr, &usedDefaultChar);
+                    if (needed <= 0 || usedDefaultChar)
                     {
                         ::CloseHandle(h);
                         std::error_code ec;
@@ -1426,13 +1431,13 @@ namespace FileScoutNative::Shell
                         ThrowFileOperationFailure(FileOperationError{
                             .action = L"Compress to ZIP",
                             .path = (parentDirectory / name).wstring(),
-                            .detail = L"Could not encode filename for archive creation.",
+                            .detail = L"This filename cannot be stored by the built-in ZIP tool (unsupported characters for the system code page).",
                         });
                     }
                     std::size_t const offset = listPayload.size();
                     listPayload.resize(offset + static_cast<std::size_t>(needed) + 1);
                     ::WideCharToMultiByte(
-                        CP_ACP, 0, name.data(), static_cast<int>(name.size()),
+                        CP_ACP, WC_NO_BEST_FIT_CHARS, name.data(), static_cast<int>(name.size()),
                         listPayload.data() + offset, needed, nullptr, nullptr);
                     listPayload.back() = '\0';
                 }

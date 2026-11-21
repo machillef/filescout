@@ -6,7 +6,9 @@
 #include "Shell/ComApartment.h"
 #include "Shell/ShellFileOperationService.h"
 
+#include <cstdio>
 #include <fstream>
+#include <set>
 #include <unordered_set>
 
 using namespace FileScoutNative::Domain;
@@ -214,8 +216,43 @@ TEST(ShellFileOperationZipTests, CompressesFilesIncludingDashAtAndSpacesAndAvoid
     };
 
     auto const zip1 = service.CompressItemsToZip(nullptr, temp.path, sources);
-    EXPECT_TRUE(std::filesystem::exists(zip1));
-    EXPECT_GT(std::filesystem::file_size(zip1), 0u);
+    ASSERT_TRUE(std::filesystem::exists(zip1));
+
+    // The ZIP must hold exactly the four names (no `./` prefix) with their original contents.
+    wchar_t systemDir[MAX_PATH]{};
+    ASSERT_GT(::GetSystemDirectoryW(systemDir, MAX_PATH), 0u);
+    auto const tarExe = std::filesystem::path{ systemDir } / L"tar.exe";
+    std::set<std::string> entryNames;
+    {
+        FILE* const listing = ::_wpopen(
+            (QuoteWindowsCommandArg(tarExe.wstring()) + L" -t -f " + QuoteWindowsCommandArg(zip1.wstring())).c_str(), L"rt");
+        ASSERT_NE(listing, nullptr);
+        char line[512];
+        while (std::fgets(line, sizeof(line), listing) != nullptr)
+        {
+            std::string name{ line };
+            while (!name.empty() && (name.back() == '\n' || name.back() == '\r'))
+            {
+                name.pop_back();
+            }
+            entryNames.insert(name);
+        }
+        EXPECT_EQ(::_pclose(listing), 0);
+    }
+    EXPECT_EQ(entryNames, (std::set<std::string>{ "-leading-dash.txt", "my file.txt", "@notes.txt", "-Cdir.txt" }));
+
+    ScopedTempDir extracted{ L"zip-out" };
+    ASSERT_EQ(::_wsystem((QuoteWindowsCommandArg(tarExe.wstring()) + L" -x -f " + QuoteWindowsCommandArg(zip1.wstring()) +
+                          L" -C " + QuoteWindowsCommandArg(extracted.path.wstring())).c_str()), 0);
+    auto const readAll = [](std::filesystem::path const& path)
+    {
+        std::ifstream in(path, std::ios::binary);
+        return std::string{ std::istreambuf_iterator<char>{ in }, std::istreambuf_iterator<char>{} };
+    };
+    for (auto const& source : sources)
+    {
+        EXPECT_EQ(readAll(extracted.path / source.filename()), readAll(source)) << source.filename().string();
+    }
 
     auto const zip2 = service.CompressItemsToZip(nullptr, temp.path, sources);
     EXPECT_TRUE(std::filesystem::exists(zip2));
