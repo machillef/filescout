@@ -1944,7 +1944,6 @@ namespace
             [state, viewer](auto&&, auto&&)
             {
                 constexpr int k_frames = 300;
-                constexpr double k_stepPx = 96.0;
                 auto& rec = ::FileScoutNative::Bench::Recorder::Instance();
                 double const now = rec.NowMs();
                 if (state->lastMs >= 0.0)
@@ -1959,7 +1958,7 @@ namespace
                     rec.Write();
                     return;
                 }
-                viewer.ChangeView(nullptr, winrt::box_value(viewer.VerticalOffset() + k_stepPx).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
+                viewer.ChangeView(nullptr, winrt::box_value(viewer.VerticalOffset() + rec.ScrollStepPx()).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
             });
     }
 
@@ -2971,7 +2970,19 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        auto const selectedItems = GetSelectedItems();
+        // Dragging an unselected row drags only that row, as Explorer does; e.Items() then holds just
+        // it. Dragging a selected row drags the whole selection.
+        auto selectedItems = GetSelectedItems();
+        if (auto const dragged = e.Items(); dragged.Size() == 1)
+        {
+            uint32_t index = 0;
+            auto const& displayedItems = DisplayedItems();
+            if (ActivePane().active_list_view.Items().IndexOf(dragged.GetAt(0), index) &&
+                index < displayedItems.size())
+            {
+                selectedItems = { displayedItems[index] };
+            }
+        }
         if (selectedItems.empty())
         {
             e.Cancel(true);
@@ -3895,7 +3906,9 @@ namespace winrt::FileScoutNative::implementation
             return false;
         }
 
-        return true;
+        // A delete or ZIP job on this pane reloads it when it finishes; reloading on every watch
+        // event while it runs makes the list flicker through each intermediate state.
+        return pane.background_op_progress_count == 0;
     }
 
     void MainWindow::ScheduleWatchSuppressionRetry(int32_t const paneIndex, uint64_t const watchToken)
@@ -4376,6 +4389,7 @@ namespace winrt::FileScoutNative::implementation
 
             pane.watch_suppress_until_tick =
                 ::GetTickCount64() + ::FileScoutNative::Domain::kDefaultWatchSelfSuppressMs;
+            pane.watch_refresh_pending = false;
 
             if (pane.search_mode != SearchMode::None)
             {
@@ -7270,7 +7284,8 @@ namespace winrt::FileScoutNative::implementation
 
     winrt::fire_and_forget MainWindow::ShowDeleteDialogAsync(
         std::vector<::FileScoutNative::Domain::ShellItemRef> items,
-        bool const permanent)
+        bool const permanent,
+        bool const tooBigForRecycleBin)
     {
         if (items.empty() || m_modalDialogOpen)
         {
@@ -7290,7 +7305,14 @@ namespace winrt::FileScoutNative::implementation
         dialog.PrimaryButtonText(permanent ? L"Delete Permanently" : L"Delete");
         dialog.CloseButtonText(L"Cancel");
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
-        if (permanent)
+        if (tooBigForRecycleBin)
+        {
+            dialog.Content(winrt::box_value(
+                items.size() == 1
+                    ? L"\"" + items.front().display_name + L"\" is too big for the Recycle Bin. Delete it permanently? This cannot be undone."
+                    : L"These " + std::to_wstring(items.size()) + L" items are too big for the Recycle Bin. Delete them permanently? This cannot be undone."));
+        }
+        else if (permanent)
         {
             dialog.Content(winrt::box_value(
                 items.size() == 1
@@ -7356,6 +7378,7 @@ namespace winrt::FileScoutNative::implementation
 
         bool success = true;
         bool canceled = false;
+        bool tooBigForBin = false;
         std::wstring failureDetail;
         std::vector<::FileScoutNative::Shell::DeletedItemRecord> deletedRecords;
         try
@@ -7390,6 +7413,7 @@ namespace winrt::FileScoutNative::implementation
         {
             success = false;
             canceled = IsCanceledFileOperation(error);
+            tooBigForBin = !permanent && ::FileScoutNative::Shell::IsTooBigForRecycleBin(error.Error());
             failureDetail = error.Error().detail;
         }
         catch (std::exception const& error)
@@ -7399,7 +7423,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         m_dispatcherQueue.TryEnqueue(
-            [this, lifetime, success, canceled, permanent, isRecycleBin, currentPath, paths, displayName, itemCount, activePaneIndex, failureDetail, deletedRecords = std::move(deletedRecords)]()
+            [this, lifetime, items, success, canceled, tooBigForBin, permanent, isRecycleBin, currentPath, paths, displayName, itemCount, activePaneIndex, failureDetail, deletedRecords = std::move(deletedRecords)]()
             {
                 if (m_pendingMutationCount > 0)
                 {
@@ -7461,6 +7485,25 @@ namespace winrt::FileScoutNative::implementation
                         canceled
                             ? BuildDeleteCanceledStatus(displayName, itemCount)
                             : BuildDeleteFailureStatus(displayName, itemCount, failureDetail)));
+                }
+                FlushPendingWatchRefresh(activePaneIndex);
+
+                if (tooBigForBin)
+                {
+                    // The shell left these in place; offer the permanent delete Explorer would.
+                    std::vector<::FileScoutNative::Domain::ShellItemRef> remaining;
+                    for (auto const& item : items)
+                    {
+                        std::error_code ec;
+                        if (std::filesystem::exists(item.path, ec))
+                        {
+                            remaining.push_back(item);
+                        }
+                    }
+                    if (!remaining.empty())
+                    {
+                        ShowDeleteDialogAsync(std::move(remaining), /*permanent=*/true, /*tooBigForRecycleBin=*/true);
+                    }
                 }
             });
     }
@@ -8798,6 +8841,7 @@ namespace winrt::FileScoutNative::implementation
                     StatusTextBlock().Text(ToHString(
                         BuildFileOperationErrorStatus(L"Couldn't compress to ZIP", errorDetail)));
                 }
+                FlushPendingWatchRefresh(activePaneIndex);
             });
     }
 

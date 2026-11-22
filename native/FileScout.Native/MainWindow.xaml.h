@@ -416,7 +416,8 @@ namespace winrt::FileScoutNative::implementation
             bool permanent = false);
         winrt::fire_and_forget ShowDeleteDialogAsync(
             std::vector<::FileScoutNative::Domain::ShellItemRef> items,
-            bool permanent = false);
+            bool permanent = false,
+            bool tooBigForRecycleBin = false);
         winrt::fire_and_forget UndoLastOperationAsync();
         winrt::Windows::Foundation::IAsyncOperation<bool> ConfirmDiscardHistoryStepAsync(std::wstring detail);
         winrt::fire_and_forget RedoLastOperationAsync();

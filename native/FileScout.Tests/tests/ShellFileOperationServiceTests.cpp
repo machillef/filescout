@@ -1,5 +1,6 @@
 #include "pch.h"
 #include <gtest/gtest.h>
+#include <sherrors.h>
 #include "Domain/FileNameValidation.h"
 #include "Domain/BatchRenamePlan.h"
 #include "Shell/PropertiesLaunchSpec.h"
@@ -518,12 +519,26 @@ TEST_F(ShellFileOperationFixture, DeleteItemsRemovesFilesFromOriginalPaths)
     EXPECT_FALSE(std::filesystem::exists(second));
 }
 
+TEST(DeleteOperationFlagsTests, TooBigForRecycleBinFailureIsRecognized)
+{
+    auto const error = ClassifyFileOperationOutcome(COPYENGINE_E_RECYCLE_FORCE_NUKE, true, L"Delete", L"C:\\big");
+    ASSERT_TRUE(error.has_value());
+    EXPECT_FALSE(error->canceled);
+    EXPECT_TRUE(IsTooBigForRecycleBin(*error));
+
+    auto const denied = ClassifyFileOperationOutcome(E_ACCESSDENIED, true, L"Delete", L"C:\\locked");
+    ASSERT_TRUE(denied.has_value());
+    EXPECT_FALSE(IsTooBigForRecycleBin(*denied));
+}
+
 TEST(DeleteOperationFlagsTests, RecycleVsPermanentFlagsAreDistinct)
 {
     DWORD const recycleFlags = DeleteOperationFlags(false);
     EXPECT_NE(recycleFlags & FOFX_RECYCLEONDELETE, 0u);
     EXPECT_NE(recycleFlags & FOFX_ADDUNDORECORD, 0u);
     EXPECT_NE(recycleFlags & FOF_NOCONFIRMATION, 0u);
+    // Items too large for the Recycle Bin must not be destroyed without a prompt.
+    EXPECT_NE(recycleFlags & FOF_WANTNUKEWARNING, 0u);
 
     DWORD const permanentFlags = DeleteOperationFlags(true);
     EXPECT_EQ(permanentFlags & FOFX_RECYCLEONDELETE, 0u);

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cwchar>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -110,6 +111,9 @@ namespace FileScoutNative::Bench
         void SetItemCount(std::size_t count) { m_report.itemCount = count; }
 
         [[nodiscard]] std::wstring const& TargetPath() const noexcept { return m_targetPath; }
+        // Pixels scrolled per frame; FILESCOUT_BENCH_SCROLL_STEP overrides the 96 px default. A step
+        // near the viewport height realizes a full page of rows per frame, as a fast mouse wheel does.
+        [[nodiscard]] double ScrollStepPx() const noexcept { return m_scrollStepPx; }
 
         void Write() const
         {
@@ -132,6 +136,10 @@ namespace FileScoutNative::Bench
         {
             m_outPath = ReadEnv(L"FILESCOUT_BENCH_OUT");
             m_targetPath = ReadEnv(L"FILESCOUT_BENCH_PATH");
+            if (auto const step = ReadEnv(L"FILESCOUT_BENCH_SCROLL_STEP"); !step.empty())
+            {
+                m_scrollStepPx = (std::max)(1.0, std::wcstod(step.c_str(), nullptr));
+            }
             FILETIME creation{}, exitTime{}, kernel{}, user{};
             ::GetProcessTimes(::GetCurrentProcess(), &creation, &exitTime, &kernel, &user);
             m_creationTicks = ToTicks(creation);
@@ -154,6 +162,7 @@ namespace FileScoutNative::Bench
 
         std::wstring m_outPath;
         std::wstring m_targetPath;
+        double m_scrollStepPx = 96.0;
         unsigned long long m_creationTicks = 0;
         Report m_report;
         mutable std::mutex m_mutex;
