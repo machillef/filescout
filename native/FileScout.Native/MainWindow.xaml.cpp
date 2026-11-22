@@ -1944,7 +1944,6 @@ namespace
             [state, viewer](auto&&, auto&&)
             {
                 constexpr int k_frames = 300;
-                constexpr double k_stepPx = 96.0;
                 auto& rec = ::FileScoutNative::Bench::Recorder::Instance();
                 double const now = rec.NowMs();
                 if (state->lastMs >= 0.0)
@@ -1959,7 +1958,7 @@ namespace
                     rec.Write();
                     return;
                 }
-                viewer.ChangeView(nullptr, winrt::box_value(viewer.VerticalOffset() + k_stepPx).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
+                viewer.ChangeView(nullptr, winrt::box_value(viewer.VerticalOffset() + rec.ScrollStepPx()).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
             });
     }
 
@@ -2971,7 +2970,19 @@ namespace winrt::FileScoutNative::implementation
             return;
         }
 
-        auto const selectedItems = GetSelectedItems();
+        // Dragging an unselected row drags only that row, as Explorer does; e.Items() then holds just
+        // it. Dragging a selected row drags the whole selection.
+        auto selectedItems = GetSelectedItems();
+        if (auto const dragged = e.Items(); dragged.Size() == 1)
+        {
+            uint32_t index = 0;
+            auto const& displayedItems = DisplayedItems();
+            if (ActivePane().active_list_view.Items().IndexOf(dragged.GetAt(0), index) &&
+                index < displayedItems.size())
+            {
+                selectedItems = { displayedItems[index] };
+            }
+        }
         if (selectedItems.empty())
         {
             e.Cancel(true);
@@ -3895,7 +3906,9 @@ namespace winrt::FileScoutNative::implementation
             return false;
         }
 
-        return true;
+        // A delete or ZIP job on this pane reloads it when it finishes; reloading on every watch
+        // event while it runs makes the list flicker through each intermediate state.
+        return pane.background_op_progress_count == 0;
     }
 
     void MainWindow::ScheduleWatchSuppressionRetry(int32_t const paneIndex, uint64_t const watchToken)
@@ -4376,6 +4389,7 @@ namespace winrt::FileScoutNative::implementation
 
             pane.watch_suppress_until_tick =
                 ::GetTickCount64() + ::FileScoutNative::Domain::kDefaultWatchSelfSuppressMs;
+            pane.watch_refresh_pending = false;
 
             if (pane.search_mode != SearchMode::None)
             {
@@ -7462,6 +7476,7 @@ namespace winrt::FileScoutNative::implementation
                             ? BuildDeleteCanceledStatus(displayName, itemCount)
                             : BuildDeleteFailureStatus(displayName, itemCount, failureDetail)));
                 }
+                FlushPendingWatchRefresh(activePaneIndex);
             });
     }
 
@@ -8798,6 +8813,7 @@ namespace winrt::FileScoutNative::implementation
                     StatusTextBlock().Text(ToHString(
                         BuildFileOperationErrorStatus(L"Couldn't compress to ZIP", errorDetail)));
                 }
+                FlushPendingWatchRefresh(activePaneIndex);
             });
     }
 

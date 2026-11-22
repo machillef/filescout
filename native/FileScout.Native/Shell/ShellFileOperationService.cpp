@@ -56,8 +56,11 @@ namespace FileScoutNative::Shell
             FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | FOFX_ADDUNDORECORD;
         constexpr DWORD copyMutationFlags =
             baseMutationFlags | FOF_RENAMEONCOLLISION | FOFX_PRESERVEFILEEXTENSIONS;
+        // FOF_WANTNUKEWARNING: without it, FOF_NOCONFIRMATION makes the shell silently delete an item
+        // too large for the Recycle Bin permanently, one file at a time. With it the shell shows its
+        // own "too big to recycle, delete permanently?" prompt, as Explorer does, despite FOF_SILENT.
         constexpr DWORD deleteMutationFlags =
-            baseMutationFlags | FOF_NOCONFIRMATION | FOFX_RECYCLEONDELETE;
+            baseMutationFlags | FOF_NOCONFIRMATION | FOFX_RECYCLEONDELETE | FOF_WANTNUKEWARNING;
         constexpr DWORD permanentDeleteMutationFlags =
             FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMATION;
 
@@ -605,6 +608,7 @@ namespace FileScoutNative::Shell
     {
         return permanent ? permanentDeleteMutationFlags : deleteMutationFlags;
     }
+
 
     void ShellFileOperationService::DeleteItem(
         HWND const ownerWindow,

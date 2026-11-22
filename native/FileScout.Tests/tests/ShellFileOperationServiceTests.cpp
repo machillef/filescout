@@ -524,6 +524,8 @@ TEST(DeleteOperationFlagsTests, RecycleVsPermanentFlagsAreDistinct)
     EXPECT_NE(recycleFlags & FOFX_RECYCLEONDELETE, 0u);
     EXPECT_NE(recycleFlags & FOFX_ADDUNDORECORD, 0u);
     EXPECT_NE(recycleFlags & FOF_NOCONFIRMATION, 0u);
+    // Items too large for the Recycle Bin must not be destroyed without a prompt.
+    EXPECT_NE(recycleFlags & FOF_WANTNUKEWARNING, 0u);
 
     DWORD const permanentFlags = DeleteOperationFlags(true);
     EXPECT_EQ(permanentFlags & FOFX_RECYCLEONDELETE, 0u);

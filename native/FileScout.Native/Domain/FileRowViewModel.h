@@ -28,6 +28,7 @@ namespace winrt::FileScoutNative::implementation
         winrt::hstring GroupHeaderText() const noexcept { return m_groupHeaderText; }
         double GroupHeaderOpacity() const noexcept { return m_showGroupHeader ? 1.0 : 0.0; }
         double GroupHeaderHeight() const noexcept { return m_showGroupHeader ? 42.0 : 0.0; }
+        bool ShowGroupHeader() const noexcept { return m_showGroupHeader; }
 
         winrt::Microsoft::UI::Xaml::Media::ImageSource IconSource() const noexcept
         {

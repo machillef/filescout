@@ -18,7 +18,9 @@ param(
     [string] $Target = 'C:\fsperf\100k',
     [string] $SmallTarget = 'C:\Windows\Web',
     [int] $IdleSeconds = 20,
-    [string] $Out = 'C:\fsdev\gui-out\bench'
+    [string] $Out = 'C:\fsdev\gui-out\bench',
+    # Pixels per frame for the scroll phase (FILESCOUT_BENCH_SCROLL_STEP); 0 keeps the app default.
+    [int] $ScrollStep = 0
 )
 $ErrorActionPreference = 'Stop'
 # powershell -File passes 'a,b' as one string; accept both forms.
@@ -42,6 +44,8 @@ function Start-Bench([string]$exe, [string]$folder, [string]$json) {
     $psi.UseShellExecute = $false
     $psi.EnvironmentVariables['FILESCOUT_BENCH_OUT'] = $json
     $psi.EnvironmentVariables['FILESCOUT_BENCH_PATH'] = $folder
+    if ($ScrollStep -gt 0) { $psi.EnvironmentVariables['FILESCOUT_BENCH_SCROLL_STEP'] = "$ScrollStep" }
+    else { $psi.EnvironmentVariables.Remove('FILESCOUT_BENCH_SCROLL_STEP') }
     return [System.Diagnostics.Process]::Start($psi)
 }
 function Wait-Json([string]$json, $proc, [int]$timeoutSec) {

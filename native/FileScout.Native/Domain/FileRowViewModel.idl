@@ -27,6 +27,7 @@ namespace FileScoutNative
         String GroupHeaderText { get; };
         Double GroupHeaderOpacity { get; };
         Double GroupHeaderHeight { get; };
+        Boolean ShowGroupHeader { get; };
 
         Microsoft.UI.Xaml.Media.ImageSource IconSource { get; set; };
     }

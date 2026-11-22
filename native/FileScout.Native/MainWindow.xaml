@@ -190,8 +190,9 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid Grid.Row="0"
-                          Height="{x:Bind GroupHeaderHeight, Mode=OneWay}"
-                          Opacity="{x:Bind GroupHeaderOpacity, Mode=OneWay}">
+                          x:Name="ListGroupHeader"
+                          Height="42"
+                          x:Load="{x:Bind ShowGroupHeader, Mode=OneWay}">
                         <StackPanel Spacing="3"
                                     VerticalAlignment="Bottom">
                             <Border HorizontalAlignment="Left"
