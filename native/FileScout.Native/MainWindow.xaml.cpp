@@ -7284,8 +7284,7 @@ namespace winrt::FileScoutNative::implementation
 
     winrt::fire_and_forget MainWindow::ShowDeleteDialogAsync(
         std::vector<::FileScoutNative::Domain::ShellItemRef> items,
-        bool const permanent,
-        bool const tooBigForRecycleBin)
+        bool const permanent)
     {
         if (items.empty() || m_modalDialogOpen)
         {
@@ -7305,14 +7304,7 @@ namespace winrt::FileScoutNative::implementation
         dialog.PrimaryButtonText(permanent ? L"Delete Permanently" : L"Delete");
         dialog.CloseButtonText(L"Cancel");
         dialog.DefaultButton(winrt::Microsoft::UI::Xaml::Controls::ContentDialogButton::Close);
-        if (tooBigForRecycleBin)
-        {
-            dialog.Content(winrt::box_value(
-                items.size() == 1
-                    ? L"\"" + items.front().display_name + L"\" is too big for the Recycle Bin. Delete it permanently? This cannot be undone."
-                    : L"These " + std::to_wstring(items.size()) + L" items are too big for the Recycle Bin. Delete them permanently? This cannot be undone."));
-        }
-        else if (permanent)
+        if (permanent)
         {
             dialog.Content(winrt::box_value(
                 items.size() == 1
@@ -7378,7 +7370,6 @@ namespace winrt::FileScoutNative::implementation
 
         bool success = true;
         bool canceled = false;
-        bool tooBigForBin = false;
         std::wstring failureDetail;
         std::vector<::FileScoutNative::Shell::DeletedItemRecord> deletedRecords;
         try
@@ -7413,7 +7404,6 @@ namespace winrt::FileScoutNative::implementation
         {
             success = false;
             canceled = IsCanceledFileOperation(error);
-            tooBigForBin = !permanent && ::FileScoutNative::Shell::IsTooBigForRecycleBin(error.Error());
             failureDetail = error.Error().detail;
         }
         catch (std::exception const& error)
@@ -7423,7 +7413,7 @@ namespace winrt::FileScoutNative::implementation
         }
 
         m_dispatcherQueue.TryEnqueue(
-            [this, lifetime, items, success, canceled, tooBigForBin, permanent, isRecycleBin, currentPath, paths, displayName, itemCount, activePaneIndex, failureDetail, deletedRecords = std::move(deletedRecords)]()
+            [this, lifetime, success, canceled, permanent, isRecycleBin, currentPath, paths, displayName, itemCount, activePaneIndex, failureDetail, deletedRecords = std::move(deletedRecords)]()
             {
                 if (m_pendingMutationCount > 0)
                 {
@@ -7487,24 +7477,6 @@ namespace winrt::FileScoutNative::implementation
                             : BuildDeleteFailureStatus(displayName, itemCount, failureDetail)));
                 }
                 FlushPendingWatchRefresh(activePaneIndex);
-
-                if (tooBigForBin)
-                {
-                    // The shell left these in place; offer the permanent delete Explorer would.
-                    std::vector<::FileScoutNative::Domain::ShellItemRef> remaining;
-                    for (auto const& item : items)
-                    {
-                        std::error_code ec;
-                        if (std::filesystem::exists(item.path, ec))
-                        {
-                            remaining.push_back(item);
-                        }
-                    }
-                    if (!remaining.empty())
-                    {
-                        ShowDeleteDialogAsync(std::move(remaining), /*permanent=*/true, /*tooBigForRecycleBin=*/true);
-                    }
-                }
             });
     }
 

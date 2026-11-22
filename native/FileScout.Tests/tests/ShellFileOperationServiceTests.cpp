@@ -1,6 +1,5 @@
 #include "pch.h"
 #include <gtest/gtest.h>
-#include <sherrors.h>
 #include "Domain/FileNameValidation.h"
 #include "Domain/BatchRenamePlan.h"
 #include "Shell/PropertiesLaunchSpec.h"
@@ -517,18 +516,6 @@ TEST_F(ShellFileOperationFixture, DeleteItemsRemovesFilesFromOriginalPaths)
 
     EXPECT_FALSE(std::filesystem::exists(first));
     EXPECT_FALSE(std::filesystem::exists(second));
-}
-
-TEST(DeleteOperationFlagsTests, TooBigForRecycleBinFailureIsRecognized)
-{
-    auto const error = ClassifyFileOperationOutcome(COPYENGINE_E_RECYCLE_FORCE_NUKE, true, L"Delete", L"C:\\big");
-    ASSERT_TRUE(error.has_value());
-    EXPECT_FALSE(error->canceled);
-    EXPECT_TRUE(IsTooBigForRecycleBin(*error));
-
-    auto const denied = ClassifyFileOperationOutcome(E_ACCESSDENIED, true, L"Delete", L"C:\\locked");
-    ASSERT_TRUE(denied.has_value());
-    EXPECT_FALSE(IsTooBigForRecycleBin(*denied));
 }
 
 TEST(DeleteOperationFlagsTests, RecycleVsPermanentFlagsAreDistinct)

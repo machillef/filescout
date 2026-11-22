@@ -45,6 +45,7 @@ function Start-Bench([string]$exe, [string]$folder, [string]$json) {
     $psi.EnvironmentVariables['FILESCOUT_BENCH_OUT'] = $json
     $psi.EnvironmentVariables['FILESCOUT_BENCH_PATH'] = $folder
     if ($ScrollStep -gt 0) { $psi.EnvironmentVariables['FILESCOUT_BENCH_SCROLL_STEP'] = "$ScrollStep" }
+    else { $psi.EnvironmentVariables.Remove('FILESCOUT_BENCH_SCROLL_STEP') }
     return [System.Diagnostics.Process]::Start($psi)
 }
 function Wait-Json([string]$json, $proc, [int]$timeoutSec) {

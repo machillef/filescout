@@ -18,7 +18,6 @@ namespace FileScoutNative::Shell
         std::wstring path;
         std::wstring detail;
         bool canceled = false;
-        HRESULT hresult = S_OK;
     };
 
     class FileOperationException final : public std::runtime_error
@@ -42,10 +41,6 @@ namespace FileScoutNative::Shell
         std::wstring_view path);
 
     [[nodiscard]] DWORD DeleteOperationFlags(bool permanent) noexcept;
-
-    // True when the shell refused to recycle an item because it is larger than the Recycle Bin
-    // allows; Explorer then offers a permanent delete.
-    [[nodiscard]] bool IsTooBigForRecycleBin(FileOperationError const& error) noexcept;
 
     [[nodiscard]] std::wstring FormatWindowsTerminalDirectoryArgs(std::filesystem::path const& directory);
 
